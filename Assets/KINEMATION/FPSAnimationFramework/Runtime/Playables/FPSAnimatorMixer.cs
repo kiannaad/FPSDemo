@@ -317,7 +317,7 @@ namespace KINEMATION.FPSAnimationFramework.Runtime.Playables
             {
                 if (curve.Value.curve == null) _blendedCurves.Remove(curve.Key);
             }
-        }
+        } 
         
         private void BlendInPlayable()
         {
