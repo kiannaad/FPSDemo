@@ -1,0 +1,58 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f1fef9c8f311f6d499fd2197fc04a5a4, type: 3}
+  m_Name: AA_CallEmote
+  m_EditorClassIdentifier: 
+  rigAsset: {fileID: 11400000, guid: 94c02c1e93dc6404bb10fe532615a75c, type: 2}
+  clip: {fileID: 7400000, guid: b0841946ccd07724dbf837c9a80c5e5b, type: 2}
+  mask: {fileID: 31900000, guid: c15984ad540e9e843ad2ca08cc8e3c09, type: 2}
+  overrideMask: {fileID: 31900000, guid: 682d359e285d23a409d85ef0a534d4c9, type: 2}
+  isAdditive: 1
+  blendTime:
+    blendInTime: 0.15
+    blendOutTime: 0.15
+    rateScale: 1
+  curves:
+  - name: MaskAttachHand
+    curve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 34
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0.33333334
+      - serializedVersion: 3
+        time: 0.5794509
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0.33333334
+        outWeight: 0.33333334
+      - serializedVersion: 3
+        time: 0.6800995
+        value: 0
+        inSlope: -0.74282885
+        outSlope: -0.74282885
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0.8822148
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 0

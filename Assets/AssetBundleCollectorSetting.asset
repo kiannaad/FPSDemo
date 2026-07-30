@@ -25,13 +25,37 @@ MonoBehaviour:
     AutoCollectShaders: 1
     IgnoreRuleName: NormalIgnoreRule
     Groups:
-    - GroupName: character-definition
-      GroupDesc: Runtime character definition assets
+    - GroupName: runtime-definitions
+      GroupDesc: Runtime character and weapon definition assets
       AssetTags:
       ActiveRuleName: EnableGroup
       Collectors:
       - CollectPath: Assets/Resources/CharacterDefinition.asset
         CollectorGUID: a5ee80a94ea73824298726dec63166aa
+        CollectorType: 0
+        AddressRuleName: AddressByFileName
+        PackRuleName: PackSeparately
+        FilterRuleName: CollectAll
+        AssetTags:
+        UserData:
+      - CollectPath: Assets/Resources/WeaponAnimationCatalog.asset
+        CollectorGUID: 9da5d87aa08d0534fa88a572645b71a8
+        CollectorType: 0
+        AddressRuleName: AddressByFileName
+        PackRuleName: PackSeparately
+        FilterRuleName: CollectAll
+        AssetTags:
+        UserData:
+      - CollectPath: Assets/Resources/FistsWeaponAnimationDefinition.asset
+        CollectorGUID: f608bde65d7fe334bb07733b338eef9e
+        CollectorType: 0
+        AddressRuleName: AddressByFileName
+        PackRuleName: PackSeparately
+        FilterRuleName: CollectAll
+        AssetTags:
+        UserData:
+      - CollectPath: Assets/Art/Animation/Weapon/KINEMATION/AK/RifleAKAnimationDefinition.asset
+        CollectorGUID: 9843548ba557c9840a45528f6b500206
         CollectorType: 0
         AddressRuleName: AddressByFileName
         PackRuleName: PackSeparately
