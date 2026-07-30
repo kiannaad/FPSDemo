@@ -15,7 +15,7 @@ namespace CGame
 
         [SerializeField]
         [Min(1f)]
-        private float baseFieldOfView = 60f;
+        private float baseFieldOfView = 90f;
 
         public float MinPitch => minPitch;
         public float MaxPitch => maxPitch;

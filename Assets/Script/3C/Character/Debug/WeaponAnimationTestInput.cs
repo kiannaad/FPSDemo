@@ -1,4 +1,4 @@
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || UNITY_STANDALONE
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -10,7 +10,8 @@ namespace CGame
     public sealed class WeaponAnimationTestInput : MonoBehaviour
     {
         private const string RuntimeObjectName = "[WeaponAnimationTestInput]";
-        private static readonly WeaponId TestWeaponId = new WeaponId("rifle");
+        private static readonly WeaponId KnifeWeaponId = new WeaponId("knife");
+        private static readonly WeaponId RifleWeaponId = new WeaponId("rifle");
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void CreateRuntimeInput()
@@ -28,7 +29,7 @@ namespace CGame
         private void Update()
         {
             Keyboard keyboard = Keyboard.current;
-            if (keyboard == null || !keyboard.rKey.wasPressedThisFrame)
+            if (keyboard == null || !keyboard.tKey.wasPressedThisFrame)
             {
                 return;
             }
@@ -37,18 +38,30 @@ namespace CGame
             Controller controller = pawnHost?.Pawn?.Controller;
             if (controller == null)
             {
-                Debug.LogWarning("[WeaponAnimationTestInput] R ignored because no controlled Pawn is ready.");
+                Debug.LogWarning("[WeaponAnimationTestInput] T ignored because no controlled Pawn is ready.");
                 return;
             }
 
-            bool changed = controller.WeaponRuntime.Snapshot.IsEquipped
-                ? controller.RequestUnequipWeapon()
-                : controller.RequestEquipWeapon(TestWeaponId);
-            if (changed)
+            WeaponId currentWeaponId =
+                controller.WeaponRuntime.Snapshot.EquippedWeaponId;
+            WeaponId targetWeaponId = currentWeaponId == RifleWeaponId
+                ? KnifeWeaponId
+                : RifleWeaponId;
+            WeaponSwitchRequestResult result =
+                controller.RequestSwitchWeapon(
+                    targetWeaponId,
+                    out _);
+            if (result == WeaponSwitchRequestResult.Started)
             {
-                string state = controller.WeaponRuntime.Snapshot.IsEquipped ? "Rifle" : "Unarmed";
-                Debug.Log($"[WeaponAnimationTestInput] R toggled weapon state to {state}.");
+                Debug.Log(
+                    "[WeaponAnimationTestInput] T requested weapon switch "
+                    + $"{currentWeaponId} -> {targetWeaponId}.");
+                return;
             }
+
+            Debug.LogWarning(
+                "[WeaponAnimationTestInput] T weapon switch was rejected: "
+                + result);
         }
     }
 }

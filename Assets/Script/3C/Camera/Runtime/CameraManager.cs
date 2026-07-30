@@ -8,7 +8,6 @@ namespace CGame
         private FirstPersonCameraBinding binding;
         private ControllerManager controllerManager;
         private LocalPlayerCameraTargetBinding targetBinding;
-        private LocalOwnerWorldBodyVisibility ownerWorldBodyVisibility;
         private LocalPlayerCameraRig rig;
         private CinemachineCameraOutput output;
         private FirstPersonCameraProfile profile;
@@ -34,15 +33,8 @@ namespace CGame
             GameManager.GetManager<PhysicsManager>();
 
             output = CinemachineCameraOutput.Create();
-            int ownerWorldBodyLayer = LayerMask.NameToLayer("LocalOwnerWorldBody");
-            if (ownerWorldBodyLayer < 0)
-            {
-                throw new InvalidOperationException("The LocalOwnerWorldBody layer is required for the first-person World Camera.");
-            }
-
             binding = new FirstPersonCameraBinding();
-            ownerWorldBodyVisibility = new LocalOwnerWorldBodyVisibility(output.WorldCamera, ownerWorldBodyLayer);
-            targetBinding = new LocalPlayerCameraTargetBinding(spawnManager, binding, ownerWorldBodyVisibility);
+            targetBinding = new LocalPlayerCameraTargetBinding(spawnManager, binding);
             profile = ScriptableObject.CreateInstance<FirstPersonCameraProfile>();
             weaponCameraProfile = ScriptableObject.CreateInstance<WeaponCameraProfile>();
             locomotionEffectProfile = ScriptableObject.CreateInstance<CameraLocomotionEffectProfile>();
@@ -124,15 +116,20 @@ namespace CGame
                 return;
             }
 
+            PlayerController controller =
+                controllerManager?.GettingController<PlayerController>();
             IFirstPersonCameraTarget currentTarget = rig.Target;
             if (!ReferenceEquals(effectTarget, currentTarget))
             {
                 ClearingWeaponRecoil();
                 ClearingCameraImpulse();
                 effectTarget = currentTarget;
+                output.SetOwnerHead(
+                    currentTarget != null
+                        ? FindOwnerHead(controller)
+                        : null);
             }
 
-            PlayerController controller = controllerManager?.GettingController<PlayerController>();
             bool aimHeld = controller != null && controller.AimHeld;
             AimGameplayDecision decision = ResolveAimDecision(aimHeld);
             adsPresentationState.ApplyDecision(decision);
@@ -181,8 +178,6 @@ namespace CGame
             modeRequestStack = null;
             targetBinding?.Dispose();
             targetBinding = null;
-            ownerWorldBodyVisibility?.Dispose();
-            ownerWorldBodyVisibility = null;
             binding?.Dispose();
             binding = null;
             rig = null;
@@ -249,6 +244,29 @@ namespace CGame
             }
 
             return decision;
+        }
+
+        private static Transform FindOwnerHead(
+            PlayerController controller)
+        {
+            Transform characterRoot =
+                controller?.ControlledPawn?.Host?.transform;
+            if (characterRoot == null)
+            {
+                return null;
+            }
+
+            Transform[] transforms =
+                characterRoot.GetComponentsInChildren<Transform>(true);
+            for (int index = 0; index < transforms.Length; index++)
+            {
+                if (transforms[index].name == "Head")
+                {
+                    return transforms[index];
+                }
+            }
+
+            return null;
         }
     }
 }

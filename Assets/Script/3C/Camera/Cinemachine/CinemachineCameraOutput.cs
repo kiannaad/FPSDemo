@@ -1,6 +1,7 @@
 using System;
 using Unity.Cinemachine;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace CGame
 {
@@ -11,11 +12,14 @@ namespace CGame
         private readonly CinemachineCamera virtualCamera;
         private readonly CinemachineCamera firstModeCamera;
         private readonly CinemachineCamera secondModeCamera;
+        private readonly SingleCameraPresentationDriver presentationDriver;
         private readonly ViewModelCameraOutput viewModelOutput;
         private CinemachineCamera activeModeCamera;
         private CameraModeRequest activeRequest;
         private CameraModeTransition returnTransition = CameraModeTransition.Cut;
         private float returnDuration;
+        private CameraDebugSnapshot pendingGameplaySnapshot;
+        private bool hasPendingGameplaySnapshot;
         private bool isDisposed;
 
         private CinemachineCameraOutput(
@@ -34,20 +38,39 @@ namespace CGame
             this.firstModeCamera = firstModeCamera;
             this.secondModeCamera = secondModeCamera;
             this.viewModelOutput = viewModelOutput;
+            presentationDriver = worldCamera.GetComponent<SingleCameraPresentationDriver>();
+            Camera.onPreCull += PresentGameplayCameraBeforeRender;
         }
 
         public Camera WorldCamera { get; }
         public CinemachineBrain Brain { get; }
         public CinemachineCamera VirtualCamera => virtualCamera;
-        public Camera ViewModelCamera => viewModelOutput.Camera;
-        public FirstPersonViewModelPrototype ViewModelPrototype => viewModelOutput.Prototype;
+        public Camera ViewModelCamera => viewModelOutput?.Camera;
+        public FirstPersonViewModelPrototype ViewModelPrototype => viewModelOutput?.Prototype;
+
+        public void SetOwnerHead(Transform ownerHead)
+        {
+            presentationDriver.SetOwnerHead(
+                ownerHead,
+                ownerHead != null);
+        }
 
         public static CinemachineCameraOutput Create()
         {
+            return Create(false);
+        }
+
+        public static CinemachineCameraOutput CreateWithViewModel()
+        {
+            return Create(true);
+        }
+
+        private static CinemachineCameraOutput Create(bool createViewModel)
+        {
             GameObject root = new GameObject(RuntimeRootName);
 
-            int viewModelLayer = LayerMask.NameToLayer("FirstPersonViewModel");
-            if (viewModelLayer < 0)
+            int viewModelLayer = createViewModel ? LayerMask.NameToLayer("FirstPersonViewModel") : -1;
+            if (createViewModel && viewModelLayer < 0)
             {
                 UnityEngine.Object.DestroyImmediate(root);
                 throw new InvalidOperationException("The FirstPersonViewModel layer is required for the Camera Stack.");
@@ -57,7 +80,13 @@ namespace CGame
             worldCameraObject.tag = "MainCamera";
             worldCameraObject.transform.SetParent(root.transform, false);
             Camera worldCamera = worldCameraObject.AddComponent<Camera>();
+            worldCamera.nearClipPlane = 0.03f;
+            worldCameraObject.AddComponent<SingleCameraPresentationDriver>();
             worldCameraObject.AddComponent<AudioListener>();
+            UniversalAdditionalCameraData worldData = worldCameraObject.AddComponent<UniversalAdditionalCameraData>();
+            worldData.renderType = CameraRenderType.Base;
+            worldData.renderPostProcessing = true;
+            worldData.renderShadows = true;
             CinemachineBrain brain = worldCameraObject.AddComponent<CinemachineBrain>();
             brain.UpdateMethod = CinemachineBrain.UpdateMethods.ManualUpdate;
             brain.BlendUpdateMethod = CinemachineBrain.BrainUpdateMethods.LateUpdate;
@@ -71,7 +100,9 @@ namespace CGame
             CinemachineCamera firstModeCamera = CreatingModeCamera(root.transform, "Camera Mode A");
             CinemachineCamera secondModeCamera = CreatingModeCamera(root.transform, "Camera Mode B");
 
-            ViewModelCameraOutput viewModelOutput = ViewModelCameraOutput.Create(root.transform, worldCamera, viewModelLayer);
+            ViewModelCameraOutput viewModelOutput = createViewModel
+                ? ViewModelCameraOutput.Create(root.transform, worldCamera, viewModelLayer)
+                : null;
 
             return new CinemachineCameraOutput(
                 root,
@@ -116,8 +147,24 @@ namespace CGame
             }
 
             Brain.ManualUpdate();
+            hasPendingGameplaySnapshot = modeRequest == null && snapshot.HasTarget && activeModeCamera == null;
+            if (hasPendingGameplaySnapshot)
+            {
+                pendingGameplaySnapshot = snapshot;
+                presentationDriver.SetFrame(
+                    new CameraPose(snapshot.Position, snapshot.Rotation),
+                    snapshot.FieldOfView);
+                PresentGameplayCamera();
+            }
+            else
+            {
+                presentationDriver.ClearFrame();
+            }
+
             bool gameplayPresentationVisible = modeRequest == null && snapshot.HasTarget && !Brain.IsBlending;
-            viewModelOutput.Render(gameplayPresentationVisible, adsProgress, weaponCameraProfile, viewModelRecoil);
+            presentationDriver.SetOwnerHeadHidden(
+                modeRequest == null && snapshot.HasTarget);
+            viewModelOutput?.Render(gameplayPresentationVisible, adsProgress, weaponCameraProfile, viewModelRecoil);
 
             if (modeRequest == null && !Brain.IsBlending && activeModeCamera != null)
             {
@@ -135,7 +182,9 @@ namespace CGame
             }
 
             isDisposed = true;
-            viewModelOutput.Dispose();
+            Camera.onPreCull -= PresentGameplayCameraBeforeRender;
+            presentationDriver.SetOwnerHead(null, false);
+            viewModelOutput?.Dispose();
             if (runtimeRoot == null)
             {
                 return;
@@ -159,6 +208,22 @@ namespace CGame
             modeCamera.Priority = 0;
             modeCamera.enabled = false;
             return modeCamera;
+        }
+
+        private void PresentGameplayCameraBeforeRender(Camera camera)
+        {
+            if (!isDisposed && camera == WorldCamera && hasPendingGameplaySnapshot)
+            {
+                PresentGameplayCamera();
+            }
+        }
+
+        private void PresentGameplayCamera()
+        {
+            WorldCamera.transform.SetPositionAndRotation(
+                pendingGameplaySnapshot.Position,
+                pendingGameplaySnapshot.Rotation);
+            WorldCamera.fieldOfView = pendingGameplaySnapshot.FieldOfView;
         }
 
         private void SwitchingRequest(CameraModeRequest request)

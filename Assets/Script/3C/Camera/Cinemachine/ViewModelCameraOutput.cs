@@ -52,7 +52,9 @@ namespace CGame
             int viewModelMask = 1 << viewModelLayer;
             int originalWorldCullingMask = worldCamera.cullingMask;
             worldCamera.cullingMask &= ~viewModelMask;
-            UniversalAdditionalCameraData worldData = worldCamera.gameObject.AddComponent<UniversalAdditionalCameraData>();
+            UniversalAdditionalCameraData worldData =
+                worldCamera.GetComponent<UniversalAdditionalCameraData>()
+                ?? worldCamera.gameObject.AddComponent<UniversalAdditionalCameraData>();
             worldData.renderType = CameraRenderType.Base;
             worldData.renderPostProcessing = true;
             worldData.renderShadows = true;

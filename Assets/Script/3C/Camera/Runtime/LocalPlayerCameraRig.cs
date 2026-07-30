@@ -71,9 +71,14 @@ namespace CGame
             CameraLocomotionSample locomotionSample = target is IFirstPersonCameraLocomotionSource source
                 ? source.LocomotionSample
                 : CameraLocomotionSample.Idle;
-            IReadOnlyList<CameraLayerContribution> locomotionContributions = locomotionEffects.Evaluate(
-                locomotionSample,
-                deltaTime);
+            IReadOnlyList<CameraLayerContribution>
+                locomotionContributions =
+                    target is FirstPersonCameraAnchor anchor
+                    && anchor.UsesAnimatedHeadMount
+                        ? NoEffects
+                        : locomotionEffects.Evaluate(
+                            locomotionSample,
+                            deltaTime);
             var contributions = new List<CameraLayerContribution>(locomotionContributions.Count + 2);
             for (int index = 0; index < locomotionContributions.Count; index++)
             {

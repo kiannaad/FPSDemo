@@ -12,6 +12,7 @@ namespace CGame
         private CharacterSpawnManager spawnManager;
         private CharacterSpawnOperation spawnOperation;
         private CameraManager cameraManager;
+        private ControllerManager controllerManager;
         private AimRejectionReason aimRejectionOverride;
         private bool hasAimRejectionOverride;
         private bool readyLogged;
@@ -21,6 +22,7 @@ namespace CGame
             _ = GameManager.Instance;
             spawnManager = GameManager.GetManager<CharacterSpawnManager>();
             cameraManager = GameManager.GetManager<CameraManager>();
+            controllerManager = GameManager.GetManager<ControllerManager>();
             cameraManager.SettingAimGameplayDecisionProvider(EvaluateAimGameplayDecision);
 
             runtimeRoot = new GameObject(RuntimeRootName);
@@ -62,6 +64,7 @@ namespace CGame
         {
             cameraManager?.SettingAimGameplayDecisionProvider(null);
             cameraManager = null;
+            controllerManager = null;
             hasAimRejectionOverride = false;
             aimRejectionOverride = AimRejectionReason.None;
             if (spawnManager != null && spawnOperation != null)
@@ -111,9 +114,43 @@ namespace CGame
                 return AimGameplayDecision.Released;
             }
 
-            return hasAimRejectionOverride
-                ? AimGameplayDecision.Rejected(aimRejectionOverride)
-                : AimGameplayDecision.Allowed;
+            if (hasAimRejectionOverride)
+            {
+                return AimGameplayDecision.Rejected(aimRejectionOverride);
+            }
+
+            WeaponRuntime weaponRuntime = controllerManager
+                ?.GettingController<PlayerController>()
+                ?.WeaponRuntime;
+            if (weaponRuntime == null
+                || !weaponRuntime.IsInitialized
+                || !weaponRuntime.Snapshot.IsEquipped)
+            {
+                return AimGameplayDecision.Rejected(
+                    AimRejectionReason.NoWeapon);
+            }
+
+            if (weaponRuntime.IsSwitching)
+            {
+                return AimGameplayDecision.Rejected(
+                    AimRejectionReason.WeaponSwitching);
+            }
+
+            if (!weaponRuntime.Capabilities.SupportsFire)
+            {
+                return AimGameplayDecision.Rejected(
+                    AimRejectionReason.NoWeapon);
+            }
+
+            if (weaponRuntime.ActiveAction.IsValid
+                && weaponRuntime.ActiveAction.Kind
+                    == WeaponActionKind.Reload)
+            {
+                return AimGameplayDecision.Rejected(
+                    AimRejectionReason.Reloading);
+            }
+
+            return AimGameplayDecision.Allowed;
         }
 
         private static void CreatingGround(Transform parent)
