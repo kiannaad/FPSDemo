@@ -41,16 +41,18 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator DefaultKnife_PrimaryActionPlaysDuringLocomotionAndCompletesBusiness()
         {
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
             object spawnManager =
                 CharacterSpawnTestConfiguration
-                    .CreateManagerWithInMemoryDefinition();
+                    .CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(
                 spawnManager,
                 "BeginSpawn",
                 CreateRequest(
                     "weapon-action-runtime",
                     "WeaponActionRuntimeCharacter"));
-            AdvanceSpawn(spawnManager);
+            yield return AdvanceSpawn(spawnManager);
             Assert.AreEqual(
                 "CharacterReady",
                 GetProperty<object>(operation, "State").ToString());
@@ -148,16 +150,18 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator FixedCamera_CapturesRuntimeMeleeAndOverlayRestoration()
         {
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
             object spawnManager =
                 CharacterSpawnTestConfiguration
-                    .CreateManagerWithInMemoryDefinition();
+                    .CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(
                 spawnManager,
                 "BeginSpawn",
                 CreateRequest(
                     "weapon-action-visual",
                     "WeaponActionVisualCharacter"));
-            AdvanceSpawn(spawnManager);
+            yield return AdvanceSpawn(spawnManager);
             Assert.AreEqual(
                 "CharacterReady",
                 GetProperty<object>(operation, "State").ToString());
@@ -339,11 +343,12 @@ namespace CGame.Tests
                 displayName);
         }
 
-        private static void AdvanceSpawn(object spawnManager)
+        private static IEnumerator AdvanceSpawn(object spawnManager)
         {
             for (int i = 0; i < 6; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
         }
 

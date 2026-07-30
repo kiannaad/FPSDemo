@@ -24,12 +24,13 @@ namespace CGame.Tests
         [SetUp]
         public void Setup()
         {
-            EnsureCharacterStepCreated();
         }
 
         [UnitySetUp]
         public IEnumerator WaitForCharacterReady()
         {
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
             EnsureCharacterStepCreated();
             for (int i = 0; i < 120; i++)
             {
@@ -56,7 +57,7 @@ namespace CGame.Tests
 
             Type stepType = Type.GetType("CGame.CharacterTestStep, Assembly-CSharp");
             Assert.IsNotNull(stepType);
-            CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             characterTestStep = Activator.CreateInstance(stepType);
             MethodInfo enterMethod = stepType.GetMethod("Enter");
             Assert.IsNotNull(enterMethod);
@@ -2011,9 +2012,11 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator ExitBeforeObservingReady_ReleasesRuntimeCharacter()
         {
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
             Type stepType = Type.GetType("CGame.CharacterTestStep, Assembly-CSharp");
             Assert.NotNull(stepType);
-            CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             characterTestStep = Activator.CreateInstance(stepType);
             stepType.GetMethod("Enter").Invoke(characterTestStep, null);
             for (int i = 0; i < 120 && GameObject.Find("RuntimeCharacter") == null; i++)

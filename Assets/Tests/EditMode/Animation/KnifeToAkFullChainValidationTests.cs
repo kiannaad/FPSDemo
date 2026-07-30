@@ -10,8 +10,6 @@ namespace CGame.Tests
 {
     public sealed class KnifeToAkFullChainValidationTests
     {
-        private const string CatalogPath =
-            "Assets/Resources/WeaponAnimationCatalog.asset";
         private const string KnifeDefinitionPath =
             "Assets/Resources/FistsWeaponAnimationDefinition.asset";
         private const string RifleDefinitionPath =
@@ -23,9 +21,8 @@ namespace CGame.Tests
         [Test]
         public void ProjectAssets_ExposeCompleteKnifeAndAkContracts()
         {
-            WeaponAnimationCatalog catalog =
-                AssetDatabase.LoadAssetAtPath<WeaponAnimationCatalog>(
-                    CatalogPath);
+            var resolver =
+                new WeaponAnimationDefinitionLocationResolver();
             WeaponAnimationDefinition knife =
                 AssetDatabase.LoadAssetAtPath<WeaponAnimationDefinition>(
                     KnifeDefinitionPath);
@@ -33,12 +30,8 @@ namespace CGame.Tests
                 AssetDatabase.LoadAssetAtPath<WeaponAnimationDefinition>(
                     RifleDefinitionPath);
 
-            Assert.NotNull(catalog);
             Assert.NotNull(knife);
             Assert.NotNull(rifle);
-            Assert.AreEqual(
-                WeaponAnimationCatalogError.None,
-                catalog.Validate());
             Assert.AreEqual(
                 WeaponAnimationDefinitionError.None,
                 knife.Validate(new WeaponId("knife")));
@@ -52,14 +45,14 @@ namespace CGame.Tests
                 new WeaponRuntimeCapabilities(true, true, false),
                 rifle.Capabilities);
             Assert.IsTrue(
-                catalog.TryResolve(
+                resolver.TryResolveLocation(
                     new WeaponId("knife"),
                     out string knifeLocation));
             Assert.AreEqual(
                 "FistsWeaponAnimationDefinition",
                 knifeLocation);
             Assert.IsTrue(
-                catalog.TryResolve(
+                resolver.TryResolveLocation(
                     new WeaponId("rifle"),
                     out string rifleLocation));
             Assert.AreEqual(
@@ -107,7 +100,7 @@ namespace CGame.Tests
             }
 
             string collector = File.ReadAllText(CollectorPath);
-            StringAssert.Contains(
+            StringAssert.DoesNotContain(
                 "Assets/Resources/WeaponAnimationCatalog.asset",
                 collector);
             StringAssert.Contains(

@@ -38,14 +38,6 @@ MonoBehaviour:
         FilterRuleName: CollectAll
         AssetTags:
         UserData:
-      - CollectPath: Assets/Resources/WeaponAnimationCatalog.asset
-        CollectorGUID: 9da5d87aa08d0534fa88a572645b71a8
-        CollectorType: 0
-        AddressRuleName: AddressByFileName
-        PackRuleName: PackSeparately
-        FilterRuleName: CollectAll
-        AssetTags:
-        UserData:
       - CollectPath: Assets/Resources/FistsWeaponAnimationDefinition.asset
         CollectorGUID: f608bde65d7fe334bb07733b338eef9e
         CollectorType: 0

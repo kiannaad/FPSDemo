@@ -62,7 +62,9 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator CameraTargetBinding_UnbindsBeforeReleaseAndRebindsAfterRespawn()
         {
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             Type bindingType = RequireRuntimeType("CGame.FirstPersonCameraBinding");
             Type coordinatorType = RequireRuntimeType("CGame.LocalPlayerCameraTargetBinding");
             object binding = Activator.CreateInstance(bindingType);
@@ -74,6 +76,7 @@ namespace CGame.Tests
             for (int i = 0; i < 6; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
 
             Assert.AreEqual("CharacterReady", GetProperty<object>(firstOperation, "State").ToString());
@@ -123,6 +126,7 @@ namespace CGame.Tests
             for (int i = 0; i < 6; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
 
             Assert.AreEqual("CharacterReady", GetProperty<object>(secondOperation, "State").ToString());
@@ -150,13 +154,16 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator CharacterReady_RegistersPhysicsAndMovesFromNextFullFrame()
         {
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             Assert.NotNull(spawnManager);
 
             object operation = Invoke(spawnManager, "BeginSpawn", CreateRequest("playmode-ready", "SpawnPipelineCharacter", Vector3.zero));
             for (int i = 0; i < 6; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
 
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
@@ -230,8 +237,10 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator DefaultKnife_ReadyFirstFrameCapturesFullWeightOverlayWithoutEquip()
         {
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
             object spawnManager =
-                CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+                CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(
                 spawnManager,
                 "BeginSpawn",
@@ -242,6 +251,7 @@ namespace CGame.Tests
             for (int i = 0; i < 6; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
 
             Assert.AreEqual(
@@ -360,12 +370,15 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator Despawn_ReleasesOneRuntimeWithoutInvalidatingAnother()
         {
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             object firstOperation = Invoke(spawnManager, "BeginSpawn", CreateRequest("first-runtime", "FirstRuntimeCharacter", Vector3.zero));
             object secondOperation = Invoke(spawnManager, "BeginSpawn", CreateRequest("second-runtime", "SecondRuntimeCharacter", new Vector3(2f, 0f, 0f)));
             for (int i = 0; i < 6; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
 
             object firstRuntimeId = GetProperty<object>(firstOperation, "RuntimeId");
@@ -392,11 +405,14 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator GameManagerShutdown_ReleasesRuntimeBeforePhysicsDependency()
         {
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(spawnManager, "BeginSpawn", CreateRequest("shutdown-runtime", "ShutdownRuntimeCharacter", Vector3.zero));
             for (int i = 0; i < 6; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
 
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
@@ -512,8 +528,33 @@ namespace CGame.Tests
 
     internal static class CharacterSpawnTestConfiguration
     {
-        public static object CreateManagerWithInMemoryDefinition(
-            params WeaponAnimationDefinition[] weaponDefinitions)
+        public static IEnumerator EnsureResourcesReady()
+        {
+            if (ResourceManager.Instance.IsReady)
+            {
+                yield break;
+            }
+
+            var initialization =
+                ResourceManager.Instance.InitializeAsync();
+            while (!initialization.IsCompleted)
+            {
+                yield return null;
+            }
+
+            if (initialization.IsFaulted)
+            {
+                throw (Exception)initialization.Exception
+                    ?? new InvalidOperationException(
+                        "YooAsset test initialization failed.");
+            }
+
+            Assert.IsTrue(
+                ResourceManager.Instance.IsReady,
+                "YooAsset test package did not become ready.");
+        }
+
+        public static object CreateManagerWithYooAssetDefinitions()
         {
             Type gameManagerType = RequireRuntimeType("CGame.GameManager");
             _ = GetStaticInstance(gameManagerType);
@@ -524,32 +565,6 @@ namespace CGame.Tests
                 throw new InvalidOperationException("CharacterSpawnManager could not be created.");
             }
 
-            CharacterDefinition definition = Resources.Load<CharacterDefinition>("CharacterDefinition");
-            spawnManager.GetType().GetField("definitionProvider", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?.SetValue(spawnManager, new InMemoryCharacterDefinitionProvider(new[] { definition }));
-            if (weaponDefinitions == null
-                || weaponDefinitions.Length == 0)
-            {
-                WeaponAnimationDefinition knife =
-                    Resources.Load<WeaponAnimationDefinition>(
-                        "FistsWeaponAnimationDefinition");
-                WeaponAnimationDefinition rifle =
-                    LoadEditorAsset<WeaponAnimationDefinition>(
-                        "Assets/Art/Animation/Weapon/KINEMATION/AK/"
-                        + "RifleAKAnimationDefinition.asset");
-                weaponDefinitions = rifle == null
-                    ? new[] { knife }
-                    : new[] { knife, rifle };
-            }
-
-            spawnManager.GetType()
-                .GetField(
-                    "weaponDefinitionProvider",
-                    BindingFlags.Instance | BindingFlags.NonPublic)
-                ?.SetValue(
-                    spawnManager,
-                    new InMemoryWeaponAnimationDefinitionProvider(
-                        weaponDefinitions));
             return spawnManager;
         }
 

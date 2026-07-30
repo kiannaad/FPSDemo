@@ -1,14 +1,16 @@
 using System;
+using YooAsset;
 
 namespace CGame.Animation
 {
     public sealed class WeaponAnimationSequencer : IDisposable
     {
         private readonly CharacterPlayablesController playablesController;
-        private IWeaponAnimationDefinitionProvider definitionProvider;
-        private ResolvedWeaponAnimationDefinitionLease currentDefinitionLease;
-        private ResolvedWeaponAnimationDefinitionLease targetDefinitionLease;
-        private IWeaponAnimationDefinitionResolveOperation targetResolveOperation;
+        private IWeaponAnimationDefinitionLocationResolver locationResolver;
+        private AssetHandle currentDefinitionHandle;
+        private AssetHandle targetDefinitionHandle;
+        private WeaponAnimationDefinition currentDefinition;
+        private WeaponAnimationDefinition targetDefinition;
         private WeaponRuntime boundRuntime;
         private WeaponActionFact currentAction;
         private AnimationPlaybackHandle currentHandle;
@@ -26,41 +28,53 @@ namespace CGame.Animation
         public WeaponAnimationSequencer(
             CharacterPlayablesController playablesController,
             WeaponAnimationDefinition definition)
-            : this(
-                playablesController,
-                null,
-                definition == null
-                    ? null
-                    : new ResolvedWeaponAnimationDefinitionLease(
-                        definition),
-                null)
         {
+            this.playablesController =
+                playablesController
+                ?? throw new ArgumentNullException(
+                    nameof(playablesController));
+            currentDefinition =
+                definition
+                ?? throw new ArgumentNullException(nameof(definition));
         }
 
         public WeaponAnimationSequencer(
             CharacterPlayablesController playablesController,
-            IWeaponAnimationDefinitionProvider definitionProvider,
-            ResolvedWeaponAnimationDefinitionLease
-                initialDefinitionLease,
+            IWeaponAnimationDefinitionLocationResolver locationResolver,
+            AssetHandle initialDefinitionHandle,
             AnimationPlaybackHandle initialOverlayHandle)
         {
             this.playablesController =
                 playablesController
                 ?? throw new ArgumentNullException(
                     nameof(playablesController));
-            currentDefinitionLease =
-                initialDefinitionLease
+            currentDefinitionHandle =
+                initialDefinitionHandle
                 ?? throw new ArgumentNullException(
-                    nameof(initialDefinitionLease));
-            if (currentDefinitionLease.IsReleased
-                || currentDefinitionLease.Definition == null)
+                    nameof(initialDefinitionHandle));
+            if (!currentDefinitionHandle.IsDone
+                || currentDefinitionHandle.Status
+                    != EOperationStatus.Succeed)
             {
                 throw new ArgumentException(
-                    "A live initial weapon definition lease is required.",
-                    nameof(initialDefinitionLease));
+                    "A successfully loaded initial weapon definition handle is required.",
+                    nameof(initialDefinitionHandle));
             }
 
-            this.definitionProvider = definitionProvider;
+            currentDefinition =
+                currentDefinitionHandle
+                    .GetAssetObject<WeaponAnimationDefinition>();
+            if (currentDefinition == null)
+            {
+                throw new ArgumentException(
+                    "The initial weapon definition handle has no loaded definition.",
+                    nameof(initialDefinitionHandle));
+            }
+
+            this.locationResolver =
+                locationResolver
+                ?? throw new ArgumentNullException(
+                    nameof(locationResolver));
             currentOverlayHandle = initialOverlayHandle;
         }
 
@@ -72,7 +86,7 @@ namespace CGame.Animation
         public AnimationPlaybackHandle CurrentOverlayHandle =>
             currentOverlayHandle;
         public WeaponAnimationDefinition CurrentDefinition =>
-            currentDefinitionLease?.Definition;
+            currentDefinition;
         public bool HasActiveAction =>
             currentAction.IsValid
             && currentHandle != null
@@ -204,9 +218,10 @@ namespace CGame.Animation
             CancelCurrentSwitch(
                 WeaponSwitchEndReason.OwnerDisposed,
                 true);
-            currentDefinitionLease?.Dispose();
-            currentDefinitionLease = null;
-            definitionProvider = null;
+            currentDefinitionHandle?.Release();
+            currentDefinitionHandle = null;
+            currentDefinition = null;
+            locationResolver = null;
             boundRuntime = null;
             isDisposed = true;
         }
@@ -256,7 +271,7 @@ namespace CGame.Animation
                 return true;
             }
 
-            if (definitionProvider == null
+            if (locationResolver == null
                 || fact.SwitchId
                     > (ulong)((long.MaxValue - 3L) / 4L)
                 || !MatchesActiveRuntimeSwitch(fact)
@@ -277,15 +292,25 @@ namespace CGame.Animation
             switchStage = WeaponSwitchAnimationStage.Loading;
             try
             {
-                targetResolveOperation =
-                    definitionProvider.BeginResolve(fact.ToWeaponId);
+                if (!locationResolver.TryResolveLocation(
+                        fact.ToWeaponId,
+                        out string location))
+                {
+                    FailSwitchWithoutRestore(
+                        WeaponSwitchEndReason.TargetLoadFailed);
+                    return false;
+                }
+
+                targetDefinitionHandle =
+                    YooAssets.LoadAssetAsync<WeaponAnimationDefinition>(
+                        location);
             }
             catch
             {
-                targetResolveOperation = null;
+                targetDefinitionHandle = null;
             }
 
-            if (targetResolveOperation == null)
+            if (targetDefinitionHandle == null)
             {
                 FailSwitchWithoutRestore(
                     WeaponSwitchEndReason.TargetLoadFailed);
@@ -402,26 +427,33 @@ namespace CGame.Animation
 
         private void UpdateSwitchLoading()
         {
-            if (targetResolveOperation == null
-                || !targetResolveOperation.IsCompleted)
+            if (targetDefinitionHandle == null
+                || !targetDefinitionHandle.IsDone)
             {
                 return;
             }
 
-            WeaponAnimationDefinitionResolveResult result =
-                targetResolveOperation.Result;
-            targetResolveOperation = null;
-            if (!result.IsSuccess
-                || result.Definition.WeaponId
-                    != currentSwitch.ToWeaponId)
+            if (targetDefinitionHandle.Status
+                    != EOperationStatus.Succeed)
             {
-                result.Lease?.Dispose();
                 FailSwitchWithoutRestore(
                     WeaponSwitchEndReason.TargetLoadFailed);
                 return;
             }
 
-            targetDefinitionLease = result.Lease;
+            targetDefinition =
+                targetDefinitionHandle
+                    .GetAssetObject<WeaponAnimationDefinition>();
+            if (targetDefinition == null
+                || targetDefinition.Validate(
+                    currentSwitch.ToWeaponId)
+                    != WeaponAnimationDefinitionError.None)
+            {
+                FailSwitchWithoutRestore(
+                    WeaponSwitchEndReason.TargetLoadFailed);
+                return;
+            }
+
             unequipHandle = playablesController.PlayAnimation(
                 CurrentDefinition.Unequip,
                 GetSwitchRequestId(0));
@@ -453,7 +485,7 @@ namespace CGame.Animation
             }
 
             WeaponAnimationDefinition targetDefinition =
-                targetDefinitionLease?.Definition;
+                this.targetDefinition;
             if (targetDefinition == null)
             {
                 FailSwitchWithoutRestore(
@@ -503,7 +535,7 @@ namespace CGame.Animation
 
             ulong switchId = currentSwitch.SwitchId;
             WeaponRuntimeCapabilities targetCapabilities =
-                targetDefinitionLease.Definition.Capabilities;
+                targetDefinition.Capabilities;
             if (!boundRuntime.CompleteSwitch(
                     switchId,
                     targetCapabilities))
@@ -513,13 +545,15 @@ namespace CGame.Animation
                 return;
             }
 
-            ResolvedWeaponAnimationDefinitionLease previousLease =
-                currentDefinitionLease;
-            currentDefinitionLease = targetDefinitionLease;
-            targetDefinitionLease = null;
+            AssetHandle previousHandle =
+                currentDefinitionHandle;
+            currentDefinitionHandle = targetDefinitionHandle;
+            currentDefinition = targetDefinition;
+            targetDefinitionHandle = null;
+            targetDefinition = null;
             currentOverlayHandle = targetOverlayHandle;
             targetOverlayHandle = null;
-            previousLease.Dispose();
+            previousHandle?.Release();
             ClearSwitchState(false);
         }
 
@@ -694,12 +728,6 @@ namespace CGame.Animation
 
         private void ClearSwitchState(bool releaseTarget)
         {
-            if (targetResolveOperation != null)
-            {
-                targetResolveOperation.Dispose();
-                targetResolveOperation = null;
-            }
-
             StopIfPlaying(unequipHandle);
             StopIfPlaying(targetOverlayHandle);
             StopIfPlaying(targetEquipHandle);
@@ -707,10 +735,11 @@ namespace CGame.Animation
             StopIfPlaying(restoreEquipHandle);
             if (releaseTarget)
             {
-                targetDefinitionLease?.Dispose();
+                targetDefinitionHandle?.Release();
             }
 
-            targetDefinitionLease = null;
+            targetDefinitionHandle = null;
+            targetDefinition = null;
             currentSwitch = default;
             switchStage = WeaponSwitchAnimationStage.None;
             pendingSwitchFailure = WeaponSwitchEndReason.None;
@@ -725,8 +754,9 @@ namespace CGame.Animation
         {
             StopIfPlaying(targetOverlayHandle);
             StopIfPlaying(targetEquipHandle);
-            targetDefinitionLease?.Dispose();
-            targetDefinitionLease = null;
+            targetDefinitionHandle?.Release();
+            targetDefinitionHandle = null;
+            targetDefinition = null;
             targetOverlayHandle = null;
             targetEquipHandle = null;
         }

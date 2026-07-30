@@ -81,8 +81,6 @@ namespace CGame
             {
                 _ = GameManager.Instance;
                 spawnManager = GameManager.GetManager<CharacterSpawnManager>();
-                spawnManager.ConfigureDefinitionProvider(
-                    new InMemoryCharacterDefinitionProvider(new[] { definition }));
 
                 HidePresentationRoot("PerceptionDebug");
                 HidePresentationRoot("DecisionDebug");

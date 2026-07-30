@@ -193,7 +193,7 @@ namespace CGame.Tests
                 0f,
                 "The actual YooAsset launch did not publish RuntimeCharacter.");
             Assert.IsTrue(ResourceManager.Instance.IsReady);
-            Assert.IsTrue(
+            Assert.IsFalse(
                 AssetManager.Instance.CheckLocation(
                     "WeaponAnimationCatalog"));
             Assert.IsTrue(
@@ -497,46 +497,52 @@ namespace CGame.Tests
 
         private static IEnumerator VerifyActualYooAssetDefinitions()
         {
-            using (var provider =
-                   new CatalogWeaponAnimationDefinitionProvider(
-                       AssetManager.Instance))
+            IWeaponAnimationDefinitionLocationResolver resolver =
+                new WeaponAnimationDefinitionLocationResolver();
+            foreach (WeaponId weaponId in new[]
+                     {
+                         new WeaponId("knife"),
+                         new WeaponId("rifle"),
+                     })
             {
-                IWeaponAnimationDefinitionResolveOperation knife =
-                    provider.BeginResolve(new WeaponId("knife"));
-                float timeout = 10f;
-                while (!knife.IsCompleted && timeout > 0f)
+                Assert.IsTrue(resolver.TryResolveLocation(
+                    weaponId,
+                    out string location));
+                AssetHandle handle =
+                    AssetManager.Instance
+                        .LoadAsset<WeaponAnimationDefinition>(
+                            location);
+                try
                 {
-                    yield return null;
-                    timeout -= Time.deltaTime;
+                    float timeout = 10f;
+                    while (!handle.IsDone && timeout > 0f)
+                    {
+                        yield return null;
+                        timeout -= Time.deltaTime;
+                    }
+
+                    Assert.Greater(timeout, 0f);
+                    Assert.AreEqual(
+                        EOperationStatus.Succeed,
+                        handle.Status);
+                    WeaponAnimationDefinition definition =
+                        handle.GetAssetObject<
+                            WeaponAnimationDefinition>();
+                    Assert.NotNull(definition);
+                    Assert.AreEqual(
+                        WeaponAnimationDefinitionError.None,
+                        definition.Validate(weaponId));
+                    if (weaponId == new WeaponId("rifle"))
+                    {
+                        Assert.AreEqual(
+                            "A_FP_AKX_Fire",
+                            definition.Fire.AnimationClip.name);
+                    }
                 }
-
-                Assert.Greater(timeout, 0f);
-                Assert.IsTrue(knife.Result.IsSuccess);
-                Assert.AreEqual(
-                    new WeaponId("knife"),
-                    knife.Result.Lease.Definition.WeaponId);
-                knife.Dispose();
-
-                IWeaponAnimationDefinitionResolveOperation rifle =
-                    provider.BeginResolve(new WeaponId("rifle"));
-                timeout = 10f;
-                while (!rifle.IsCompleted && timeout > 0f)
+                finally
                 {
-                    yield return null;
-                    timeout -= Time.deltaTime;
+                    handle.Release();
                 }
-
-                Assert.Greater(timeout, 0f);
-                Assert.IsTrue(rifle.Result.IsSuccess);
-                Assert.AreEqual(
-                    new WeaponId("rifle"),
-                    rifle.Result.Lease.Definition.WeaponId);
-                Assert.AreEqual(
-                    "A_FP_AKX_Fire",
-                    rifle.Result.Lease.Definition
-                        .Fire.AnimationClip.name);
-                rifle.Dispose();
-                Assert.AreEqual(1, provider.CatalogLoadStartCount);
             }
         }
 
@@ -1199,16 +1205,16 @@ namespace CGame.Tests
                     }
                 }
 
-                ResolvedWeaponAnimationDefinitionLease
-                    targetLease = sequencer == null
+                WeaponAnimationDefinition targetDefinition =
+                    sequencer == null
                         ? null
                         : sequencer.GetType()
                             .GetField(
-                                "targetDefinitionLease",
+                                "targetDefinition",
                                 BindingFlags.Instance
                                 | BindingFlags.NonPublic)
                             ?.GetValue(sequencer)
-                            as ResolvedWeaponAnimationDefinitionLease;
+                            as WeaponAnimationDefinition;
                 return "{"
                     + $"\"frame\":{FrameCount},"
                     + $"\"label\":\"{label}\","
@@ -1226,7 +1232,7 @@ namespace CGame.Tests
                     + $"\"slotConnections\":{slotConnections},"
                     + $"\"switchStage\":\"{sequencer?.SwitchStage.ToString() ?? "Unavailable"}\","
                     + $"\"currentDefinition\":\"{sequencer?.CurrentDefinition?.WeaponId.Value ?? string.Empty}\","
-                    + $"\"targetDefinition\":\"{targetLease?.Definition?.WeaponId.Value ?? string.Empty}\","
+                    + $"\"targetDefinition\":\"{targetDefinition?.WeaponId.Value ?? string.Empty}\","
                     + $"\"actionHandle\":\"{DescribeHandle(sequencer?.CurrentHandle)}\","
                     + $"\"overlayHandle\":\"{DescribeHandle(sequencer?.CurrentOverlayHandle)}\","
                     + $"\"unequipHandle\":\"{DescribeHandle(GetHandle("UnequipHandle"))}\","

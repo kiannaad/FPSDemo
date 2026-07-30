@@ -42,16 +42,18 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator KnifeToRifle_SwitchesTransactionallyWhileMovingAndCapturesStages()
         {
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
             object spawnManager =
                 CharacterSpawnTestConfiguration
-                    .CreateManagerWithInMemoryDefinition();
+                    .CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(
                 spawnManager,
                 "BeginSpawn",
                 CreateRequest(
                     "weapon-switch-success",
                     "WeaponSwitchSuccessCharacter"));
-            AdvanceSpawn(spawnManager);
+            yield return AdvanceSpawn(spawnManager);
             Assert.AreEqual(
                 "CharacterReady",
                 GetProperty<object>(
@@ -222,136 +224,52 @@ namespace CGame.Tests
         }
 
         [UnityTest]
-        public IEnumerator TargetPlaybackFailure_RestoresKnifeBeforeReopeningRequests()
+        public IEnumerator UnknownWeaponLocation_FailsWithoutChangingKnife()
         {
-            WeaponAnimationDefinition knife =
-                Resources.Load<WeaponAnimationDefinition>(
-                    "FistsWeaponAnimationDefinition");
-            WeaponAnimationDefinition rifle =
-                LoadEditorAsset<WeaponAnimationDefinition>(
-                    "Assets/Art/Animation/Weapon/KINEMATION/AK/"
-                    + "RifleAKAnimationDefinition.asset");
-            Assert.NotNull(rifle);
-            WeaponAnimationDefinition faultedRifle =
-                UnityEngine.Object.Instantiate(rifle);
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
             object spawnManager =
                 CharacterSpawnTestConfiguration
-                    .CreateManagerWithInMemoryDefinition(
-                        knife,
-                        faultedRifle);
-            try
-            {
-                object operation = Invoke(
-                    spawnManager,
-                    "BeginSpawn",
-                    CreateRequest(
-                        "weapon-switch-recovery",
-                        "WeaponSwitchRecoveryCharacter"));
-                AdvanceSpawn(spawnManager);
-                Assert.AreEqual(
-                    "CharacterReady",
-                    GetProperty<object>(
-                        operation,
-                        "State").ToString());
+                    .CreateManagerWithYooAssetDefinitions();
+            object operation = Invoke(
+                spawnManager,
+                "BeginSpawn",
+                CreateRequest(
+                    "weapon-switch-missing",
+                    "WeaponSwitchMissingCharacter"));
+            yield return AdvanceSpawn(spawnManager);
+            Assert.AreEqual(
+                "CharacterReady",
+                GetProperty<object>(
+                    operation,
+                    "State").ToString());
 
-                GameObject character =
-                    GameObject.Find(
-                        "WeaponSwitchRecoveryCharacter");
-                object playerController =
-                    GetPlayerController();
-                WeaponRuntime runtime =
-                    GetProperty<WeaponRuntime>(
-                        playerController,
-                        "WeaponRuntime");
-                var facts = new List<WeaponSwitchFact>();
-                runtime.SwitchChanged += facts.Add;
-                using (var evidence =
-                       new EvidenceCapture(
-                           character,
-                           "WeaponSwitchPipelineRecoveryEvidence"))
-                {
-                    yield return evidence.Capture(
-                        "01-knife-before-failure.png");
-                    Assert.AreEqual(
-                        WeaponSwitchRequestResult.Started,
-                        runtime.RequestSwitchWeapon(
-                            new WeaponId("rifle"),
-                            out _));
+            WeaponRuntime runtime =
+                GetProperty<WeaponRuntime>(
+                    GetPlayerController(),
+                    "WeaponRuntime");
+            var facts = new List<WeaponSwitchFact>();
+            runtime.SwitchChanged += facts.Add;
 
-                    yield return null;
-                    SetPrivateField(
-                        faultedRifle,
-                        "equip",
-                        null);
-                    LogAssert.Expect(
-                        LogType.Error,
-                        "An AnimationClipAsset is required.");
-                    float timeout = 15f;
-                    while (runtime.IsSwitching
-                           && timeout > 0f)
-                    {
-                        yield return null;
-                        timeout -= Time.deltaTime;
-                    }
+            Assert.AreEqual(
+                WeaponSwitchRequestResult.Started,
+                runtime.RequestSwitchWeapon(
+                    new WeaponId("pistol"),
+                    out _));
+            yield return null;
 
-                    Assert.Greater(
-                        timeout,
-                        0f,
-                        "Failure recovery timed out.");
-                    Assert.AreEqual(
-                        new WeaponId("knife"),
-                        runtime.Snapshot.EquippedWeaponId);
-                    Assert.AreEqual(
-                        WeaponSwitchEndReason
-                            .TargetPlaybackFailed,
-                        facts[facts.Count - 1].EndReason);
-                    yield return evidence.Capture(
-                        "02-knife-restored.png");
-                    Assert.AreEqual(2, evidence.FileCount);
-                    Assert.IsTrue(
-                        runtime.RequestPrimaryAction(
-                            out WeaponActionFact melee));
-                    Assert.AreEqual(
-                        WeaponActionKind.MeleeAttack,
-                        melee.Kind);
-                    Assert.AreEqual(
-                        2,
-                        character.GetComponentInChildren<
-                                Animator>()
-                            .playableGraph.GetOutputCount());
-
-                    SetPrivateField(
-                        faultedRifle,
-                        "equip",
-                        rifle.Equip);
-                    Assert.AreEqual(
-                        WeaponSwitchRequestResult.Started,
-                        runtime.RequestSwitchWeapon(
-                            new WeaponId("rifle"),
-                            out _));
-                    timeout = 15f;
-                    while (runtime.IsSwitching
-                           && timeout > 0f)
-                    {
-                        yield return null;
-                        timeout -= Time.deltaTime;
-                    }
-
-                    Assert.Greater(
-                        timeout,
-                        0f,
-                        "Retry after playback recovery timed out.");
-                    Assert.AreEqual(
-                        new WeaponId("rifle"),
-                        runtime.Snapshot.EquippedWeaponId);
-                    Assert.IsTrue(runtime.Capabilities.SupportsFire);
-                }
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(
-                    faultedRifle);
-            }
+            Assert.IsFalse(runtime.IsSwitching);
+            Assert.AreEqual(
+                new WeaponId("knife"),
+                runtime.Snapshot.EquippedWeaponId);
+            Assert.AreEqual(
+                WeaponSwitchEndReason.TargetLoadFailed,
+                facts[facts.Count - 1].EndReason);
+            Assert.IsTrue(runtime.RequestPrimaryAction(
+                out WeaponActionFact melee));
+            Assert.AreEqual(
+                WeaponActionKind.MeleeAttack,
+                melee.Kind);
         }
 
         private static object CreateRequest(
@@ -383,11 +301,12 @@ namespace CGame.Tests
                 displayName);
         }
 
-        private static void AdvanceSpawn(object spawnManager)
+        private static IEnumerator AdvanceSpawn(object spawnManager)
         {
             for (int i = 0; i < 6; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
         }
 

@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using System.Reflection;
 using CGame.Animation;
 using NUnit.Framework;
@@ -24,23 +22,15 @@ namespace CGame.Tests
         }
 
         [Test]
-        public void Provider_ResolvesRegisteredDefinitionByIdOnly()
+        public void Validate_AcceptsMatchingExpectedId()
         {
             CharacterDefinition definition = CreateValidDefinition("local-player");
             try
             {
-                var provider = new InMemoryCharacterDefinitionProvider(new[] { definition });
-
-                CharacterDefinitionResolveResult result = provider.Resolve(new CharacterDefinitionId("local-player"));
-
-                Assert.IsTrue(result.IsSuccess);
-                Assert.AreSame(definition, result.Definition);
-                Assert.AreEqual(CharacterDefinitionResolveError.None, result.Error);
-                Assert.AreEqual(typeof(CharacterDefinitionId), typeof(ICharacterDefinitionProvider)
-                    .GetMethod(nameof(ICharacterDefinitionProvider.Resolve))
-                    .GetParameters()
-                    .Single()
-                    .ParameterType);
+                Assert.AreEqual(
+                    CharacterDefinitionResolveError.None,
+                    definition.Validate(
+                        new CharacterDefinitionId("local-player")));
             }
             finally
             {
@@ -49,27 +39,16 @@ namespace CGame.Tests
         }
 
         [Test]
-        public void Provider_ReturnsExplicitErrorsForInvalidAndUnknownIds()
-        {
-            var provider = new InMemoryCharacterDefinitionProvider(Array.Empty<CharacterDefinition>());
-
-            Assert.AreEqual(CharacterDefinitionResolveError.InvalidDefinitionId, provider.Resolve(default).Error);
-            Assert.AreEqual(CharacterDefinitionResolveError.DefinitionNotFound, provider.Resolve(new CharacterDefinitionId("unknown")).Error);
-        }
-
-        [Test]
-        public void Provider_ReturnsDefinitionIdMismatchWhenAssetChangesAfterRegistration()
+        public void Validate_ReturnsDefinitionIdMismatchForUnexpectedId()
         {
             CharacterDefinition definition = CreateValidDefinition("local-player");
             try
             {
-                var provider = new InMemoryCharacterDefinitionProvider(new[] { definition });
-                SetField(definition, "definitionId", "different-player");
-
-                CharacterDefinitionResolveResult result = provider.Resolve(new CharacterDefinitionId("local-player"));
-
-                Assert.IsFalse(result.IsSuccess);
-                Assert.AreEqual(CharacterDefinitionResolveError.DefinitionIdMismatch, result.Error);
+                Assert.AreEqual(
+                    CharacterDefinitionResolveError.DefinitionIdMismatch,
+                    definition.Validate(
+                        new CharacterDefinitionId(
+                            "different-player")));
             }
             finally
             {
@@ -78,18 +57,22 @@ namespace CGame.Tests
         }
 
         [Test]
-        public void Provider_ReturnsExplicitErrorsForMissingVisualAndInvalidAnimationConfig()
+        public void Validate_ReturnsExplicitAssetErrors()
         {
             CharacterDefinition definition = CreateValidDefinition("local-player");
             try
             {
-                var provider = new InMemoryCharacterDefinitionProvider(new[] { definition });
                 SetField(definition, "visualPrefab", null);
-                Assert.AreEqual(CharacterDefinitionResolveError.MissingVisualPrefab, provider.Resolve(new CharacterDefinitionId("local-player")).Error);
+                Assert.AreEqual(
+                    CharacterDefinitionResolveError.MissingVisualPrefab,
+                    definition.Validate());
 
                 SetField(definition, "visualPrefab", LoadVisualPrefab());
                 SetField(definition, "animationConfig", null);
-                Assert.AreEqual(CharacterDefinitionResolveError.InvalidAnimationConfig, provider.Resolve(new CharacterDefinitionId("local-player")).Error);
+                Assert.AreEqual(
+                    CharacterDefinitionResolveError
+                        .InvalidAnimationConfig,
+                    definition.Validate());
             }
             finally
             {

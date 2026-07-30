@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using CGame.Animation;
 using UnityEngine;
+using YooAsset;
 
 namespace CGame
 {
@@ -10,11 +11,9 @@ namespace CGame
         public const int TerminalRequestCapacity = 128;
 
         private readonly Dictionary<CharacterSpawnRequestId, CharacterSpawnOperation> operations = new Dictionary<CharacterSpawnRequestId, CharacterSpawnOperation>();
-        private readonly Dictionary<CharacterSpawnOperation, ICharacterDefinitionResolveOperation> resolveOperations = new Dictionary<CharacterSpawnOperation, ICharacterDefinitionResolveOperation>();
-        private readonly Dictionary<CharacterSpawnOperation, ResolvedCharacterDefinitionLease> definitionLeases = new Dictionary<CharacterSpawnOperation, ResolvedCharacterDefinitionLease>();
+        private readonly Dictionary<CharacterSpawnOperation, AssetHandle> definitionHandles = new Dictionary<CharacterSpawnOperation, AssetHandle>();
         private readonly Dictionary<CharacterSpawnOperation, CharacterDefinition> definitions = new Dictionary<CharacterSpawnOperation, CharacterDefinition>();
-        private readonly Dictionary<CharacterSpawnOperation, IWeaponAnimationDefinitionResolveOperation> weaponResolveOperations = new Dictionary<CharacterSpawnOperation, IWeaponAnimationDefinitionResolveOperation>();
-        private readonly Dictionary<CharacterSpawnOperation, ResolvedWeaponAnimationDefinitionLease> weaponDefinitionLeases = new Dictionary<CharacterSpawnOperation, ResolvedWeaponAnimationDefinitionLease>();
+        private readonly Dictionary<CharacterSpawnOperation, AssetHandle> weaponDefinitionHandles = new Dictionary<CharacterSpawnOperation, AssetHandle>();
         private readonly Dictionary<CharacterSpawnOperation, WeaponAnimationDefinition> weaponDefinitions = new Dictionary<CharacterSpawnOperation, WeaponAnimationDefinition>();
         private readonly Dictionary<CharacterSpawnOperation, CharacterAssembly> assemblies = new Dictionary<CharacterSpawnOperation, CharacterAssembly>();
         private readonly Dictionary<CharacterSpawnOperation, IPawnRegistration> pawnRegistrations = new Dictionary<CharacterSpawnOperation, IPawnRegistration>();
@@ -24,8 +23,8 @@ namespace CGame
         private readonly Queue<CharacterSpawnRequestId> terminalRequestIds = new Queue<CharacterSpawnRequestId>();
         private readonly Queue<DespawnCommand> pendingDespawns = new Queue<DespawnCommand>();
         private readonly HashSet<CharacterRuntimeId> queuedRuntimeIds = new HashSet<CharacterRuntimeId>();
-        private ICharacterDefinitionProvider definitionProvider;
-        private IWeaponAnimationDefinitionProvider weaponDefinitionProvider;
+        private ICharacterDefinitionLocationResolver definitionLocationResolver;
+        private IWeaponAnimationDefinitionLocationResolver weaponDefinitionLocationResolver;
         private CharacterAssembler assembler;
         private LocalPlayerControllerBinder localPlayerBinder;
         private AIControllerBinder aiControllerBinder;
@@ -39,37 +38,40 @@ namespace CGame
         public event Action<CharacterRuntimeId, CharacterDespawnReason> CharacterReleasing;
         public event Action<CharacterRuntimeId, CharacterDespawnReason> CharacterReleased;
 
-        public void ConfigureDefinitionProvider(ICharacterDefinitionProvider configuredProvider)
+        public void ConfigureDefinitionLocationResolver(
+            ICharacterDefinitionLocationResolver configuredResolver)
         {
-            if (configuredProvider == null)
+            if (configuredResolver == null)
             {
-                throw new ArgumentNullException(nameof(configuredProvider));
+                throw new ArgumentNullException(
+                    nameof(configuredResolver));
             }
 
             if (operations.Count > 0 || runtimes.Count > 0)
             {
                 throw new InvalidOperationException(
-                    "The character definition provider cannot be replaced after spawning has started.");
+                    "The character definition location resolver cannot be replaced after spawning has started.");
             }
 
-            definitionProvider = configuredProvider;
+            definitionLocationResolver = configuredResolver;
         }
 
-        public void ConfigureWeaponDefinitionProvider(
-            IWeaponAnimationDefinitionProvider configuredProvider)
+        public void ConfigureWeaponDefinitionLocationResolver(
+            IWeaponAnimationDefinitionLocationResolver configuredResolver)
         {
-            if (configuredProvider == null)
+            if (configuredResolver == null)
             {
-                throw new ArgumentNullException(nameof(configuredProvider));
+                throw new ArgumentNullException(
+                    nameof(configuredResolver));
             }
 
             if (operations.Count > 0 || runtimes.Count > 0)
             {
                 throw new InvalidOperationException(
-                    "The weapon definition provider cannot be replaced after spawning has started.");
+                    "The weapon definition location resolver cannot be replaced after spawning has started.");
             }
 
-            weaponDefinitionProvider = configuredProvider;
+            weaponDefinitionLocationResolver = configuredResolver;
         }
 
         public CharacterSpawnOperation BeginSpawn(CharacterSpawnRequest request)
@@ -155,10 +157,10 @@ namespace CGame
             pawnManager = GameManager.GetManager<PawnManager>();
             controllerManager = GameManager.GetManager<ControllerManager>();
             GameManager.GetManager<PhysicsManager>();
-            definitionProvider = new YooAssetCharacterDefinitionProvider(global::AssetManager.Instance);
-            weaponDefinitionProvider =
-                new CatalogWeaponAnimationDefinitionProvider(
-                    global::AssetManager.Instance);
+            definitionLocationResolver =
+                new CharacterDefinitionLocationResolver();
+            weaponDefinitionLocationResolver =
+                new WeaponAnimationDefinitionLocationResolver();
             assembler = new CharacterAssembler();
             localPlayerBinder = new LocalPlayerControllerBinder(inputManager, controllerManager);
             aiRuntimeRegistry = new AIRuntimeRegistry();
@@ -207,34 +209,21 @@ namespace CGame
             pawnRegistrations.Clear();
             definitions.Clear();
             weaponDefinitions.Clear();
-            foreach (ResolvedWeaponAnimationDefinitionLease lease
-                     in weaponDefinitionLeases.Values)
+            foreach (AssetHandle handle
+                     in weaponDefinitionHandles.Values)
             {
-                lease.Dispose();
+                handle.Release();
             }
 
-            weaponDefinitionLeases.Clear();
-            foreach (IWeaponAnimationDefinitionResolveOperation operation
-                     in weaponResolveOperations.Values)
+            weaponDefinitionHandles.Clear();
+            foreach (AssetHandle handle in definitionHandles.Values)
             {
-                operation.Dispose();
+                handle.Release();
             }
 
-            weaponResolveOperations.Clear();
-            foreach (ResolvedCharacterDefinitionLease lease in definitionLeases.Values)
-            {
-                lease.Dispose();
-            }
-
-            definitionLeases.Clear();
-            foreach (ICharacterDefinitionResolveOperation resolveOperation in resolveOperations.Values)
-            {
-                resolveOperation.Dispose();
-            }
-
-            resolveOperations.Clear();
-            weaponDefinitionProvider?.Dispose();
-            weaponDefinitionProvider = null;
+            definitionHandles.Clear();
+            definitionLocationResolver = null;
+            weaponDefinitionLocationResolver = null;
             operations.Clear();
             terminalRequestIds.Clear();
             pendingDespawns.Clear();
@@ -277,68 +266,153 @@ namespace CGame
                             break;
                         }
 
-                        resolveOperations.Add(operation, definitionProvider.BeginResolve(operation.Request.DefinitionId));
+                        if (!operation.Request.DefinitionId.IsValid)
+                        {
+                            Fail(
+                                operation,
+                                CharacterSpawnError.InvalidDefinitionId);
+                            break;
+                        }
+
+                        if (!definitionLocationResolver
+                                .TryResolveLocation(
+                                    operation.Request.DefinitionId,
+                                    out string definitionLocation))
+                        {
+                            Fail(
+                                operation,
+                                CharacterSpawnError.DefinitionNotFound);
+                            break;
+                        }
+
+                        definitionHandles.Add(
+                            operation,
+                            global::AssetManager.Instance
+                                .LoadAsset<CharacterDefinition>(
+                                    definitionLocation));
                         operation.State = CharacterSpawnState.ResolvingDefinition;
                         break;
                     case CharacterSpawnState.ResolvingDefinition:
-                        ICharacterDefinitionResolveOperation resolveOperation = resolveOperations[operation];
-                        if (!resolveOperation.IsCompleted)
+                        AssetHandle definitionHandle =
+                            definitionHandles[operation];
+                        if (!definitionHandle.IsDone)
                         {
                             break;
                         }
 
-                        resolveOperations.Remove(operation);
-                        CharacterDefinitionResolveResult result = resolveOperation.Result;
-                        if (!result.IsSuccess)
+                        if (definitionHandle.Status
+                            != EOperationStatus.Succeed)
                         {
-                            resolveOperation.Dispose();
-                            Fail(operation, MapResolveError(result.Error));
+                            Fail(
+                                operation,
+                                CharacterSpawnError.InvalidDefinition);
                             break;
                         }
 
-                        if (!result.Definition.Supports(operation.Request.ControlKind))
+                        CharacterDefinition loadedDefinition =
+                            definitionHandle
+                                .GetAssetObject<CharacterDefinition>();
+                        if (loadedDefinition == null)
                         {
-                            result.Lease.Dispose();
-                            Fail(operation, CharacterSpawnError.ControlKindNotSupportedByDefinition);
+                            Fail(
+                                operation,
+                                CharacterSpawnError.InvalidDefinition);
                             break;
                         }
 
-                        definitionLeases.Add(operation, result.Lease);
-                        definitions.Add(operation, result.Definition);
-                        weaponResolveOperations.Add(
+                        CharacterDefinitionResolveError definitionError =
+                            loadedDefinition.Validate(
+                                operation.Request.DefinitionId);
+                        if (definitionError
+                            != CharacterDefinitionResolveError.None)
+                        {
+                            Fail(
+                                operation,
+                                MapDefinitionError(definitionError));
+                            break;
+                        }
+
+                        if (!loadedDefinition.Supports(
+                                operation.Request.ControlKind))
+                        {
+                            Fail(
+                                operation,
+                                CharacterSpawnError
+                                    .ControlKindNotSupportedByDefinition);
+                            break;
+                        }
+
+                        definitions.Add(operation, loadedDefinition);
+                        WeaponId initialWeaponId =
+                            loadedDefinition.InitialWeaponId;
+                        if (!initialWeaponId.IsValid)
+                        {
+                            Fail(
+                                operation,
+                                CharacterSpawnError
+                                    .InvalidInitialWeaponId);
+                            break;
+                        }
+
+                        if (!weaponDefinitionLocationResolver
+                                .TryResolveLocation(
+                                    initialWeaponId,
+                                    out string weaponDefinitionLocation))
+                        {
+                            Fail(
+                                operation,
+                                CharacterSpawnError
+                                    .InitialWeaponDefinitionNotFound);
+                            break;
+                        }
+
+                        weaponDefinitionHandles.Add(
                             operation,
-                            weaponDefinitionProvider.BeginResolve(
-                                result.Definition.InitialWeaponId));
+                            global::AssetManager.Instance
+                                .LoadAsset<WeaponAnimationDefinition>(
+                                    weaponDefinitionLocation));
                         operation.State =
                             CharacterSpawnState.ResolvingInitialWeapon;
                         break;
                     case CharacterSpawnState.ResolvingInitialWeapon:
-                        IWeaponAnimationDefinitionResolveOperation
-                            weaponResolveOperation =
-                                weaponResolveOperations[operation];
-                        if (!weaponResolveOperation.IsCompleted)
+                        AssetHandle weaponDefinitionHandle =
+                            weaponDefinitionHandles[operation];
+                        if (!weaponDefinitionHandle.IsDone)
                         {
                             break;
                         }
 
-                        weaponResolveOperations.Remove(operation);
-                        WeaponAnimationDefinitionResolveResult weaponResult =
-                            weaponResolveOperation.Result;
-                        if (!weaponResult.IsSuccess)
+                        if (weaponDefinitionHandle.Status
+                            != EOperationStatus.Succeed)
                         {
-                            weaponResolveOperation.Dispose();
                             Fail(
                                 operation,
-                                MapWeaponResolveError(weaponResult.Error));
+                                CharacterSpawnError
+                                    .InitialWeaponResourceFailed);
                             break;
                         }
 
-                        weaponDefinitionLeases.Add(
-                            operation,
-                            weaponResult.Lease);
+                        WeaponAnimationDefinition
+                            loadedWeaponDefinition =
+                                weaponDefinitionHandle
+                                    .GetAssetObject<
+                                        WeaponAnimationDefinition>();
+                        if (loadedWeaponDefinition == null
+                            || loadedWeaponDefinition.Validate(
+                                definitions[operation]
+                                    .InitialWeaponId)
+                                != WeaponAnimationDefinitionError.None)
+                        {
+                            Fail(
+                                operation,
+                                CharacterSpawnError
+                                    .InvalidInitialWeaponDefinition);
+                            break;
+                        }
+
                         weaponDefinitions.Add(
                             operation,
-                            weaponResult.Definition);
+                            loadedWeaponDefinition);
                         operation.State = CharacterSpawnState.Assembling;
                         break;
                     case CharacterSpawnState.Assembling:
@@ -382,15 +456,15 @@ namespace CGame
 
                             readyAssembly.Root.SetActive(true);
                             IPawnRegistration readyPawnRegistration = pawnRegistrations[operation];
-                            ResolvedCharacterDefinitionLease readyDefinitionLease = definitionLeases[operation];
-                            ResolvedWeaponAnimationDefinitionLease
-                                readyWeaponDefinitionLease =
-                                    weaponDefinitionLeases[operation];
+                            AssetHandle readyDefinitionHandle =
+                                definitionHandles[operation];
+                            AssetHandle readyWeaponDefinitionHandle =
+                                weaponDefinitionHandles[operation];
                             readyAssembly.AnimationComponent
                                 .ConfigureWeaponRuntimeResources(
-                                    weaponDefinitionProvider,
-                                    readyWeaponDefinitionLease);
-                            weaponDefinitionLeases.Remove(operation);
+                                    weaponDefinitionLocationResolver,
+                                    readyWeaponDefinitionHandle);
+                            weaponDefinitionHandles.Remove(operation);
                             var runtime = new OwnedCharacterRuntime(
                                 readyAssembly.Root,
                                 readyAssembly.Character,
@@ -398,7 +472,7 @@ namespace CGame
                                 readyAssembly.Motor,
                                 binding,
                                 readyPawnRegistration,
-                                readyDefinitionLease);
+                                readyDefinitionHandle);
                             readyAssembly.TransferRuntimeOwnership();
                             var view = new CharacterView(runtimeId, runtime.Transform);
                             runtimes.Add(runtimeId, runtime);
@@ -406,7 +480,7 @@ namespace CGame
                             runtimeOperations.Add(runtimeId, operation);
                             assemblies.Remove(operation);
                             pawnRegistrations.Remove(operation);
-                            definitionLeases.Remove(operation);
+                            definitionHandles.Remove(operation);
                             weaponDefinitions.Remove(operation);
                             operation.RuntimeId = runtimeId;
                             operation.Result = new CharacterSpawnResult(runtimeId);
@@ -433,21 +507,6 @@ namespace CGame
 
         private void Fail(CharacterSpawnOperation operation, CharacterSpawnError error)
         {
-            if (resolveOperations.TryGetValue(operation, out ICharacterDefinitionResolveOperation resolveOperation))
-            {
-                resolveOperations.Remove(operation);
-                resolveOperation.Dispose();
-            }
-
-            if (weaponResolveOperations.TryGetValue(
-                    operation,
-                    out IWeaponAnimationDefinitionResolveOperation
-                        weaponResolveOperation))
-            {
-                weaponResolveOperations.Remove(operation);
-                weaponResolveOperation.Dispose();
-            }
-
             CleanupPendingOperation(operation);
 
             operation.Error = error;
@@ -457,26 +516,6 @@ namespace CGame
 
         private void AdvanceCancellation(CharacterSpawnOperation operation)
         {
-            if (resolveOperations.TryGetValue(operation, out ICharacterDefinitionResolveOperation resolveOperation))
-            {
-                if (!resolveOperation.IsCompleted)
-                {
-                    return;
-                }
-
-                resolveOperations.Remove(operation);
-                resolveOperation.Dispose();
-            }
-
-            if (weaponResolveOperations.TryGetValue(
-                    operation,
-                    out IWeaponAnimationDefinitionResolveOperation
-                        weaponResolveOperation))
-            {
-                weaponResolveOperations.Remove(operation);
-                weaponResolveOperation.Dispose();
-            }
-
             CleanupPendingOperation(operation);
             operation.State = CharacterSpawnState.Cancelled;
             MarkTerminal(operation);
@@ -496,18 +535,20 @@ namespace CGame
                 assemblies.Remove(operation);
             }
 
-            if (definitionLeases.TryGetValue(operation, out ResolvedCharacterDefinitionLease lease))
+            if (definitionHandles.TryGetValue(
+                    operation,
+                    out AssetHandle definitionHandle))
             {
-                lease.Dispose();
-                definitionLeases.Remove(operation);
+                definitionHandle.Release();
+                definitionHandles.Remove(operation);
             }
 
-            if (weaponDefinitionLeases.TryGetValue(
+            if (weaponDefinitionHandles.TryGetValue(
                     operation,
-                    out ResolvedWeaponAnimationDefinitionLease weaponLease))
+                    out AssetHandle weaponDefinitionHandle))
             {
-                weaponLease.Dispose();
-                weaponDefinitionLeases.Remove(operation);
+                weaponDefinitionHandle.Release();
+                weaponDefinitionHandles.Remove(operation);
             }
 
             definitions.Remove(operation);
@@ -607,33 +648,15 @@ namespace CGame
             }
         }
 
-        private static CharacterSpawnError MapResolveError(CharacterDefinitionResolveError error)
+        private static CharacterSpawnError MapDefinitionError(
+            CharacterDefinitionResolveError error)
         {
             switch (error)
             {
                 case CharacterDefinitionResolveError.InvalidDefinitionId:
                     return CharacterSpawnError.InvalidDefinitionId;
-                case CharacterDefinitionResolveError.DefinitionNotFound:
-                    return CharacterSpawnError.DefinitionNotFound;
                 default:
                     return CharacterSpawnError.InvalidDefinition;
-            }
-        }
-
-        private static CharacterSpawnError MapWeaponResolveError(
-            WeaponAnimationDefinitionResolveError error)
-        {
-            switch (error)
-            {
-                case WeaponAnimationDefinitionResolveError.InvalidWeaponId:
-                    return CharacterSpawnError.InvalidInitialWeaponId;
-                case WeaponAnimationDefinitionResolveError.DefinitionNotFound:
-                    return CharacterSpawnError.InitialWeaponDefinitionNotFound;
-                case WeaponAnimationDefinitionResolveError.DefinitionIdMismatch:
-                case WeaponAnimationDefinitionResolveError.InvalidDefinition:
-                    return CharacterSpawnError.InvalidInitialWeaponDefinition;
-                default:
-                    return CharacterSpawnError.InitialWeaponResourceFailed;
             }
         }
 

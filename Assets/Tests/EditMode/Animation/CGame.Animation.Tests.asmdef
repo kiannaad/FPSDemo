@@ -4,7 +4,8 @@
     "references": [
         "CGame.Animation",
         "CGame.Weapon",
-        "CGame.Animation.Editor"
+        "CGame.Animation.Editor",
+        "YooAsset"
     ],
     "includePlatforms": [
         "Editor"

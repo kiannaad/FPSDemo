@@ -60,9 +60,11 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator AIPerception_VisualSoundDamageAndOccludedMemoryStayFair()
         {
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("perception-ai", "PerceptionAI", Vector3.zero));
-            AdvanceSpawn(spawnManager, 6);
+            yield return AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
 
             object runtime = GetAIRuntime(spawnManager, GetProperty<object>(operation, "RuntimeId"));
@@ -145,9 +147,11 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator AIAlertDecision_FixedClockCompletesAlertLoopAndDeclaredInterrupts()
         {
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("decision-ai", "DecisionAI", Vector3.zero));
-            AdvanceSpawn(spawnManager, 6);
+            yield return AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
 
             object runtime = GetAIRuntime(spawnManager, GetProperty<object>(operation, "RuntimeId"));
@@ -256,7 +260,9 @@ namespace CGame.Tests
         public IEnumerator AISquadDeconfliction_SixFormalAIsShareFuzzyReportsAndReleaseQuotas()
         {
             BuildGroundNavigationData();
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             var operations = new List<object>();
             var runtimes = new List<object>();
             for (int i = 0; i < 6; i++)
@@ -268,7 +274,7 @@ namespace CGame.Tests
                 operations.Add(operation);
             }
 
-            AdvanceSpawn(spawnManager, 30);
+            yield return AdvanceSpawn(spawnManager, 30);
             for (int i = 0; i < operations.Count; i++)
             {
                 Assert.AreEqual("CharacterReady", GetProperty<object>(operations[i], "State").ToString());
@@ -542,12 +548,14 @@ namespace CGame.Tests
         public IEnumerator AICoverCombat_MovesAimsBurstsRepositionsAndHandlesRangeFailures()
         {
             BuildGroundNavigationData();
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(
                 spawnManager,
                 "BeginSpawn",
                 CreateAIRequest("cover-combat-ai", "CoverCombatAI", new Vector3(0f, 0f, -4f)));
-            AdvanceSpawn(spawnManager, 6);
+            yield return AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
 
             object runtime = GetAIRuntime(spawnManager, GetProperty<object>(operation, "RuntimeId"));
@@ -703,9 +711,11 @@ namespace CGame.Tests
             navigationObstacle.transform.localScale = new Vector3(2f, 2f, 8f);
             Physics.SyncTransforms();
 
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             object operation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("navigation-ai", "NavigationAI", new Vector3(-4f, 0f, -4f)));
-            AdvanceSpawn(spawnManager, 6);
+            yield return AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
 
             object runtimeId = GetProperty<object>(operation, "RuntimeId");
@@ -759,14 +769,16 @@ namespace CGame.Tests
         [UnityTest]
         public IEnumerator AISpawn_ControlCombatDeathDespawnRespawnAndShutdown_StayOwned()
         {
-            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
+            yield return CharacterSpawnTestConfiguration
+                .EnsureResourcesReady();
+            object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithYooAssetDefinitions();
             object localOperation = Invoke(spawnManager, "BeginSpawn", CreateLocalPlayerRequest("local-control", "LocalControlCharacter", new Vector3(-4f, 0f, 0f)));
-            AdvanceSpawn(spawnManager, 6);
+            yield return AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(localOperation, "State").ToString());
             Assert.IsFalse(TryGetAIRuntime(spawnManager, GetProperty<object>(localOperation, "RuntimeId"), out _));
 
             object firstOperation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("ai-first", "FirstAI", Vector3.zero));
-            AdvanceSpawn(spawnManager, 6);
+            yield return AdvanceSpawn(spawnManager, 6);
 
             Assert.AreEqual("CharacterReady", GetProperty<object>(firstOperation, "State").ToString());
             object firstRuntimeId = GetProperty<object>(firstOperation, "RuntimeId");
@@ -847,13 +859,13 @@ namespace CGame.Tests
             object savedBinder = GetField(spawnManager, "aiControllerBinder");
             SetField(spawnManager, "aiControllerBinder", null);
             object failedOperation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("ai-bind-failure", "FailedAI", new Vector3(4f, 0f, 0f)));
-            AdvanceSpawn(spawnManager, 6);
+            yield return AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("Failed", GetProperty<object>(failedOperation, "State").ToString());
             Assert.IsNull(GameObject.Find("FailedAI"));
             SetField(spawnManager, "aiControllerBinder", savedBinder);
 
             object secondOperation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("ai-second", "SecondAI", new Vector3(2f, 0f, 0f)));
-            AdvanceSpawn(spawnManager, 6);
+            yield return AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(secondOperation, "State").ToString());
             object secondRuntimeId = GetProperty<object>(secondOperation, "RuntimeId");
             Assert.AreNotEqual(firstRuntimeId, secondRuntimeId);
@@ -991,11 +1003,14 @@ namespace CGame.Tests
             return found;
         }
 
-        private static void AdvanceSpawn(object spawnManager, int count)
+        private static IEnumerator AdvanceSpawn(
+            object spawnManager,
+            int count)
         {
             for (int i = 0; i < count; i++)
             {
                 Invoke(spawnManager, "Update", 0f);
+                yield return null;
             }
         }
 
