@@ -15,6 +15,7 @@ namespace CGame
         public float JumpSpeed { get; set; } = 7f;
         public float Gravity { get; set; } = 20f;
         public float RotationSpeed { get; set; } = 720f;
+        public float SprintAccelerationMultiplier { get; set; } = 1.7f;
 
         public void BindingMotor(CharacterPhysicsMotor characterMotor)
         {
@@ -81,7 +82,11 @@ namespace CGame
             if (movementInput.sqrMagnitude > 0f)
             {
                 horizontalVelocity *= Mathf.Clamp01(1f - GroundFriction * deltaTime);
-                horizontalVelocity += Vector3.ProjectOnPlane(movementInput, up) * MaxAcceleration * deltaTime;
+                float accelerationMultiplier = command.SprintRequested
+                    ? Mathf.Max(1f, SprintAccelerationMultiplier)
+                    : 1f;
+                horizontalVelocity += Vector3.ProjectOnPlane(movementInput, up) *
+                    MaxAcceleration * accelerationMultiplier * deltaTime;
             }
             else
             {

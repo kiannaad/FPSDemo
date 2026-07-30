@@ -10,6 +10,7 @@ namespace CGame.Animation
         private readonly CharacterAnimationGraph graph;
         private readonly IWeaponPresentationLoader presentationLoader;
         private readonly WeaponBindingLifecycle bindingLifecycle = new WeaponBindingLifecycle();
+        private FirstPersonWeaponView firstPersonWeaponView;
         private WeaponEquipmentSnapshot appliedSnapshot;
         private WeaponPresentationInstance currentPresentation;
         private WeaponAnimationDefinition currentDefinition;
@@ -20,17 +21,40 @@ namespace CGame.Animation
             Animator animator,
             CharacterAnimationConfig config,
             CharacterAnimationGraph graph,
-            IWeaponPresentationLoader presentationLoader = null)
+            IWeaponPresentationLoader presentationLoader = null,
+            bool enableFirstPersonWeaponView = false)
         {
             this.animator = animator ?? throw new ArgumentNullException(nameof(animator));
             this.graph = graph ?? throw new ArgumentNullException(nameof(graph));
             if (config == null) throw new ArgumentNullException(nameof(config));
             this.presentationLoader = presentationLoader ?? new DirectWeaponPresentationLoader(config.WeaponDefinitions);
+            firstPersonWeaponView = enableFirstPersonWeaponView ? new FirstPersonWeaponView() : null;
         }
 
         public WeaponPresentationBinding CurrentBinding => bindingLifecycle.NextBinding ?? bindingLifecycle.CurrentBinding;
         public WeaponPresentationInstance CurrentPresentation => currentPresentation;
         public WeaponBindingState BindingState => bindingLifecycle.State;
+
+        public void SetFirstPersonViewEnabled(bool enabled)
+        {
+            if (enabled == (firstPersonWeaponView != null))
+            {
+                return;
+            }
+
+            if (!enabled)
+            {
+                firstPersonWeaponView.Dispose();
+                firstPersonWeaponView = null;
+                return;
+            }
+
+            firstPersonWeaponView = new FirstPersonWeaponView();
+            if (currentDefinition != null)
+            {
+                firstPersonWeaponView.Equip(currentDefinition.PresentationPrefab);
+            }
+        }
 
         public void BindRuntime(WeaponRuntime runtime)
         {
@@ -72,6 +96,10 @@ namespace CGame.Animation
             }
 
             graph.SetAimInput(aimYaw, aimPitch);
+            currentPresentation?.ModelActionPlayer?.SetWeight(graph.Context.WeaponBoneWeight);
+            currentPresentation?.ModelActionPlayer?.Advance(deltaTime);
+            firstPersonWeaponView?.SetWeight(graph.Context.WeaponBoneWeight);
+            firstPersonWeaponView?.Advance(deltaTime);
         }
 
         public void Dispose()
@@ -86,6 +114,7 @@ namespace CGame.Animation
             UnsubscribePresentation(currentPresentation);
             currentPresentation = null;
             currentDefinition = null;
+            firstPersonWeaponView?.Dispose();
             bindingLifecycle.Dispose();
         }
 
@@ -94,6 +123,7 @@ namespace CGame.Animation
             UnsubscribePresentation(currentPresentation);
             currentPresentation = null;
             currentDefinition = null;
+            firstPersonWeaponView?.Dispose();
             appliedSnapshot = snapshot;
             WeaponPresentationLoadTicket ticket = bindingLifecycle.Begin(snapshot);
             if (!snapshot.IsEquipped)
@@ -147,6 +177,13 @@ namespace CGame.Animation
 
             currentDefinition = definition;
             currentPresentation = instance;
+            if (firstPersonWeaponView != null && !firstPersonWeaponView.Equip(definition.PresentationPrefab))
+            {
+                graph.Context.RecordDebugEvent(
+                    nameof(CharacterWeaponAnimationBridge),
+                    "FirstPersonWeaponViewUnavailable",
+                    snapshot.Generation);
+            }
             graph.ApplyWeaponEquipment(snapshot, binding, true);
         }
 
@@ -162,7 +199,10 @@ namespace CGame.Animation
                 return null;
             }
 
-            Transform rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+            Transform rightHand = CharacterBoneResolver.Resolve(
+                animator,
+                HumanBodyBones.RightHand,
+                "Right_Hand");
             if (rightHand == null)
             {
                 graph.Context.RecordDebugEvent(nameof(CharacterWeaponAnimationBridge), "RightHandMissing", generation);
@@ -211,12 +251,24 @@ namespace CGame.Animation
 
             if (fact.Phase == WeaponActionPhase.Started)
             {
-                graph.StartWeaponAction(fact);
+                if (graph.StartWeaponAction(fact)
+                    && fact.Kind == WeaponActionKind.Reload
+                    && currentDefinition?.WeaponModelReload != null
+                    && currentPresentation?.ModelActionPlayer != null)
+                {
+                    currentPresentation.ModelActionPlayer.Play(
+                        currentDefinition.WeaponModelReload.AnimationClip,
+                        fact.ActionId);
+                    firstPersonWeaponView?.Play(
+                        currentDefinition.WeaponModelReload.AnimationClip,
+                        fact.ActionId);
+                }
                 return;
             }
 
             graph.EndWeaponAction(fact);
             currentPresentation?.ModelActionPlayer?.Stop(fact.ActionId);
+            firstPersonWeaponView?.Stop(fact.ActionId);
         }
 
         private void OnFireCommitted(WeaponActionFact fact)
@@ -235,7 +287,8 @@ namespace CGame.Animation
 
             if (currentDefinition?.WeaponModelFire != null && currentPresentation?.ModelActionPlayer != null)
             {
-                currentPresentation.ModelActionPlayer.Play(currentDefinition.WeaponModelFire, fact.ActionId);
+                currentPresentation.ModelActionPlayer.Play(currentDefinition.WeaponModelFire.AnimationClip, fact.ActionId);
+                firstPersonWeaponView?.Play(currentDefinition.WeaponModelFire.AnimationClip, fact.ActionId);
             }
         }
 

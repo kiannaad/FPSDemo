@@ -7,7 +7,9 @@ namespace CGame.Animation
 {
     public sealed class ClipNode : AnimationNodeBase
     {
+        private readonly AnimationClipAsset clipAsset;
         private readonly AnimationClip clip;
+        private readonly bool useAssetStartTime;
         private AnimationClipPlayable clipPlayable;
 
         public ClipNode(AnimationClip clip, float speed = 1f)
@@ -16,6 +18,15 @@ namespace CGame.Animation
             Speed = speed;
         }
 
+        public ClipNode(AnimationClipAsset clipAsset)
+        {
+            this.clipAsset = clipAsset;
+            clip = clipAsset != null ? clipAsset.AnimationClip : null;
+            Speed = clipAsset != null ? clipAsset.Speed : 1f;
+            useAssetStartTime = clipAsset != null && clipAsset.OverrideNormalizedStartTime;
+        }
+
+        public AnimationClipAsset ClipAsset => clipAsset;
         public AnimationClip Clip => clip;
         public float Speed { get; set; }
         public bool Loop { get; set; } = true;
@@ -55,7 +66,11 @@ namespace CGame.Animation
             clipPlayable = AnimationClipPlayable.Create(context.Graph, clip);
             clipPlayable.SetSpeed(Speed);
             clipPlayable.SetDuration(Loop ? double.PositiveInfinity : clip.length);
-            clipPlayable.SetTime(0d);
+            float normalizedStartTime = useAssetStartTime ? clipAsset.NormalizedStartTime : 0f;
+            normalizedStartTime = Loop
+                ? Mathf.Repeat(normalizedStartTime, 1f)
+                : Mathf.Clamp01(normalizedStartTime);
+            clipPlayable.SetTime(normalizedStartTime * clip.length);
             clipPlayable.SetApplyFootIK(false);
         }
     }

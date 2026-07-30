@@ -10,5 +10,6 @@ namespace CGame
         MissingVisualPrefab,
         InvalidAnimationConfig,
         MissingSupportedControlKind,
+        InvalidInitialWeaponId,
     }
 }

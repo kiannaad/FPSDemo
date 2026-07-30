@@ -10,6 +10,7 @@ namespace CGame
         [SerializeField] private Animator animator;
         private PlayableGraph graph;
         private AnimationClipPlayable clipPlayable;
+        private AnimationMixerPlayable mixerPlayable;
         private AnimationClip currentClip;
         private ulong actionId;
 
@@ -17,6 +18,10 @@ namespace CGame
 
         public ulong ActionId => actionId;
         public bool IsPlaying => actionId > 0ul && graph.IsValid();
+        public float NormalizedTime => currentClip == null || currentClip.length <= 0f || !clipPlayable.IsValid()
+            ? 0f
+            : Mathf.Clamp01((float)(clipPlayable.GetTime() / currentClip.length));
+        public float Weight { get; private set; } = 1f;
 
         public bool Play(AnimationClip clip, ulong actionId)
         {
@@ -39,6 +44,29 @@ namespace CGame
             return true;
         }
 
+        public void SetWeight(float weight)
+        {
+            Weight = Mathf.Clamp01(weight);
+            if (mixerPlayable.IsValid())
+            {
+                mixerPlayable.SetInputWeight(0, Weight);
+            }
+        }
+
+        public void Advance(float deltaTime)
+        {
+            if (!IsPlaying || deltaTime < 0f)
+            {
+                return;
+            }
+
+            graph.Evaluate(deltaTime);
+            if (clipPlayable.GetTime() >= currentClip.length)
+            {
+                Finish(WeaponPresentationEndReason.NaturalEnd);
+            }
+        }
+
         public bool Stop(ulong expectedActionId)
         {
             if (!IsPlaying || actionId != expectedActionId)
@@ -48,14 +76,6 @@ namespace CGame
 
             Finish(WeaponPresentationEndReason.Interrupted);
             return true;
-        }
-
-        private void Update()
-        {
-            if (IsPlaying && clipPlayable.GetTime() >= currentClip.length)
-            {
-                Finish(WeaponPresentationEndReason.NaturalEnd);
-            }
         }
 
         private void OnDestroy()
@@ -85,11 +105,14 @@ namespace CGame
 
             currentClip = clip;
             graph = PlayableGraph.Create($"WeaponModelAction:{name}");
-            graph.SetTimeUpdateMode(DirectorUpdateMode.GameTime);
+            graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
             clipPlayable = AnimationClipPlayable.Create(graph, clip);
             clipPlayable.SetDuration(clip.length);
+            mixerPlayable = AnimationMixerPlayable.Create(graph, 1);
+            graph.Connect(clipPlayable, 0, mixerPlayable, 0);
+            mixerPlayable.SetInputWeight(0, Weight);
             AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, "WeaponModel", animator);
-            output.SetSourcePlayable(clipPlayable);
+            output.SetSourcePlayable(mixerPlayable);
         }
 
         private void Finish(WeaponPresentationEndReason reason)

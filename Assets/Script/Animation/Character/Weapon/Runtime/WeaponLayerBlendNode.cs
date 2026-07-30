@@ -33,6 +33,16 @@ namespace CGame.Animation
         public float CurrentWeight { get; private set; }
         public float NextWeight { get; private set; }
 
+        public void DetachBaseInput()
+        {
+            if (context != null
+                && mixerPlayable.IsValid()
+                && mixerPlayable.GetInput(0).IsValid())
+            {
+                context.Graph.Disconnect(mixerPlayable, 0);
+            }
+        }
+
         public void SetTarget(IWeaponAnimationLayer target, float duration)
         {
             if (target != null && target.IsDisposed)
@@ -198,12 +208,21 @@ namespace CGame.Animation
                 return;
             }
 
-            if (context != null && mixerPlayable.IsValid() && slot > 0 && mixerPlayable.GetInput(slot).IsValid())
+            Playable layerPlayable = Playable.Null;
+            if (context != null && mixerPlayable.IsValid() && slot > 0)
             {
-                context.Graph.Disconnect(mixerPlayable, slot);
+                layerPlayable = mixerPlayable.GetInput(slot);
+                if (layerPlayable.IsValid())
+                {
+                    context.Graph.Disconnect(mixerPlayable, slot);
+                }
             }
 
             layer.Destroy();
+            if (context != null && context.Graph.IsValid() && layerPlayable.IsValid())
+            {
+                context.Graph.DestroySubgraph(layerPlayable);
+            }
         }
     }
 }

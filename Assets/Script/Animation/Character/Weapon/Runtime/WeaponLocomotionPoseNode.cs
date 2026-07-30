@@ -8,8 +8,8 @@ namespace CGame.Animation
     public sealed class WeaponLocomotionPoseNode : AnimationNodeBase
     {
         private readonly Func<string> stateGetter;
-        private readonly IAnimationPlayableNode[] nodes = new IAnimationPlayableNode[3];
-        private readonly bool[] available = new bool[3];
+        private readonly IAnimationPlayableNode[] nodes = new IAnimationPlayableNode[4];
+        private readonly bool[] available = new bool[4];
         private readonly float blendDuration;
         private AnimationMixerPlayable mixerPlayable;
         private int fallbackIndex;
@@ -27,8 +27,9 @@ namespace CGame.Animation
             this.stateGetter = stateGetter ?? throw new ArgumentNullException(nameof(stateGetter));
             blendDuration = definition.BlendDuration;
             nodes[0] = CreateClipNode(definition.Idle);
-            nodes[1] = CreateMoveNode(definition.Walk, definition.Run);
-            nodes[2] = CreateClipNode(definition.Stop);
+            nodes[1] = CreateClipNode(definition.Walk);
+            nodes[2] = CreateClipNode(definition.Run);
+            nodes[3] = CreateClipNode(definition.Stop);
             for (int i = 0; i < nodes.Length; i++)
             {
                 available[i] = nodes[i] != null;
@@ -129,28 +130,7 @@ namespace CGame.Animation
 
         private static IAnimationPlayableNode CreateClipNode(AnimationClipAsset asset)
         {
-            return asset != null && asset.IsValid ? new ClipNode(asset.AnimationClip) : null;
-        }
-
-        private static IAnimationPlayableNode CreateMoveNode(AnimationClipAsset walk, AnimationClipAsset run)
-        {
-            bool hasWalk = walk != null && walk.IsValid;
-            bool hasRun = run != null && run.IsValid;
-            if (hasWalk && hasRun)
-            {
-                return new Blend1DNode(new[]
-                {
-                    new Blend1DChild(new ClipNode(walk.AnimationClip), 1f),
-                    new Blend1DChild(new ClipNode(run.AnimationClip), 3f),
-                }, context => context.MoveSpeed);
-            }
-
-            if (hasWalk)
-            {
-                return new ClipNode(walk.AnimationClip);
-            }
-
-            return hasRun ? new ClipNode(run.AnimationClip) : null;
+            return asset != null && asset.IsValid ? new ClipNode(asset) : null;
         }
 
         private static int GetStateIndex(string state)
@@ -159,7 +139,8 @@ namespace CGame.Animation
             {
                 case "Idle": return 0;
                 case "Move": return 1;
-                case "Stop": return 2;
+                case "Sprint": return 2;
+                case "Stop": return 3;
                 default: return -1;
             }
         }

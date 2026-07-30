@@ -2,65 +2,145 @@ using UnityEngine;
 
 namespace CGame.Animation
 {
-    [CreateAssetMenu(menuName = "CGame/Animation/Weapon Animation Definition", fileName = "WeaponAnimationDefinition")]
+    [CreateAssetMenu(
+        menuName = "CGame/Animation/Weapon Animation Definition",
+        fileName = "WeaponAnimationDefinition")]
     public sealed class WeaponAnimationDefinition : ScriptableObject
     {
         [SerializeField] private string weaponId;
-        [SerializeField] private AnimationClipAsset idle;
-        [SerializeField] private AnimationClipAsset walk;
-        [SerializeField] private AnimationClipAsset run;
-        [SerializeField] private AnimationClipAsset stop;
+        [SerializeField] private GameObject weaponPrefab;
+        [SerializeField] private AnimationClipAsset overlayPose;
+        [SerializeField] private AnimationClipAsset equip;
+        [SerializeField] private AnimationClipAsset unequip;
+        [SerializeField] private bool supportsFire;
         [SerializeField] private AnimationClipAsset fire;
-        [SerializeField] private AnimationClip weaponModelFire;
-        [SerializeField] private GameObject presentationPrefab;
-        [SerializeField, Min(0f)] private float blendDuration = 0.15f;
-        [SerializeField, Range(0f, 90f)] private float aimYawRange = 75f;
-        [SerializeField, Range(0f, 90f)] private float aimPitchUpRange = 60f;
-        [SerializeField, Range(0f, 90f)] private float aimPitchDownRange = 45f;
-        [SerializeField, Range(0f, 1f)] private float aimWeight = 0.75f;
-        [SerializeField, Min(0f)] private float aimSmoothingTime = 0.08f;
-        [SerializeField, Min(0f)] private float leftHandIkSmoothingTime = 0.08f;
-        [SerializeField, Min(0f)] private float recoilImpulse = 4f;
-        [SerializeField, Min(0f)] private float recoilMaxPitch = 9f;
-        [SerializeField, Min(0.001f)] private float recoilDecayTime = 0.12f;
+        [SerializeField] private bool supportsReload;
+        [SerializeField] private AnimationClipAsset reload;
+        [SerializeField] private bool supportsMeleeAttack;
+        [SerializeField] private AnimationClipAsset meleeAttack;
 
         public WeaponId WeaponId => new WeaponId(weaponId);
-        public AnimationClipAsset Idle => idle;
-        public AnimationClipAsset Walk => walk;
-        public AnimationClipAsset Run => run;
-        public AnimationClipAsset Stop => stop;
+        public GameObject WeaponPrefab => weaponPrefab;
+        public AnimationClipAsset OverlayPose => overlayPose;
+        public AnimationClipAsset Equip => equip;
+        public AnimationClipAsset Unequip => unequip;
+        public bool SupportsFire => supportsFire;
         public AnimationClipAsset Fire => fire;
-        public AnimationClip WeaponModelFire => weaponModelFire;
-        public GameObject PresentationPrefab => presentationPrefab;
-        public float BlendDuration => Mathf.Max(0f, blendDuration);
-        public float AimYawRange => Mathf.Max(0f, aimYawRange);
-        public float AimPitchUpRange => Mathf.Max(0f, aimPitchUpRange);
-        public float AimPitchDownRange => Mathf.Max(0f, aimPitchDownRange);
-        public float AimWeight => Mathf.Clamp01(aimWeight);
-        public float AimSmoothingTime => Mathf.Max(0f, aimSmoothingTime);
-        public float LeftHandIkSmoothingTime => Mathf.Max(0f, leftHandIkSmoothingTime);
-        public float RecoilImpulse => Mathf.Max(0f, recoilImpulse);
-        public float RecoilMaxPitch => Mathf.Max(0f, recoilMaxPitch);
-        public float RecoilDecayTime => Mathf.Max(0.001f, recoilDecayTime);
-        public bool IsValid => WeaponId.IsValid
-            && IsValidAsset(idle)
-            && (IsValidAsset(walk) || IsValidAsset(run))
-            && IsValidAsset(fire)
-            && weaponModelFire != null;
+        public bool SupportsReload => supportsReload;
+        public AnimationClipAsset Reload => reload;
+        public bool SupportsMeleeAttack => supportsMeleeAttack;
+        public AnimationClipAsset MeleeAttack => meleeAttack;
+        public WeaponRuntimeCapabilities Capabilities =>
+            new WeaponRuntimeCapabilities(
+                supportsFire,
+                supportsReload,
+                supportsMeleeAttack);
+        public bool IsValid =>
+            Validate() == WeaponAnimationDefinitionError.None;
 
+        [System.Obsolete("Use WeaponPrefab.")]
+        public GameObject PresentationPrefab => weaponPrefab;
+        [System.Obsolete("Use OverlayPose.")]
+        public AnimationClipAsset Idle => overlayPose;
+        [System.Obsolete("Weapon locomotion remains Animator-native.")]
+        public AnimationClipAsset Walk => overlayPose;
+        [System.Obsolete("Weapon locomotion remains Animator-native.")]
+        public AnimationClipAsset Run => overlayPose;
+        [System.Obsolete("Weapon locomotion remains Animator-native.")]
+        public AnimationClipAsset Stop => overlayPose;
+        [System.Obsolete("Weapon model animation is outside the V1 definition.")]
+        public AnimationClipAsset WeaponModelFire => fire;
+        [System.Obsolete("Weapon model animation is outside the V1 definition.")]
+        public AnimationClipAsset WeaponModelReload => reload;
+        [System.Obsolete("Use clip-local blend times.")]
+        public float BlendDuration =>
+            overlayPose != null ? overlayPose.BlendInTime : 0f;
+        [System.Obsolete("Aim is outside the V1 definition.")]
+        public float AimYawRange => 0f;
+        [System.Obsolete("Aim is outside the V1 definition.")]
+        public float AimPitchUpRange => 0f;
+        [System.Obsolete("Aim is outside the V1 definition.")]
+        public float AimPitchDownRange => 0f;
+        [System.Obsolete("Aim is outside the V1 definition.")]
+        public float AimWeight => 0f;
+        [System.Obsolete("Aim is outside the V1 definition.")]
+        public float AimSmoothingTime => 0f;
+        [System.Obsolete("IK is outside the V1 definition.")]
+        public float LeftHandIkSmoothingTime => 0f;
+        [System.Obsolete("Recoil is outside the V1 definition.")]
+        public float RecoilImpulse => 0f;
+        [System.Obsolete("Recoil is outside the V1 definition.")]
+        public float RecoilMaxPitch => 0f;
+        [System.Obsolete("Recoil is outside the V1 definition.")]
+        public float RecoilDecayTime => 0.001f;
+
+        [System.Obsolete("Weapon locomotion remains Animator-native.")]
         public bool HasPoseFor(string locomotionState)
         {
-            switch (locomotionState)
+            return overlayPose != null && overlayPose.IsValid;
+        }
+
+        public WeaponAnimationDefinitionError Validate(
+            WeaponId expectedId = default)
+        {
+            if (!WeaponId.IsValid)
             {
-                case "Idle":
-                    return IsValidAsset(idle);
-                case "Move":
-                    return IsValidAsset(walk) || IsValidAsset(run);
-                case "Stop":
-                    return IsValidAsset(stop);
-                default:
-                    return false;
+                return WeaponAnimationDefinitionError.InvalidWeaponId;
             }
+
+            if (expectedId.IsValid && WeaponId != expectedId)
+            {
+                return WeaponAnimationDefinitionError.WeaponIdMismatch;
+            }
+
+            if (weaponPrefab == null)
+            {
+                return WeaponAnimationDefinitionError.MissingWeaponPrefab;
+            }
+
+            if (!IsValidAsset(overlayPose))
+            {
+                return WeaponAnimationDefinitionError.MissingOverlayPose;
+            }
+
+            if (!IsValidAsset(equip))
+            {
+                return WeaponAnimationDefinitionError.MissingEquip;
+            }
+
+            if (!IsValidAsset(unequip))
+            {
+                return WeaponAnimationDefinitionError.MissingUnequip;
+            }
+
+            if (supportsFire == supportsMeleeAttack)
+            {
+                return WeaponAnimationDefinitionError.InvalidPrimaryAction;
+            }
+
+            if (!MatchesCapability(supportsFire, fire))
+            {
+                return WeaponAnimationDefinitionError.InvalidFire;
+            }
+
+            if (!MatchesCapability(supportsReload, reload))
+            {
+                return WeaponAnimationDefinitionError.InvalidReload;
+            }
+
+            if (!MatchesCapability(supportsMeleeAttack, meleeAttack))
+            {
+                return WeaponAnimationDefinitionError.InvalidMeleeAttack;
+            }
+
+            return WeaponAnimationDefinitionError.None;
+        }
+
+        private static bool MatchesCapability(
+            bool capability,
+            AnimationClipAsset asset)
+        {
+            return capability ? IsValidAsset(asset) : asset == null;
         }
 
         private static bool IsValidAsset(AnimationClipAsset asset)

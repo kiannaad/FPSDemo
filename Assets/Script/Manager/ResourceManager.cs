@@ -41,7 +41,7 @@ public class ResourceManager : Singleton<ResourceManager>
 #else
         // 默认离线模式，联机模式可根据需求在此扩展逻辑
         var offlineParam = new OfflinePlayModeParameters();
-        offlineParam.BuildinFileSystemParameters = FileSystemParameters.CreateDefaultBuildinFileSystemParameters(packageName);
+        offlineParam.BuildinFileSystemParameters = FileSystemParameters.CreateDefaultBuildinFileSystemParameters();
         parameters = offlineParam;
 #endif
 

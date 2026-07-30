@@ -8,6 +8,7 @@ namespace CGame
     {
         public CharacterAssembly Assemble(
             CharacterDefinition definition,
+            WeaponAnimationDefinition initialWeaponDefinition,
             Transform parent,
             Vector3 position,
             Quaternion rotation,
@@ -18,12 +19,29 @@ namespace CGame
                 throw new ArgumentException("A valid character definition is required.", nameof(definition));
             }
 
-            return Assemble(definition.VisualPrefab, definition.AnimationConfig, parent, position, rotation, name);
+            if (initialWeaponDefinition == null
+                || initialWeaponDefinition.Validate(definition.InitialWeaponId)
+                    != WeaponAnimationDefinitionError.None)
+            {
+                throw new ArgumentException(
+                    "A matching valid initial weapon definition is required.",
+                    nameof(initialWeaponDefinition));
+            }
+
+            return Assemble(
+                definition.VisualPrefab,
+                definition.AnimationConfig,
+                initialWeaponDefinition,
+                parent,
+                position,
+                rotation,
+                name);
         }
 
         internal CharacterAssembly Assemble(
             GameObject visualPrefab,
             CharacterAnimationConfig animationConfig,
+            WeaponAnimationDefinition initialWeaponDefinition,
             Transform parent,
             Vector3 position,
             Quaternion rotation,
@@ -39,12 +57,19 @@ namespace CGame
                 throw new ArgumentException("A valid character animation config is required.", nameof(animationConfig));
             }
 
+            if (initialWeaponDefinition == null
+                || !initialWeaponDefinition.IsValid)
+            {
+                throw new ArgumentException(
+                    "A valid initial weapon definition is required.",
+                    nameof(initialWeaponDefinition));
+            }
+
             GameObject root = null;
             CharacterAssembly assembly = null;
             try
             {
                 root = new GameObject(string.IsNullOrWhiteSpace(name) ? "RuntimeCharacter" : name);
-                root.SetActive(false);
                 root.transform.SetParent(parent);
                 root.transform.SetLocalPositionAndRotation(position, rotation);
 
@@ -53,16 +78,44 @@ namespace CGame
                 CharacterPhysicsMotor motor = root.AddComponent<CharacterPhysicsMotor>();
                 var character = new Character();
                 var movement = new MovementComp();
-                var animationComponent = new CharacterAnimationComponent(animator, motor, movement, animationConfig);
+                var animationComponent = new CharacterAnimationComponent(
+                    animator,
+                    motor,
+                    animationConfig,
+                    initialWeaponDefinition);
                 movement.BindingMotor(motor);
                 pawnHost.MeshRoot = animator.transform;
                 pawnHost.Animator = animator;
                 pawnHost.BindingPawn(character);
                 character.RegisteringComponent(movement);
                 character.RegisteringComponent(animationComponent);
+                AnimationPlaybackHandle initialPoseHandle =
+                    animationComponent.PrepareInitialWeaponPose(
+                        initialWeaponDefinition.OverlayPose);
+                if (initialPoseHandle == null
+                    || initialPoseHandle.State
+                        != AnimationPlaybackState.Playing)
+                {
+                    throw new InvalidOperationException(
+                        "Initial weapon overlay could not be prepared at full weight.");
+                }
+
+                // Unity only exposes the Animator-owned native Output[0] while
+                // the Animator is active. Assembly is synchronous, so no frame
+                // elapses before the full-weight overlay is installed and the
+                // unpublished root is made inactive.
+                root.SetActive(false);
                 motor.CharacterController = movement;
 
-                assembly = new CharacterAssembly(root, animator, character, pawnHost, motor, movement, animationComponent);
+                assembly = new CharacterAssembly(
+                    root,
+                    animator,
+                    character,
+                    pawnHost,
+                    motor,
+                    movement,
+                    animationComponent,
+                    initialPoseHandle);
                 return assembly;
             }
             catch
@@ -79,21 +132,26 @@ namespace CGame
 
         private static Animator CreateVisual(Transform parent, GameObject visualPrefab)
         {
-            GameObject visual = UnityEngine.Object.Instantiate(visualPrefab, parent);
-            visual.name = "CharacterVisual";
-            visual.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
-            foreach (Collider collider in visual.GetComponentsInChildren<Collider>())
+            var visualRoot = new GameObject("CharacterVisual");
+            visualRoot.transform.SetParent(parent, false);
+            GameObject animatedVisual = UnityEngine.Object.Instantiate(
+                visualPrefab,
+                visualRoot.transform);
+            animatedVisual.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+            foreach (Collider collider in visualRoot.GetComponentsInChildren<Collider>())
             {
                 DestroyObject(collider);
             }
 
-            Animator animator = visual.GetComponentInChildren<Animator>();
+            Animator animator = animatedVisual.GetComponentInChildren<Animator>();
             if (animator == null)
             {
                 throw new InvalidOperationException("Configured character prefab does not contain an Animator.");
             }
 
             animator.applyRootMotion = false;
+            animator.Rebind();
+            animator.Update(0f);
             return animator;
         }
 

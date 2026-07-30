@@ -55,6 +55,35 @@ namespace CGame.Animation.Editor
             return asset;
         }
 
+        public static AnimationClipAsset CreateOrUpdateFromClip(AnimationClip clip, string assetPath)
+        {
+            if (clip == null || string.IsNullOrWhiteSpace(assetPath))
+            {
+                return null;
+            }
+
+            AnimationClipAsset existing = AssetDatabase.LoadAssetAtPath<AnimationClipAsset>(assetPath);
+            if (existing != null)
+            {
+                existing.TryInitialize(clip);
+                EditorUtility.SetDirty(existing);
+                AssetDatabase.SaveAssets();
+                return existing;
+            }
+
+            string directory = Path.GetDirectoryName(assetPath)?.Replace('\\', '/');
+            if (string.IsNullOrEmpty(directory) || !AssetDatabase.IsValidFolder(directory))
+            {
+                return null;
+            }
+
+            AnimationClipAsset created = ScriptableObject.CreateInstance<AnimationClipAsset>();
+            created.TryInitialize(clip);
+            AssetDatabase.CreateAsset(created, assetPath);
+            AssetDatabase.SaveAssets();
+            return created;
+        }
+
         public static AnimationClip GetSelectedAnimationClip()
         {
             if (Selection.activeObject is AnimationClip activeClip)

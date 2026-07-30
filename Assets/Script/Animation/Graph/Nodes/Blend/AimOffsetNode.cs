@@ -25,9 +25,12 @@ namespace CGame.Animation
         {
             this.inputNode = inputNode ?? throw new ArgumentNullException(nameof(inputNode));
             if (animator == null) throw new ArgumentNullException(nameof(animator));
-            spine = animator.GetBoneTransform(HumanBodyBones.Spine);
-            chest = animator.GetBoneTransform(HumanBodyBones.Chest);
-            upperChest = animator.GetBoneTransform(HumanBodyBones.UpperChest);
+            spine = CharacterBoneResolver.Resolve(animator, HumanBodyBones.Spine, "Spine");
+            chest = CharacterBoneResolver.Resolve(animator, HumanBodyBones.Chest, "Chest");
+            upperChest = CharacterBoneResolver.Resolve(
+                animator,
+                HumanBodyBones.UpperChest,
+                "UpperChest");
         }
 
         public float CurrentYaw => currentYaw;

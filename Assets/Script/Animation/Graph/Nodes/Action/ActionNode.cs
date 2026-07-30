@@ -28,6 +28,16 @@ namespace CGame.Animation
         public AnimationClipPlayable ClipPlayable => clipPlayable;
         public ulong RequestId { get; private set; }
         public ulong PendingRequestId => requested ? pendingRequestId : 0ul;
+        public float NormalizedTime => clipAsset.AnimationClip == null || clipAsset.AnimationClip.length <= 0f
+            ? 0f
+            : Mathf.Clamp01(presentationTime / clipAsset.AnimationClip.length);
+
+        public float SampleNamedCurve(string curveName, float fallback = 1f)
+        {
+            return clipAsset.TryGetNamedCurve(curveName, out AnimationCurve curve)
+                ? curve.Evaluate(NormalizedTime)
+                : fallback;
+        }
 
         public void Request()
         {

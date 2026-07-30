@@ -1,72 +1,172 @@
 using System;
 using UnityEngine;
+using YooAsset;
 
 namespace CGame.Animation
 {
     public sealed class CharacterAnimInstance : IDisposable
     {
-        private readonly CharacterAnimationGraph graph;
+        private readonly AnimationUpdateContext updateContext;
+        private readonly CharacterAnimatorController animatorController;
+        private readonly CharacterPlayablesController playablesController;
+        private readonly CharacterBoneController boneController;
+        private readonly CharacterWeaponAnimationAdapter weaponAdapter;
+        private WeaponAnimationSequencer weaponSequencer;
+        private bool isDisposed;
 
-        public CharacterAnimInstance(Animator animator, CharacterAnimationConfig config)
+        public CharacterAnimInstance(
+            IAnimationCharacterSource source,
+            Animator animator,
+            AvatarMask upperBodyMask = null,
+            WeaponAnimationDefinition weaponDefinition = null)
         {
-            graph = new CharacterAnimationGraph(animator, config);
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (animator == null) throw new ArgumentNullException(nameof(animator));
+
+            updateContext = new AnimationUpdateContext(source);
+            animatorController = new CharacterAnimatorController(animator, updateContext);
+            playablesController = new CharacterPlayablesController(animator, upperBodyMask);
+            boneController = new CharacterBoneController(animator);
+            weaponAdapter = new CharacterWeaponAnimationAdapter();
+            if (weaponDefinition != null)
+            {
+                weaponSequencer = new WeaponAnimationSequencer(
+                    playablesController,
+                    weaponDefinition);
+            }
         }
 
-        public CharacterAnimationFrameData FrameData { get; private set; }
-        public CharacterAnimationGraph Graph => graph;
+        public AnimationUpdateContext UpdateContext => updateContext;
+        internal CharacterAnimatorController AnimatorController => animatorController;
+        internal CharacterPlayablesController PlayablesController => playablesController;
+        internal WeaponAnimationSequencer WeaponSequencer =>
+            weaponSequencer;
 
-        public void UpdatePhysicalProperties(CharacterAnimationFrameData frameData)
+        public void ConfigureWeaponRuntimeResources(
+            IWeaponAnimationDefinitionLocationResolver locationResolver,
+            AssetHandle initialDefinitionHandle,
+            AnimationPlaybackHandle initialOverlayHandle)
         {
-            FrameData = frameData;
-            AnimationGraphContext context = graph.Context;
-            context.WorldVelocity = frameData.WorldVelocity;
-            context.LocalVelocity = frameData.LocalVelocity;
-            context.WorldAcceleration = frameData.WorldAcceleration;
-            context.MoveSpeed = new Vector2(frameData.LocalVelocity.x, frameData.LocalVelocity.z).magnitude;
-            context.VerticalVelocity = frameData.WorldVelocity.y;
-            context.IsGrounded = frameData.IsGrounded;
-            context.IsJumping = frameData.IsJumping;
-            context.IsFalling = frameData.IsFalling;
-            context.DisplacementSpeed = frameData.DisplacementSpeed;
-            context.YawDeltaSpeed = frameData.YawDeltaSpeed;
-            context.TimeToJumpApex = frameData.TimeToJumpApex;
-            context.OverlayWeight = 0f;
+            if (isDisposed)
+            {
+                throw new ObjectDisposedException(
+                    nameof(CharacterAnimInstance));
+            }
+
+            if (weaponSequencer != null)
+            {
+                throw new InvalidOperationException(
+                    "Weapon runtime resources are already configured.");
+            }
+
+            weaponSequencer = new WeaponAnimationSequencer(
+                playablesController,
+                locationResolver,
+                initialDefinitionHandle,
+                initialOverlayHandle);
         }
 
-        public void UpdateAnimation(float deltaTime)
+        public void UpdateAnimation(
+            float deltaTime,
+            WeaponRuntime weaponRuntime = null)
         {
-            graph.Update(deltaTime);
+            if (isDisposed || deltaTime <= 0f)
+            {
+                return;
+            }
+
+            SynchronizeWeaponRuntime(weaponRuntime);
+            updateContext.Update(deltaTime);
+            if (!animatorController.IsValid())
+            {
+                animatorController.TryBind();
+            }
+
+            if (!animatorController.IsValid())
+            {
+                playablesController.RestoreNativeOutput();
+                weaponSequencer?.Update();
+                return;
+            }
+
+            animatorController.UpdateParameters(deltaTime);
+            if (!playablesController.IsValid() && !playablesController.TryRebuild())
+            {
+                weaponSequencer?.Update();
+                return;
+            }
+
+            playablesController.Update(deltaTime);
+            weaponSequencer?.Update();
+            if (boneController.IsValid())
+            {
+                boneController.Update(deltaTime);
+            }
         }
 
-        public void ApplyWeaponEquipment(WeaponEquipmentSnapshot snapshot)
+        public void MarkDiscontinuity()
         {
-            graph.ApplyWeaponEquipment(snapshot);
+            updateContext.MarkDiscontinuity();
         }
 
-        public void UpdateObserverPresentation(ObserverAimPresentationSnapshot snapshot)
+        public AnimationPlaybackHandle PrepareInitialPose(
+            AnimationClipAsset overlayPose,
+            long requestId = 0)
         {
-            AnimationGraphContext context = graph.Context;
-            context.ObserverBodyYaw = snapshot.BodyYaw;
-            context.ObserverAimYawOffset = snapshot.AimYawOffset;
-            context.ObserverAimPitch = snapshot.AimPitch;
-            context.ObserverAimWeight = snapshot.AimWeight;
-            context.ObserverAdsWeight = snapshot.AdsWeight;
-            context.ObserverWeaponState = snapshot.WeaponState;
-            context.LeftHandIkWeight = snapshot.LeftHandIkWeight;
+            if (isDisposed)
+            {
+                return null;
+            }
+
+            return playablesController.PlayPoseImmediate(
+                overlayPose,
+                requestId);
         }
 
-        public void ClearObserverPresentation()
+        public void Dispose()
         {
-            AnimationGraphContext context = graph.Context;
-            context.ObserverBodyYaw = 0f;
-            context.ObserverAimYawOffset = 0f;
-            context.ObserverAimPitch = 0f;
-            context.ObserverAimWeight = 0f;
-            context.ObserverAdsWeight = 0f;
-            context.ObserverWeaponState = ObserverWeaponState.Holstered;
-            context.LeftHandIkWeight = 0f;
+            if (isDisposed)
+            {
+                return;
+            }
+
+            boneController.Dispose();
+            weaponSequencer?.Dispose();
+            weaponAdapter?.Dispose();
+            playablesController.Dispose();
+            updateContext.Reset();
+            isDisposed = true;
         }
 
-        public void Dispose() => graph.Dispose();
+        private void SynchronizeWeaponRuntime(WeaponRuntime runtime)
+        {
+            if (weaponAdapter == null || weaponSequencer == null)
+            {
+                return;
+            }
+
+            if (weaponAdapter.BoundRuntime != runtime)
+            {
+                weaponSequencer.BindRuntime(runtime);
+                weaponAdapter.BindRuntime(runtime);
+            }
+
+            while (weaponAdapter.TryDequeueEvent(
+                       out WeaponAnimationEvent animationEvent))
+            {
+                if (animationEvent.Kind
+                    == WeaponAnimationEventKind.Action)
+                {
+                    weaponSequencer.Consume(
+                        animationEvent.Action);
+                }
+                else if (animationEvent.Kind
+                         == WeaponAnimationEventKind.Switch)
+                {
+                    weaponSequencer.Consume(
+                        animationEvent.Switch);
+                }
+            }
+        }
     }
 }

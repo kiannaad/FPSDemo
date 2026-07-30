@@ -10,11 +10,13 @@ namespace CGame
         [SerializeField] private GameObject visualPrefab;
         [SerializeField] private CharacterAnimationConfig animationConfig;
         [SerializeField] private CharacterControlKind[] supportedControlKinds;
+        [SerializeField] private string initialWeaponId;
 
         public CharacterDefinitionId DefinitionId => new CharacterDefinitionId(definitionId);
         public GameObject VisualPrefab => visualPrefab;
         public CharacterAnimationConfig AnimationConfig => animationConfig;
         public CharacterControlKind[] SupportedControlKinds => supportedControlKinds;
+        public WeaponId InitialWeaponId => new WeaponId(initialWeaponId);
         public bool IsValid => Validate() == CharacterDefinitionResolveError.None;
 
         public bool Supports(CharacterControlKind controlKind)
@@ -60,6 +62,11 @@ namespace CGame
             if (supportedControlKinds == null || supportedControlKinds.Length == 0)
             {
                 return CharacterDefinitionResolveError.MissingSupportedControlKind;
+            }
+
+            if (!InitialWeaponId.IsValid)
+            {
+                return CharacterDefinitionResolveError.InvalidInitialWeaponId;
             }
 
             return CharacterDefinitionResolveError.None;

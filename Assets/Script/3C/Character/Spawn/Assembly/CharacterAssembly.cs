@@ -14,7 +14,8 @@ namespace CGame
             PawnHost pawnHost,
             CharacterPhysicsMotor motor,
             MovementComp movement,
-            CharacterAnimationComponent animationComponent)
+            CharacterAnimationComponent animationComponent,
+            Animation.AnimationPlaybackHandle initialWeaponPoseHandle)
         {
             Root = root;
             Animator = animator;
@@ -23,6 +24,7 @@ namespace CGame
             Motor = motor;
             Movement = movement;
             AnimationComponent = animationComponent;
+            InitialWeaponPoseHandle = initialWeaponPoseHandle;
         }
 
         public GameObject Root { get; }
@@ -32,6 +34,9 @@ namespace CGame
         public CharacterPhysicsMotor Motor { get; }
         public MovementComp Movement { get; }
         public CharacterAnimationComponent AnimationComponent { get; }
+        public Animation.AnimationPlaybackHandle InitialWeaponPoseHandle {
+            get;
+        }
         public bool IsOwnershipTransferred => !ownsAssembly;
 
         public void TransferRuntimeOwnership()

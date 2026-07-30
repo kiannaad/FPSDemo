@@ -11,6 +11,7 @@ namespace CGame
         private Vector3 pendingForce;
         private Vector3 pendingImpulse;
         private bool pendingJump;
+        private bool sprintRequested;
 
         public Controller Controller => controller;
         public PawnHost Host { get; private set; }
@@ -69,6 +70,7 @@ namespace CGame
         {
             movementInput = intent.MovementInput;
             pendingJump |= intent.JumpRequested;
+            sprintRequested = intent.SprintRequested;
         }
 
         /// <summary>
@@ -78,7 +80,7 @@ namespace CGame
         {
             bool jumpRequested = pendingJump;
             pendingJump = false;
-            return new CharacterMovementCommand(movementInput, jumpRequested);
+            return new CharacterMovementCommand(movementInput, jumpRequested, sprintRequested);
         }
 
         /// <summary>
@@ -96,6 +98,7 @@ namespace CGame
         {
             movementInput = Vector3.zero;
             pendingJump = false;
+            sprintRequested = false;
         }
 
         public void AddingForce(Vector3 force)
@@ -124,7 +127,7 @@ namespace CGame
 
         public void AddingJumpInput()
         {
-            SubmitControlIntent(new CharacterControlIntent(movementInput, true));
+            SubmitControlIntent(new CharacterControlIntent(movementInput, true, sprintRequested));
         }
 
         /// <summary>

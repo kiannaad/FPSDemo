@@ -17,6 +17,13 @@ namespace CGame
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
         public WeaponRuntime WeaponRuntime => weaponRuntime;
 
+        public bool InitializeWeapon(
+            WeaponId weaponId,
+            WeaponRuntimeCapabilities capabilities)
+        {
+            return weaponRuntime.Initialize(weaponId, capabilities);
+        }
+
         public bool RequestEquipWeapon(WeaponId weaponId)
         {
             return weaponRuntime.RequestEquip(weaponId);
@@ -27,9 +34,28 @@ namespace CGame
             return weaponRuntime.RequestUnequip();
         }
 
+        public WeaponSwitchRequestResult RequestSwitchWeapon(
+            WeaponId weaponId,
+            out WeaponSwitchFact weaponSwitch)
+        {
+            return weaponRuntime.RequestSwitchWeapon(
+                weaponId,
+                out weaponSwitch);
+        }
+
         public bool RequestFireWeapon(out WeaponActionFact action)
         {
             return weaponRuntime.RequestFire(out action);
+        }
+
+        public bool RequestPrimaryWeaponAction(out WeaponActionFact action)
+        {
+            return weaponRuntime.RequestPrimaryAction(out action);
+        }
+
+        public bool RequestReloadWeapon(out WeaponActionFact action)
+        {
+            return weaponRuntime.RequestReload(out action);
         }
 
         public bool CompleteWeaponAction(ulong actionId)

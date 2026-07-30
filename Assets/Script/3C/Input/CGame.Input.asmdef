@@ -3,6 +3,7 @@
     "rootNamespace": "CGame",
     "references": [
         "CGame.Character.Definition",
+        "CGame.Animation",
         "YooAsset",
         "Unity.InputSystem"
     ],

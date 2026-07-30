@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Animations;
+using UnityEngine.Playables;
 
 namespace CGame.Animation
 {
@@ -8,19 +10,37 @@ namespace CGame.Animation
     {
         private static readonly string[] compositionOrder =
         {
-            "FullBodyAction",
+            "AnimatorController",
+            "WeaponPose",
             "UpperBodyWeaponAction",
             "AimAdditive",
             "AdditiveReaction",
             "LeftHandIK",
-            "RootDelta",
         };
-        private readonly OutputNode output;
-        private readonly AnimationStateMachineNode locomotionStateMachine;
-        private readonly InertializationNode inertializationNode;
+        private const float MovingThreshold = 0.1f;
+        private const float SprintThreshold = 4f;
+        private const float StopPoseDuration = 0.15f;
+        private static readonly int MoveXParameter = Animator.StringToHash("MoveX");
+        private static readonly int MoveYParameter = Animator.StringToHash("MoveY");
+        private static readonly int VelocityParameter = Animator.StringToHash("Velocity");
+        private static readonly int MovingParameter = Animator.StringToHash("Moving");
+        private static readonly int InAirParameter = Animator.StringToHash("InAir");
+        private static readonly int SprintingParameter = Animator.StringToHash("Sprinting");
+        private readonly Animator animator;
+        private readonly AnimatorCullingMode previousCullingMode;
+        private readonly PlayableGraph playableGraph;
+        private PlayableOutput animatorOutput;
+        private readonly Playable animatorControllerSource;
+        private readonly AnimationGraphContext context;
+        private readonly IAnimationPlayableNode rootNode;
+        private Playable rootPlayable;
         private readonly WeaponAnimationDefinitionResolver weaponDefinitionResolver;
         private readonly WeaponLayerBlendNode weaponLayerBlendNode;
+        private readonly ActionNode equipActionNode;
+        private readonly ActionNode unequipActionNode;
         private readonly ActionNode fireActionNode;
+        private readonly ActionNode reloadActionNode;
+        private readonly PriorityNode upperBodyActionNode;
         private readonly AimOffsetNode aimOffsetNode;
         private readonly RecoilReactionNode recoilReactionNode;
         private readonly HumanoidLeftHandIkNode leftHandIkNode;
@@ -28,6 +48,11 @@ namespace CGame.Animation
         private readonly Transform observerChest;
         private WeaponAnimationDefinition appliedWeaponDefinition;
         private WeaponEquipmentSnapshot appliedWeaponSnapshot;
+        private bool hasConsumableLeftHandBinding;
+        private bool wasMoving;
+        private float stopPoseElapsed;
+        private string currentLocomotionState = "Idle";
+        private bool isDisposed;
 
         public event Action<ActionPresentationEnded> PresentationEnded;
 
@@ -36,97 +61,126 @@ namespace CGame.Animation
             if (animator == null) throw new ArgumentNullException(nameof(animator));
             if (config == null || !config.IsValid) throw new ArgumentException("A valid character animation config is required.", nameof(config));
 
-            var move = new Blend1DNode(new[]
+            this.animator = animator;
+            previousCullingMode = animator.cullingMode;
+            playableGraph = animator.playableGraph;
+            if (!playableGraph.IsValid() || playableGraph.GetOutputCount() == 0)
             {
-                new Blend1DChild(new ClipNode(config.Walk.AnimationClip), 1f),
-                new Blend1DChild(new ClipNode(config.Run.AnimationClip), 3f),
-            }, context => context.MoveSpeed);
-            AnimationState[] states =
-            {
-                new AnimationState("Idle", new ClipNode(config.Idle.AnimationClip)),
-                new AnimationState("Move", move),
-                new AnimationState("Stop", CreateOneShot(config.Stop.AnimationClip)),
-                new AnimationState("Air", new ClipNode(config.InAir.AnimationClip)),
-                new AnimationState("Land", CreateOneShot(config.Land.AnimationClip)),
-            };
-            AnimationStateTransition[] transitions =
-            {
-                new AnimationStateTransition("Idle", "Move", context => context.IsGrounded && context.MoveSpeed > 0.1f),
-                new AnimationStateTransition("Move", "Stop", context => context.IsGrounded && context.MoveSpeed <= 0.1f),
-                new AnimationStateTransition("Stop", "Move", context => context.IsGrounded && context.MoveSpeed > 0.1f, 10),
-                new AnimationStateTransition("Stop", "Idle", context => context.IsGrounded && context.MoveSpeed <= 0.1f),
-                new AnimationStateTransition(string.Empty, "Air", context => !context.IsGrounded, 100, 0.08f),
-                new AnimationStateTransition("Air", "Land", context => context.IsGrounded, 120, 0.08f),
-                new AnimationStateTransition("Land", "Move", context => context.IsGrounded && context.MoveSpeed > 0.1f, 10, 0.1f),
-                new AnimationStateTransition("Land", "Idle", context => context.IsGrounded && context.MoveSpeed <= 0.1f, 0, 0.1f),
-            };
-            locomotionStateMachine = new AnimationStateMachineNode(states, transitions, "Idle");
-            var cachedLocomotion = new CachedPoseNode(locomotionStateMachine);
-            weaponDefinitionResolver = new WeaponAnimationDefinitionResolver(config.WeaponDefinitions);
-            AvatarMask upperBodyMask = CreateUpperBodyMask();
-            weaponLayerBlendNode = new WeaponLayerBlendNode(cachedLocomotion, upperBodyMask);
-            WeaponAnimationDefinition initialWeaponDefinition = FindInitialWeaponDefinition(config);
-            if (initialWeaponDefinition.Fire == null || !initialWeaponDefinition.Fire.IsValid)
-            {
-                throw new ArgumentException("The initial weapon definition requires a valid Fire action asset.", nameof(config));
+                throw new InvalidOperationException("Animator must own a valid PlayableGraph output before the upper-body graph is initialized.");
             }
 
+            animatorOutput = playableGraph.GetOutput(0);
+            animatorControllerSource = animatorOutput.GetSourcePlayable();
+            if (!animatorControllerSource.IsValid())
+            {
+                throw new InvalidOperationException("Animator PlayableGraph output has no valid controller source.");
+            }
+
+            context = new AnimationGraphContext(animator, playableGraph);
+            var animatorControllerNode = new AnimatorControllerPoseNode(animatorControllerSource);
+            weaponDefinitionResolver = new WeaponAnimationDefinitionResolver(config.WeaponDefinitions);
+            AvatarMask upperBodyMask = CreateUpperBodyMask();
+            weaponLayerBlendNode = new WeaponLayerBlendNode(animatorControllerNode, upperBodyMask);
+            WeaponAnimationDefinition initialWeaponDefinition = FindInitialWeaponDefinition(config);
+            if (initialWeaponDefinition.Fire == null || !initialWeaponDefinition.Fire.IsValid
+                || initialWeaponDefinition.Reload == null || !initialWeaponDefinition.Reload.IsValid)
+            {
+                throw new ArgumentException("The initial weapon definition requires valid Fire and Reload action assets.", nameof(config));
+            }
+
+            equipActionNode = new ActionNode(initialWeaponDefinition.Equip, 30);
+            unequipActionNode = new ActionNode(initialWeaponDefinition.Unequip, 40);
             fireActionNode = new ActionNode(initialWeaponDefinition.Fire, 10);
+            reloadActionNode = new ActionNode(initialWeaponDefinition.Reload, 35);
+            equipActionNode.PresentationEnded += OnActionPresentationEnded;
+            unequipActionNode.PresentationEnded += OnActionPresentationEnded;
             fireActionNode.PresentationEnded += OnActionPresentationEnded;
-            var upperBodyWeaponAction = new PriorityNode(fireActionNode);
+            reloadActionNode.PresentationEnded += OnActionPresentationEnded;
+            upperBodyActionNode = new PriorityNode(fireActionNode, equipActionNode, reloadActionNode, unequipActionNode);
             var layered = new LayeredBlendPerBoneNode(
                 weaponLayerBlendNode,
                 // The imported AK package has a real weapon-mechanism fire clip but no compatible
                 // character fire pose. Keep this channel authoritative for action lifetime/notifies
                 // without overriding locomotion; the visible impulse belongs to AdditiveReaction.
-                new LayeredAnimationInput(upperBodyWeaponAction, upperBodyMask, context => 0f, false, "UpperBodyWeaponAction"));
+                new LayeredAnimationInput(
+                    upperBodyActionNode,
+                    upperBodyMask,
+                    context => upperBodyActionNode.ActiveAction == reloadActionNode ? 1f : 0f,
+                    false,
+                    "UpperBodyWeaponAction"));
 
             aimOffsetNode = new AimOffsetNode(layered, animator);
             recoilReactionNode = new RecoilReactionNode(aimOffsetNode, animator);
             IAnimationPlayableNode root = recoilReactionNode;
-            Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
-            if (hips != null)
-            {
-                inertializationNode = new InertializationNode(root, hips);
-                root = inertializationNode;
-                locomotionStateMachine.StatePhaseChanged += OnStatePhaseChanged;
-            }
 
-            Transform spine = animator.GetBoneTransform(HumanBodyBones.Spine);
-            Transform chest = animator.GetBoneTransform(HumanBodyBones.UpperChest)
-                ?? animator.GetBoneTransform(HumanBodyBones.Chest);
+            Transform spine = CharacterBoneResolver.Resolve(
+                animator,
+                HumanBodyBones.Spine,
+                "Spine");
+            Transform chest = CharacterBoneResolver.Resolve(
+                    animator,
+                    HumanBodyBones.UpperChest,
+                    "UpperChest")
+                ?? CharacterBoneResolver.Resolve(
+                    animator,
+                    HumanBodyBones.Chest,
+                    "Chest");
             observerSpine = chest != null
                 ? spine
-                : animator.GetBoneTransform(HumanBodyBones.Neck) ?? spine;
-            observerChest = chest ?? animator.GetBoneTransform(HumanBodyBones.Head);
+                : CharacterBoneResolver.Resolve(
+                    animator,
+                    HumanBodyBones.Neck,
+                    "Neck") ?? spine;
+            observerChest = chest ?? CharacterBoneResolver.Resolve(
+                animator,
+                HumanBodyBones.Head,
+                "Head");
 
-            Transform leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
+            Transform leftHand = animator.isHuman
+                ? CharacterBoneResolver.Resolve(
+                    animator,
+                    HumanBodyBones.LeftHand,
+                    "Left_Hand")
+                : null;
             if (animator.isHuman && leftHand != null)
             {
                 leftHandIkNode = new HumanoidLeftHandIkNode(root);
                 root = leftHandIkNode;
             }
 
-            Transform leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
-            Transform rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
-            if (leftFoot != null && rightFoot != null)
+            rootNode = root;
+            rootNode.Initialize(context);
+            context.BeginEvaluateFrame();
+            rootPlayable = rootNode.Evaluate(context).Playable;
+            if (!rootPlayable.IsValid())
             {
-                root = new FootIkNode(root, animator, leftFoot, rightFoot);
+                throw new InvalidOperationException("Upper-body graph produced an invalid root playable.");
             }
 
-            root = new RootDeltaNode(root);
-            output = new OutputNode(root, "CharacterAnimationGraph");
-            output.Initialize(animator);
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            playableGraph.DestroyOutput(animatorOutput);
+            animatorOutput = AnimationPlayableOutput.Create(
+                playableGraph,
+                "CharacterUpperBody",
+                animator);
+            animatorOutput.SetSourcePlayable(rootPlayable);
+            playableGraph.Play();
         }
 
-        public AnimationGraphContext Context => output.Context;
-        public string CurrentLocomotionState => locomotionStateMachine.CurrentState;
-        public bool IsInitialized => output.IsInitialized;
+        public AnimationGraphContext Context => context;
+        public string CurrentLocomotionState => currentLocomotionState;
+        public bool IsInitialized => !isDisposed
+            && playableGraph.IsValid()
+            && animatorOutput.IsOutputValid()
+            && rootPlayable.IsValid();
         public WeaponId EquippedWeaponId => appliedWeaponSnapshot.EquippedWeaponId;
         public uint WeaponGeneration => appliedWeaponSnapshot.Generation;
         public WeaponLayerBlendNode WeaponLayerBlend => weaponLayerBlendNode;
         public AimOffsetNode AimOffset => aimOffsetNode;
         public ActionNode FireAction => fireActionNode;
+        public ActionNode ReloadAction => reloadActionNode;
+        public ActionNode EquipAction => equipActionNode;
+        public ActionNode UnequipAction => unequipActionNode;
         public RecoilReactionNode RecoilReaction => recoilReactionNode;
         public HumanoidLeftHandIkNode LeftHandIk => leftHandIkNode;
         public static IReadOnlyList<string> CompositionOrder => compositionOrder;
@@ -143,6 +197,7 @@ namespace CGame.Animation
                 return;
             }
 
+            bool wasEquipped = appliedWeaponSnapshot.IsEquipped;
             appliedWeaponSnapshot = snapshot;
             Context.ActiveWeaponGeneration = snapshot.Generation;
             EndActivePresentation(ActionPresentationEndReason.EquipmentChanged);
@@ -150,16 +205,22 @@ namespace CGame.Animation
             if (!snapshot.IsEquipped)
             {
                 appliedWeaponDefinition = null;
+                hasConsumableLeftHandBinding = false;
                 Context.AimWeight = 0f;
                 Context.LeftHandIkWeight = 0f;
                 leftHandIkNode?.SetBinding(null, 0.08f);
                 weaponLayerBlendNode.SetTarget(null, 0.15f);
+                if (wasEquipped)
+                {
+                    unequipActionNode.Request(CreateEquipmentActionId(snapshot.Generation, false));
+                }
                 return;
             }
 
             if (!weaponDefinitionResolver.TryResolve(snapshot.EquippedWeaponId, out WeaponAnimationDefinition definition))
             {
                 appliedWeaponDefinition = null;
+                hasConsumableLeftHandBinding = false;
                 Context.AimWeight = 0f;
                 Context.LeftHandIkWeight = 0f;
                 leftHandIkNode?.SetBinding(null, 0.08f);
@@ -169,7 +230,8 @@ namespace CGame.Animation
             }
 
             appliedWeaponDefinition = definition;
-            var nextLayer = new WeaponAnimationLayer(definition, snapshot.Generation, () => locomotionStateMachine.CurrentState);
+            equipActionNode.Request(CreateEquipmentActionId(snapshot.Generation, true));
+            var nextLayer = new WeaponAnimationLayer(definition, snapshot.Generation, () => currentLocomotionState);
             weaponLayerBlendNode.SetTarget(nextLayer, definition.BlendDuration);
             aimOffsetNode.Configure(
                 definition.AimYawRange,
@@ -178,7 +240,10 @@ namespace CGame.Animation
                 definition.AimWeight,
                 definition.AimSmoothingTime);
             Context.AimWeight = 1f;
-            bool hasGrip = binding != null && binding.CanConsume(snapshot.Generation);
+            bool hasGrip = leftHandIkNode != null
+                && binding != null
+                && binding.CanConsume(snapshot.Generation);
+            hasConsumableLeftHandBinding = hasGrip;
             Context.LeftHandIkWeight = hasGrip ? 1f : 0f;
             leftHandIkNode?.SetBinding(binding, definition.LeftHandIkSmoothingTime);
             recoilReactionNode.Configure(definition.RecoilImpulse, definition.RecoilMaxPitch, definition.RecoilDecayTime);
@@ -218,12 +283,22 @@ namespace CGame.Animation
 
         public bool StartWeaponAction(WeaponActionFact fact)
         {
-            if (!CanConsume(fact) || fact.Phase != WeaponActionPhase.Started || fact.Kind != WeaponActionKind.Fire)
+            if (!CanConsume(fact) || fact.Phase != WeaponActionPhase.Started)
             {
                 return false;
             }
 
-            fireActionNode.Request(fact.ActionId);
+            ActionNode actionNode = fact.Kind == WeaponActionKind.Fire
+                ? fireActionNode
+                : fact.Kind == WeaponActionKind.Reload
+                    ? reloadActionNode
+                    : null;
+            if (actionNode == null)
+            {
+                return false;
+            }
+
+            actionNode.Request(fact.ActionId);
             Context.RecordDebugEvent(nameof(CharacterAnimationGraph), $"UpperBodyWeaponAction:Started:{fact.ActionId}");
             return true;
         }
@@ -251,7 +326,8 @@ namespace CGame.Animation
             }
 
             ActionPresentationEndReason reason = MapEndReason(fact);
-            bool ended = fireActionNode.End(fact.ActionId, reason);
+            ActionNode actionNode = fact.Kind == WeaponActionKind.Reload ? reloadActionNode : fireActionNode;
+            bool ended = actionNode.End(fact.ActionId, reason);
             if (fact.Phase == WeaponActionPhase.Cancelled
                 && fact.EndReason != WeaponActionEndReason.Superseded)
             {
@@ -262,25 +338,91 @@ namespace CGame.Animation
 
         public void Update(float deltaTime)
         {
-            output.Update(deltaTime);
+            if (!IsInitialized)
+            {
+                return;
+            }
+
+            UpdateAnimatorControllerParameters();
+            UpdateLocomotionPresentationState(deltaTime);
+            ActionNode activeAction = upperBodyActionNode.ActiveAction;
+            float actionIkWeight = activeAction != null
+                ? activeAction.SampleNamedCurve("MaskLeftHandIK", 1f)
+                : 1f;
+            float attachHandWeight = activeAction != null
+                ? activeAction.SampleNamedCurve("MaskAttachHand", 1f)
+                : 1f;
+            Context.LeftHandIkWeight = appliedWeaponSnapshot.IsEquipped && hasConsumableLeftHandBinding
+                ? Mathf.Clamp01(actionIkWeight * attachHandWeight)
+                : 0f;
+            Context.WeaponBoneWeight = activeAction != null
+                ? Mathf.Clamp01(activeAction.SampleNamedCurve("WeaponBoneWeight", 1f))
+                : 1f;
+            context.DeltaTime = deltaTime;
+            context.ElapsedTime += Mathf.Max(0f, deltaTime);
+            rootNode.Update(context, deltaTime);
+            context.BeginEvaluateFrame();
+            Playable evaluatedRoot = rootNode.Evaluate(context).Playable;
+            if (evaluatedRoot.IsValid() && !evaluatedRoot.Equals(animatorOutput.GetSourcePlayable()))
+            {
+                rootPlayable = evaluatedRoot;
+                animatorOutput.SetSourcePlayable(rootPlayable);
+            }
             ApplyObserverAim();
         }
 
-        public AnimationGraphDebugSnapshot GetDebugSnapshot() => output.GetGraphDebugSnapshot();
+        public AnimationGraphDebugSnapshot GetDebugSnapshot()
+        {
+            var events = new AnimationDebugEvent[context.DebugEvents.Count];
+            for (int i = 0; i < events.Length; i++)
+            {
+                events[i] = context.DebugEvents[i];
+            }
+
+            return new AnimationGraphDebugSnapshot(
+                rootNode.GetDebugSnapshot(),
+                currentLocomotionState,
+                1f,
+                context.DebugActiveAction,
+                context.DebugActiveActionWeight,
+                events);
+        }
 
         public void Dispose()
         {
-            locomotionStateMachine.StatePhaseChanged -= OnStatePhaseChanged;
-            fireActionNode.PresentationEnded -= OnActionPresentationEnded;
-            output.Destroy();
-        }
-
-        private void OnStatePhaseChanged(string state, LocomotionStatePhase phase)
-        {
-            if (phase == LocomotionStatePhase.Enter)
+            if (isDisposed)
             {
-                inertializationNode?.Request(0.12f);
+                return;
             }
+
+            equipActionNode.PresentationEnded -= OnActionPresentationEnded;
+            unequipActionNode.PresentationEnded -= OnActionPresentationEnded;
+            fireActionNode.PresentationEnded -= OnActionPresentationEnded;
+            reloadActionNode.PresentationEnded -= OnActionPresentationEnded;
+            if (animatorOutput.IsOutputValid())
+            {
+                playableGraph.DestroyOutput(animatorOutput);
+            }
+
+            if (playableGraph.IsValid() && animatorControllerSource.IsValid())
+            {
+                animatorOutput = AnimationPlayableOutput.Create(
+                    playableGraph,
+                    "AnimatorController",
+                    animator);
+                animatorOutput.SetSourcePlayable(animatorControllerSource);
+            }
+
+            weaponLayerBlendNode.DetachBaseInput();
+            rootNode.Destroy();
+            if (playableGraph.IsValid() && rootPlayable.IsValid())
+            {
+                playableGraph.DestroySubgraph(rootPlayable);
+            }
+
+            rootPlayable = Playable.Null;
+            animator.cullingMode = previousCullingMode;
+            isDisposed = true;
         }
 
         private void ApplyObserverAim()
@@ -317,9 +459,56 @@ namespace CGame.Animation
                 Mathf.Clamp01(context.ObserverAimWeight));
         }
 
-        private static ClipNode CreateOneShot(AnimationClip clip)
+        private void UpdateAnimatorControllerParameters()
         {
-            return new ClipNode(clip) { Loop = false };
+            Vector2 localMove = new Vector2(context.LocalVelocity.x, context.LocalVelocity.z);
+            Vector2 direction = localMove.sqrMagnitude > 0.0001f ? localMove.normalized : Vector2.zero;
+            bool isMoving = context.IsGrounded && context.MoveSpeed > MovingThreshold;
+            bool isInAir = !context.IsGrounded;
+            float sprinting = isMoving && context.MoveSpeed > SprintThreshold ? 1f : 0f;
+            animator.SetFloat(MoveXParameter, direction.x);
+            animator.SetFloat(MoveYParameter, direction.y);
+            animator.SetFloat(VelocityParameter, direction.magnitude);
+            animator.SetBool(MovingParameter, isMoving);
+            animator.SetBool(InAirParameter, isInAir);
+            animator.SetFloat(SprintingParameter, sprinting);
+        }
+
+        private void UpdateLocomotionPresentationState(float deltaTime)
+        {
+            bool isMoving = context.IsGrounded && context.MoveSpeed > MovingThreshold;
+            if (!context.IsGrounded)
+            {
+                currentLocomotionState = "Air";
+                stopPoseElapsed = 0f;
+            }
+            else if (isMoving)
+            {
+                currentLocomotionState = context.MoveSpeed > SprintThreshold ? "Sprint" : "Move";
+                stopPoseElapsed = 0f;
+            }
+            else
+            {
+                if (wasMoving)
+                {
+                    stopPoseElapsed = Mathf.Epsilon;
+                }
+                else if (stopPoseElapsed > 0f)
+                {
+                    stopPoseElapsed += Mathf.Max(0f, deltaTime);
+                }
+
+                currentLocomotionState = stopPoseElapsed > 0f && stopPoseElapsed < StopPoseDuration
+                    ? "Stop"
+                    : "Idle";
+                if (stopPoseElapsed >= StopPoseDuration)
+                {
+                    stopPoseElapsed = 0f;
+                }
+            }
+
+            wasMoving = isMoving;
+            context.DebugLocomotionState = currentLocomotionState;
         }
 
         private bool CanConsume(WeaponActionFact fact)
@@ -332,14 +521,26 @@ namespace CGame.Animation
 
         private void EndActivePresentation(ActionPresentationEndReason reason)
         {
-            if (fireActionNode.IsActive)
+            EndActionPresentation(fireActionNode, reason);
+            EndActionPresentation(equipActionNode, reason);
+            EndActionPresentation(unequipActionNode, reason);
+        }
+
+        private static void EndActionPresentation(ActionNode actionNode, ActionPresentationEndReason reason)
+        {
+            if (actionNode.IsActive)
             {
-                fireActionNode.End(fireActionNode.RequestId, reason);
+                actionNode.End(actionNode.RequestId, reason);
             }
-            else if (fireActionNode.PendingRequestId > 0ul)
+            else if (actionNode.PendingRequestId > 0ul)
             {
-                fireActionNode.End(fireActionNode.PendingRequestId, reason);
+                actionNode.End(actionNode.PendingRequestId, reason);
             }
+        }
+
+        private static ulong CreateEquipmentActionId(uint generation, bool equip)
+        {
+            return ((ulong)generation << 32) | (equip ? 0xE001ul : 0xE002ul);
         }
 
         private void OnActionPresentationEnded(ActionPresentationEnded ended)
@@ -396,6 +597,42 @@ namespace CGame.Animation
             mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftFingers, true);
             mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightFingers, true);
             return mask;
+        }
+
+        private sealed class AnimatorControllerPoseNode : AnimationNodeBase
+        {
+            private readonly Playable sourcePlayable;
+
+            public AnimatorControllerPoseNode(Playable sourcePlayable)
+            {
+                this.sourcePlayable = sourcePlayable;
+            }
+
+            public override AnimationPoseHandle Evaluate(AnimationGraphContext graphContext)
+            {
+                return new AnimationPoseHandle(
+                    sourcePlayable,
+                    1f,
+                    graphContext.EvaluateFrameId,
+                    nameof(AnimatorControllerPoseNode));
+            }
+
+            public override AnimationNodeDebugSnapshot GetDebugSnapshot()
+            {
+                return new AnimationNodeDebugSnapshot(
+                    nameof(AnimatorControllerPoseNode),
+                    sourcePlayable.IsValid(),
+                    1f,
+                    0);
+            }
+
+            protected override void OnInitialize(AnimationGraphContext graphContext)
+            {
+                if (!sourcePlayable.IsValid())
+                {
+                    throw new InvalidOperationException("Animator controller source playable is invalid.");
+                }
+            }
         }
     }
 }

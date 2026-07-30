@@ -38,10 +38,10 @@ namespace CGame
 
             Transform rightHand = assembly.Animator.isHuman
                 ? assembly.Animator.GetBoneTransform(HumanBodyBones.RightHand)
-                : null;
+                : FindBone(assembly.Animator.transform, "Right_Hand");
             if (rightHand == null)
             {
-                throw new InvalidOperationException("The AI character requires a humanoid right-hand bone.");
+                throw new InvalidOperationException("The AI character requires a right-hand bone.");
             }
 
             GameObject rifle = null;
@@ -148,6 +148,20 @@ namespace CGame
                 DestroyObject(rifle);
                 throw;
             }
+        }
+
+        private static Transform FindBone(Transform root, string boneName)
+        {
+            Transform[] transforms = root.GetComponentsInChildren<Transform>(true);
+            foreach (Transform candidate in transforms)
+            {
+                if (candidate.name == boneName)
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
 
         private static void DestroyObject(UnityEngine.Object target)

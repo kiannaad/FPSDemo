@@ -1,5 +1,6 @@
 using CGame.Animation;
 using UnityEngine;
+using YooAsset;
 
 namespace CGame
 {
@@ -7,44 +8,51 @@ namespace CGame
     {
         private readonly Animator animator;
         private readonly CharacterPhysicsMotor motor;
-        private readonly MovementComp movementComp;
-        private readonly CharacterAnimationConfig config;
-        private Pawn owner;
+        private readonly CharacterAnimationConfig animationConfig;
+        private readonly WeaponAnimationDefinition initialWeaponDefinition;
+        private Pawn pawn;
         private CharacterAnimInstance animInstance;
-        private CharacterWeaponAnimationBridge weaponAnimationBridge;
-        private Vector3 previousLocation;
-        private Quaternion previousRotation;
-        private Vector3 previousVelocity;
-        private bool isFirstUpdate = true;
+        private AnimationPlaybackHandle initialWeaponPoseHandle;
 
         public CharacterAnimationComponent(
             Animator animator,
             CharacterPhysicsMotor motor,
-            MovementComp movementComp,
-            CharacterAnimationConfig config)
+            CharacterAnimationConfig animationConfig,
+            WeaponAnimationDefinition initialWeaponDefinition)
         {
-            this.animator = animator;
-            this.motor = motor;
-            this.movementComp = movementComp;
-            this.config = config;
+            this.animator =
+                animator
+                ?? throw new System.ArgumentNullException(nameof(animator));
+            this.motor =
+                motor
+                ?? throw new System.ArgumentNullException(nameof(motor));
+            this.animationConfig =
+                animationConfig
+                ?? throw new System.ArgumentNullException(
+                    nameof(animationConfig));
+            this.initialWeaponDefinition =
+                initialWeaponDefinition
+                ?? throw new System.ArgumentNullException(
+                    nameof(initialWeaponDefinition));
         }
 
         public int Priority => 10;
-        public CharacterAnimInstance AnimInstance => animInstance;
 
         public void InitializingComponent(Pawn pawn)
         {
-            owner = pawn;
-            animInstance = new CharacterAnimInstance(animator, config);
-            weaponAnimationBridge = new CharacterWeaponAnimationBridge(animator, config, animInstance.Graph);
-            previousLocation = motor.transform.position;
-            previousRotation = motor.transform.rotation;
-            previousVelocity = motor.Velocity;
-            isFirstUpdate = true;
+            this.pawn = pawn;
+            animInstance?.Dispose();
+            animInstance = new CharacterAnimInstance(
+                new AnimationCharacterSource(motor),
+                animator,
+                animationConfig.UpperBodyMask);
         }
 
         public void UpdatingComponent(float elapseSeconds)
         {
+            animInstance?.UpdateAnimation(
+                elapseSeconds,
+                pawn?.Controller?.WeaponRuntime);
         }
 
         public void FixedUpdatingComponent(float elapseSeconds)
@@ -53,64 +61,55 @@ namespace CGame
 
         public void LateUpdatingComponent(float elapseSeconds)
         {
-            if (owner == null || animInstance == null || elapseSeconds <= 0f)
-            {
-                return;
-            }
-
-            Transform characterTransform = motor.transform;
-            Vector3 location = characterTransform.position;
-            Quaternion rotation = characterTransform.rotation;
-            Vector3 velocity = motor.Velocity;
-            Vector3 acceleration = isFirstUpdate ? Vector3.zero : (velocity - previousVelocity) / elapseSeconds;
-            float displacementSpeed = isFirstUpdate ? 0f : Vector3.ProjectOnPlane(location - previousLocation, Vector3.up).magnitude / elapseSeconds;
-            float yawDeltaSpeed = isFirstUpdate ? 0f : Mathf.DeltaAngle(previousRotation.eulerAngles.y, rotation.eulerAngles.y) / elapseSeconds;
-            bool isGrounded = motor.GroundingStatus.IsStableOnGround;
-            bool isJumping = !isGrounded && velocity.y > 0.01f;
-            bool isFalling = !isGrounded && velocity.y <= 0.01f;
-            float timeToJumpApex = isJumping ? velocity.y / Mathf.Max(0.001f, movementComp.Gravity) : 0f;
-            Vector3 localVelocity = Quaternion.Inverse(rotation) * velocity;
-            var frameData = new CharacterAnimationFrameData(
-                location,
-                rotation,
-                velocity,
-                localVelocity,
-                acceleration,
-                displacementSpeed,
-                yawDeltaSpeed,
-                isGrounded,
-                isJumping,
-                isFalling,
-                timeToJumpApex);
-            animInstance.UpdatePhysicalProperties(frameData);
-            WeaponEquipmentSnapshot equipmentSnapshot = owner.Controller != null
-                ? owner.Controller.WeaponRuntime.Snapshot
-                : default;
-            weaponAnimationBridge.BindRuntime(owner.Controller?.WeaponRuntime);
-            CalculateAim(rotation, owner.ControlRotation, out float aimYaw, out float aimPitch);
-            weaponAnimationBridge.Update(equipmentSnapshot, aimYaw, aimPitch, elapseSeconds);
-            animInstance.UpdateAnimation(elapseSeconds);
-            previousLocation = location;
-            previousRotation = rotation;
-            previousVelocity = velocity;
-            isFirstUpdate = false;
         }
 
         public void ShuttingDownComponent()
         {
-            owner?.Controller?.WeaponRuntime.DisposeActiveAction();
-            weaponAnimationBridge?.Dispose();
-            weaponAnimationBridge = null;
             animInstance?.Dispose();
             animInstance = null;
-            owner = null;
+            initialWeaponPoseHandle = null;
+            pawn = null;
         }
 
-        private static void CalculateAim(Quaternion characterRotation, Quaternion controlRotation, out float yaw, out float pitch)
+        public AnimationPlaybackHandle PrepareInitialWeaponPose(
+            AnimationClipAsset overlayPose,
+            long requestId = 0)
         {
-            Vector3 localForward = Quaternion.Inverse(characterRotation) * (controlRotation * Vector3.forward);
-            yaw = Mathf.Atan2(localForward.x, localForward.z) * Mathf.Rad2Deg;
-            pitch = -Mathf.Asin(Mathf.Clamp(localForward.y, -1f, 1f)) * Mathf.Rad2Deg;
+            initialWeaponPoseHandle =
+                animInstance?.PrepareInitialPose(
+                    overlayPose,
+                    requestId);
+            return initialWeaponPoseHandle;
+        }
+
+        public void ConfigureWeaponRuntimeResources(
+            IWeaponAnimationDefinitionLocationResolver locationResolver,
+            AssetHandle initialDefinitionHandle)
+        {
+            if (animInstance == null)
+            {
+                throw new System.InvalidOperationException(
+                    "Character animation must be initialized before weapon runtime resources are transferred.");
+            }
+
+            animInstance.ConfigureWeaponRuntimeResources(
+                locationResolver,
+                initialDefinitionHandle,
+                initialWeaponPoseHandle);
+        }
+
+        private sealed class AnimationCharacterSource : IAnimationCharacterSource
+        {
+            private readonly CharacterPhysicsMotor motor;
+
+            public AnimationCharacterSource(CharacterPhysicsMotor motor)
+            {
+                this.motor = motor;
+            }
+
+            public Transform Transform => motor != null ? motor.transform : null;
+            public Vector3 Velocity => motor != null ? motor.Velocity : Vector3.zero;
+            public bool IsGrounded => motor != null && motor.GroundingStatus.IsStableOnGround;
         }
     }
 }

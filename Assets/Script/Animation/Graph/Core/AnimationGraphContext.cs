@@ -21,6 +21,7 @@ namespace CGame.Animation
         public float MoveSpeed { get; set; }
         public float OverlayWeight { get; set; }
         public float LeftHandIkWeight { get; set; }
+        public float WeaponBoneWeight { get; set; } = 1f;
         public float AimYaw { get; set; }
         public float AimPitch { get; set; }
         public float AimWeight { get; set; }
@@ -41,10 +42,8 @@ namespace CGame.Animation
         public float DisplacementSpeed { get; set; }
         public float YawDeltaSpeed { get; set; }
         public float TimeToJumpApex { get; set; }
-        public AnimationRootMotionDelta RootMotionDelta { get; set; }
         public float ElapsedTime { get; internal set; }
         public string DebugLocomotionState { get; internal set; } = string.Empty;
-        public float DebugFadeProgress { get; internal set; } = 1f;
         public string DebugActiveAction { get; internal set; } = string.Empty;
         public float DebugActiveActionWeight { get; internal set; }
         public IReadOnlyList<AnimationDebugEvent> DebugEvents => debugEvents;
@@ -65,23 +64,5 @@ namespace CGame.Animation
             debugEvents.Add(new AnimationDebugEvent(ElapsedTime, source, eventName, value));
         }
 
-        public void ResetRootMotionDelta()
-        {
-            RootMotionDelta = AnimationRootMotionDelta.None;
-        }
-
-        public void AccumulateRootMotionDelta(AnimationRootMotionDelta delta)
-        {
-            if (!delta.IsValid)
-            {
-                return;
-            }
-
-            Vector3 position = RootMotionDelta.PositionDelta + delta.PositionDelta * delta.SourceWeight;
-            Quaternion rotation = RootMotionDelta.RotationDelta
-                * Quaternion.Slerp(Quaternion.identity, delta.RotationDelta, delta.SourceWeight);
-            float weight = Mathf.Clamp01(RootMotionDelta.SourceWeight + delta.SourceWeight);
-            RootMotionDelta = new AnimationRootMotionDelta(position, rotation, weight);
-        }
     }
 }

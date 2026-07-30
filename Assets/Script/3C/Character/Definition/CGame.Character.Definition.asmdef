@@ -2,7 +2,8 @@
     "name": "CGame.Character.Definition",
     "rootNamespace": "CGame",
     "references": [
-        "CGame.Animation"
+        "CGame.Animation",
+        "CGame.Weapon"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

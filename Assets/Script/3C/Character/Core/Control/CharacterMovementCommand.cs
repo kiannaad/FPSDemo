@@ -7,13 +7,15 @@ namespace CGame
     /// </summary>
     public readonly struct CharacterMovementCommand
     {
-        public CharacterMovementCommand(Vector3 movementInput, bool jumpRequested)
+        public CharacterMovementCommand(Vector3 movementInput, bool jumpRequested, bool sprintRequested = false)
         {
             MovementInput = movementInput;
             JumpRequested = jumpRequested;
+            SprintRequested = sprintRequested;
         }
 
         public Vector3 MovementInput { get; }
         public bool JumpRequested { get; }
+        public bool SprintRequested { get; }
     }
 }

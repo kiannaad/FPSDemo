@@ -58,7 +58,9 @@ namespace CGame.Animation
                 || (definition.Run != null && definition.Run.IsValid);
             if (!hasMove) return "WalkOrRun";
             if (definition.Fire == null || !definition.Fire.IsValid) return "Fire";
-            if (definition.WeaponModelFire == null) return "WeaponModelFire";
+            if (definition.WeaponModelFire == null || !definition.WeaponModelFire.IsValid) return "WeaponModelFire";
+            if (definition.Reload == null || !definition.Reload.IsValid) return "Reload";
+            if (definition.WeaponModelReload == null || !definition.WeaponModelReload.IsValid) return "WeaponModelReload";
             if (definition.PresentationPrefab == null) return "PresentationPrefab";
             return null;
         }

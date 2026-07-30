@@ -11,5 +11,9 @@ namespace CGame
         ControlKindNotSupportedByDefinition,
         CommitFailed,
         DuplicateRequestId,
+        InvalidInitialWeaponId,
+        InitialWeaponDefinitionNotFound,
+        InitialWeaponResourceFailed,
+        InvalidInitialWeaponDefinition,
     }
 }

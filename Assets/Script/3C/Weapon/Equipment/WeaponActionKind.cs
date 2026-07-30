@@ -4,5 +4,7 @@ namespace CGame
     {
         None,
         Fire,
+        Reload,
+        MeleeAttack,
     }
 }

@@ -15,6 +15,7 @@ namespace CGame
 
         internal PlayerController Controller => controller;
         public bool IsActive => controller != null && registration != null && registration.IsActive;
+        public WeaponRuntime WeaponRuntime => controller?.WeaponRuntime;
 
         public void Dispose()
         {

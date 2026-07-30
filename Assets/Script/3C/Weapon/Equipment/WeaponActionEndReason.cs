@@ -9,5 +9,8 @@ namespace CGame
         Unequipped,
         EquipmentChanged,
         OwnerDisposed,
+        AnimationInterrupted,
+        AnimationCancelled,
+        AnimationFailed,
     }
 }

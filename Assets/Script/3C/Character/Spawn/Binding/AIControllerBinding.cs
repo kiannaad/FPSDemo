@@ -30,6 +30,7 @@ namespace CGame
         }
 
         public bool IsActive => runtimeRegistration != null && runtimeRegistration.IsActive;
+        public WeaponRuntime WeaponRuntime => controller?.WeaponRuntime;
 
         public void Dispose()
         {

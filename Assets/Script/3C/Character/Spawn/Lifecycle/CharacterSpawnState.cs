@@ -4,6 +4,7 @@ namespace CGame
     {
         Requested,
         ResolvingDefinition,
+        ResolvingInitialWeapon,
         Assembling,
         Registering,
         Possessing,

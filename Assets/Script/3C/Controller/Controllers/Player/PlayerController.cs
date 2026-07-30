@@ -90,11 +90,19 @@ namespace CGame
             Quaternion movementRotation = Quaternion.Euler(0f, ControlYaw, 0f);
             Vector3 worldDirection = movementRotation * localDirection;
             ControlledPawn.SubmitControlIntent(
-                new CharacterControlIntent(worldDirection, inputState.JumpPressed));
+                new CharacterControlIntent(worldDirection, inputState.JumpPressed, inputState.SprintHeld));
             combatIntentSink?.SubmitCombatIntent(new CharacterCombatIntent(
                 ControlRotation * Vector3.forward,
                 inputState.FirePressed || inputState.FireHeld,
                 inputState.ReloadPressed));
+            if (inputState.ReloadPressed)
+            {
+                RequestReloadWeapon(out _);
+            }
+            else if (inputState.FirePressed)
+            {
+                RequestPrimaryWeaponAction(out _);
+            }
         }
     }
 }
