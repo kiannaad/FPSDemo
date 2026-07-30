@@ -100,43 +100,33 @@ namespace CGame.Tests
         }
 
         [Test]
-        public void CinemachineOutput_CreatesUrpWorldAndViewModelStack()
+        public void CinemachineOutput_CreatesSingleUrpCameraWithoutViewModelStack()
         {
-            const float expectedViewModelFieldOfView = 72f;
-            const float expectedViewModelNearClip = 0.01f;
             Type outputType = RequireRuntimeType("CGame.CinemachineCameraOutput");
             object output = null;
+            int cameraCountBefore = UnityEngine.Object.FindObjectsOfType<Camera>().Length;
+            int listenerCountBefore = UnityEngine.Object.FindObjectsOfType<AudioListener>().Length;
 
             try
             {
                 output = InvokeStatic(outputType, "Create");
                 Camera worldCamera = GetProperty<Camera>(output, "WorldCamera");
                 Camera viewModelCamera = GetProperty<Camera>(output, "ViewModelCamera");
-                int viewModelLayer = LayerMask.NameToLayer("FirstPersonViewModel");
-                int viewModelMask = 1 << viewModelLayer;
                 Type additionalCameraDataType = RequireRuntimeType("UnityEngine.Rendering.Universal.UniversalAdditionalCameraData");
                 Type brainType = RequireRuntimeType("Unity.Cinemachine.CinemachineBrain");
                 Component worldData = worldCamera.GetComponent(additionalCameraDataType);
-                Component viewModelData = viewModelCamera.GetComponent(additionalCameraDataType);
                 IList cameraStack = GetProperty<IList>(worldData, "cameraStack");
 
-                Assert.GreaterOrEqual(viewModelLayer, 0, "The FirstPersonViewModel layer must be reserved in project settings.");
                 Assert.NotNull(worldData);
-                Assert.NotNull(viewModelData);
                 Assert.AreEqual("Base", GetProperty<object>(worldData, "renderType").ToString());
-                Assert.AreEqual("Overlay", GetProperty<object>(viewModelData, "renderType").ToString());
-                CollectionAssert.AreEqual(new[] { viewModelCamera }, cameraStack);
-                Assert.AreEqual(0, worldCamera.cullingMask & viewModelMask);
-                Assert.AreEqual(viewModelMask, viewModelCamera.cullingMask);
-                Assert.AreEqual(expectedViewModelFieldOfView, viewModelCamera.fieldOfView);
-                Assert.AreEqual(expectedViewModelNearClip, viewModelCamera.nearClipPlane);
-                Assert.IsTrue(GetProperty<bool>(viewModelData, "clearDepth"));
+                Assert.AreEqual(0, cameraStack.Count);
                 Assert.IsTrue(GetProperty<bool>(worldData, "renderPostProcessing"));
-                Assert.IsFalse(GetProperty<bool>(viewModelData, "renderPostProcessing"),
-                    "Post-processing should run once on the Base Camera rather than repeating on the Overlay.");
-                Assert.IsTrue(GetProperty<bool>(viewModelData, "renderShadows"));
+                Assert.IsTrue(GetProperty<bool>(worldData, "renderShadows"));
                 Assert.NotNull(worldCamera.GetComponent(brainType));
-                Assert.IsNull(viewModelCamera.GetComponent(brainType));
+                Assert.IsNull(viewModelCamera);
+                Assert.IsNull(GameObject.Find("ViewModel Overlay Camera"));
+                Assert.AreEqual(cameraCountBefore + 1, UnityEngine.Object.FindObjectsOfType<Camera>().Length);
+                Assert.AreEqual(listenerCountBefore + 1, UnityEngine.Object.FindObjectsOfType<AudioListener>().Length);
             }
             finally
             {

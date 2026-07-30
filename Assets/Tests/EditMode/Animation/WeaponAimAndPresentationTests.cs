@@ -1,3 +1,4 @@
+using System.Linq;
 using CGame.Animation;
 using NUnit.Framework;
 using UnityEditor;
@@ -67,7 +68,9 @@ namespace CGame.Tests
             {
                 Animator animator = character.GetComponentInChildren<Animator>();
                 WeaponPresentationInstance presentation = weapon.GetComponent<WeaponPresentationInstance>();
-                Assert.IsTrue(presentation.AttachTo(animator.GetBoneTransform(HumanBodyBones.RightHand)));
+                Transform rightHand = animator.GetComponentsInChildren<Transform>(true)
+                    .First(transform => transform.name == "Right_Hand");
+                Assert.IsTrue(presentation.AttachTo(rightHand));
                 WeaponPresentationBinding generationOne = presentation.CreateBinding(1u);
                 graph = new CharacterAnimationGraph(animator, config);
                 graph.ApplyWeaponEquipment(new WeaponEquipmentSnapshot(new WeaponId("rifle"), 1u), generationOne);
@@ -78,13 +81,20 @@ namespace CGame.Tests
                 Assert.AreEqual(definition.AimYawRange, graph.AimOffset.CurrentYaw, 0.2f);
                 Assert.AreEqual(-definition.AimPitchUpRange, graph.AimOffset.CurrentPitch, 0.2f);
                 Assert.Greater(graph.AimOffset.CurrentWeight, 0.7f * definition.AimWeight);
-                Assert.AreEqual(1f, graph.Context.LeftHandIkWeight);
+                Assert.AreEqual(animator.isHuman ? 1f : 0f, graph.Context.LeftHandIkWeight);
 
                 graph.ApplyWeaponEquipment(new WeaponEquipmentSnapshot(new WeaponId("rifle"), 2u), generationOne);
                 graph.Update(0.5f);
 
                 Assert.AreEqual(0f, graph.Context.LeftHandIkWeight);
-                Assert.Less(graph.LeftHandIk.CurrentWeight, 0.01f);
+                if (animator.isHuman)
+                {
+                    Assert.Less(graph.LeftHandIk.CurrentWeight, 0.01f);
+                }
+                else
+                {
+                    Assert.IsNull(graph.LeftHandIk);
+                }
                 Assert.IsTrue(HasDebugEvent(graph, "LeftHandIkDegraded"));
             }
             finally
@@ -115,7 +125,7 @@ namespace CGame.Tests
         private static GameObject LoadVisualPrefab()
         {
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-                "Assets/Art/Animation/FemaleLocomotionSet/Prefabs/Robot Kyle.prefab");
+                "Assets/Art/Character/Kinemation/KinemationVisualCharacter.prefab");
             Assert.IsNotNull(prefab);
             return prefab;
         }

@@ -7,26 +7,23 @@ namespace CGame.Tests
     public class WeaponRuntimeTests
     {
         [Test]
-        public void EquipmentRequestsPublishOnlyChangedGenerations()
+        public void Initialize_PublishesOneImmutableEquipmentGeneration()
         {
             var runtime = new WeaponRuntime();
             var changes = new List<WeaponEquipmentSnapshot>();
             runtime.EquipmentChanged += changes.Add;
 
-            Assert.IsTrue(runtime.RequestEquip(new WeaponId("rifle")));
-            Assert.IsFalse(runtime.RequestEquip(new WeaponId("rifle")));
-            Assert.IsTrue(runtime.RequestEquip(new WeaponId("pistol")));
-            Assert.IsTrue(runtime.RequestUnequip());
-            Assert.IsFalse(runtime.RequestUnequip());
+            Assert.IsTrue(runtime.Initialize(
+                new WeaponId("rifle"),
+                new WeaponRuntimeCapabilities(true, true, false)));
+            Assert.IsFalse(runtime.Initialize(
+                new WeaponId("pistol"),
+                new WeaponRuntimeCapabilities(true, false, false)));
 
-            Assert.AreEqual(3, changes.Count);
+            Assert.AreEqual(1, changes.Count);
             Assert.AreEqual(new WeaponId("rifle"), changes[0].EquippedWeaponId);
             Assert.AreEqual(1u, changes[0].Generation);
-            Assert.AreEqual(new WeaponId("pistol"), changes[1].EquippedWeaponId);
-            Assert.AreEqual(2u, changes[1].Generation);
-            Assert.IsFalse(changes[2].IsEquipped);
-            Assert.AreEqual(3u, changes[2].Generation);
-            Assert.AreEqual(changes[2].Generation, runtime.Snapshot.Generation);
+            Assert.AreEqual(changes[0].Generation, runtime.Snapshot.Generation);
         }
 
         [Test]
@@ -39,7 +36,9 @@ namespace CGame.Tests
             runtime.FireCommitted += committed.Add;
 
             Assert.IsFalse(runtime.RequestFire(out _));
-            Assert.IsTrue(runtime.RequestEquip(new WeaponId("rifle")));
+            Assert.IsTrue(runtime.Initialize(
+                new WeaponId("rifle"),
+                new WeaponRuntimeCapabilities(true, true, false)));
             Assert.IsTrue(runtime.RequestFire(out WeaponActionFact first));
             Assert.AreEqual(WeaponActionPhase.Started, first.Phase);
             Assert.AreEqual(1u, first.Generation);
@@ -55,22 +54,48 @@ namespace CGame.Tests
         }
 
         [Test]
-        public void NewFireAndUnequipCancelOnlyCurrentActionWithExplicitReasons()
+        public void NewFireAndOwnerDisposeCancelOnlyCurrentActionWithExplicitReasons()
         {
             var runtime = new WeaponRuntime();
             var facts = new List<WeaponActionFact>();
             runtime.ActionChanged += facts.Add;
-            runtime.RequestEquip(new WeaponId("rifle"));
+            runtime.Initialize(
+                new WeaponId("rifle"),
+                new WeaponRuntimeCapabilities(true, true, false));
             runtime.RequestFire(out WeaponActionFact first);
             runtime.RequestFire(out WeaponActionFact second);
-            runtime.RequestUnequip();
+            runtime.DisposeActiveAction();
 
             Assert.AreEqual(4, facts.Count);
             Assert.AreEqual(first.ActionId, facts[1].ActionId);
             Assert.AreEqual(WeaponActionEndReason.Superseded, facts[1].EndReason);
             Assert.AreEqual(second.ActionId, facts[3].ActionId);
-            Assert.AreEqual(WeaponActionEndReason.Unequipped, facts[3].EndReason);
+            Assert.AreEqual(
+                WeaponActionEndReason.OwnerDisposed,
+                facts[3].EndReason);
             Assert.IsFalse(runtime.ActiveAction.IsValid);
+        }
+
+        [Test]
+        public void RepeatedMeleeRequest_KeepsTheCurrentActionUntilItCompletes()
+        {
+            var runtime = new WeaponRuntime();
+            var facts = new List<WeaponActionFact>();
+            runtime.ActionChanged += facts.Add;
+            Assert.IsTrue(runtime.Initialize(
+                new WeaponId("knife"),
+                new WeaponRuntimeCapabilities(false, false, true)));
+
+            Assert.IsTrue(runtime.RequestMeleeAttack(
+                out WeaponActionFact first));
+            Assert.IsFalse(runtime.RequestMeleeAttack(out _));
+            Assert.AreEqual(first.ActionId, runtime.ActiveAction.ActionId);
+            Assert.AreEqual(1, facts.Count);
+
+            Assert.IsTrue(runtime.CompleteAction(first.ActionId));
+            Assert.IsTrue(runtime.RequestMeleeAttack(
+                out WeaponActionFact second));
+            Assert.AreNotEqual(first.ActionId, second.ActionId);
         }
 
         [Test]
@@ -79,7 +104,9 @@ namespace CGame.Tests
             var runtime = new WeaponRuntime();
             var facts = new List<WeaponActionFact>();
             runtime.ActionChanged += facts.Add;
-            runtime.RequestEquip(new WeaponId("rifle"));
+            runtime.Initialize(
+                new WeaponId("rifle"),
+                new WeaponRuntimeCapabilities(true, true, false));
 
             Assert.IsTrue(runtime.RequestFire(out WeaponActionFact started, 1234.5d));
             Assert.AreEqual(1234.5d, started.AuthoritativeStartTime);

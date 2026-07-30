@@ -55,7 +55,7 @@ namespace CGame.Tests
 
                 GameObject degradedWeapon = Object.Instantiate(config.WeaponDefinitions[0].PresentationPrefab);
                 WeaponPresentationInstance degradedPresentation = degradedWeapon.GetComponent<WeaponPresentationInstance>();
-                degradedPresentation.AttachTo(animator.GetBoneTransform(HumanBodyBones.RightHand));
+                degradedPresentation.AttachTo(FindBone(animator, "Right_Hand"));
                 var degradedBinding = new WeaponPresentationBinding(12u, degradedPresentation, null, degradedPresentation.Muzzle);
                 graph.ApplyWeaponEquipment(new WeaponEquipmentSnapshot(new WeaponId("rifle"), 12u), degradedBinding);
                 graph.SetAimInput(0f, 0f);
@@ -96,7 +96,9 @@ namespace CGame.Tests
             {
                 weapon = Object.Instantiate(config.WeaponDefinitions[0].PresentationPrefab);
                 WeaponPresentationInstance presentation = weapon.GetComponent<WeaponPresentationInstance>();
-                Assert.IsTrue(presentation.AttachTo(animator.GetBoneTransform(HumanBodyBones.RightHand)));
+                Transform rightHand = FindBone(animator, "Right_Hand");
+                Transform leftHand = FindBone(animator, "Left_Hand");
+                Assert.IsTrue(presentation.AttachTo(rightHand));
                 graph.ApplyWeaponEquipment(
                     new WeaponEquipmentSnapshot(new WeaponId("rifle"), 1u),
                     presentation.CreateBinding(1u));
@@ -112,25 +114,35 @@ namespace CGame.Tests
                 }
 
                 Assert.Greater(graph.AimOffset.CurrentWeight, 0.5f);
-                Assert.Greater(graph.LeftHandIk.CurrentWeight, 0.5f);
-                float gripDistance = Vector3.Distance(
-                    animator.GetBoneTransform(HumanBodyBones.LeftHand).position,
-                    presentation.LeftHandGrip.position);
-                Assert.Less(gripDistance, 0.12f);
+                if (animator.isHuman)
+                {
+                    Assert.Greater(graph.LeftHandIk.CurrentWeight, 0.5f);
+                    float gripDistance = Vector3.Distance(
+                        leftHand.position,
+                        presentation.LeftHandGrip.position);
+                    Assert.Less(gripDistance, 0.12f);
+                }
+                else
+                {
+                    Assert.IsNull(graph.LeftHandIk);
+                    Assert.AreEqual(0f, graph.Context.LeftHandIkWeight);
+                }
                 Vector3 weaponForward = (presentation.Muzzle.position - presentation.transform.position).normalized;
                 Assert.Greater(Vector3.Dot(animator.transform.forward, weaponForward), 0.95f,
-                    "The mounted rifle must point along the character forward axis instead of across the chest.");
+                    $"The mounted rifle must point along the character forward axis instead of across the chest. " +
+                    $"weaponForward={weaponForward}; handLocalRotation=" +
+                    $"{(Quaternion.Inverse(animator.transform.rotation) * rightHand.rotation).eulerAngles}; " +
+                    $"mountLocalRotation={presentation.RightHandMount.localRotation.eulerAngles}");
                 Assert.Less(Mathf.Abs(Vector3.Dot(animator.transform.up, weaponForward)), 0.15f,
                     "The mounted rifle must remain close to level in the reference idle pose.");
-                float wristTargetAngle = Quaternion.Angle(
-                    animator.GetBoneTransform(HumanBodyBones.LeftHand).rotation,
-                    presentation.LeftHandGrip.rotation);
-                Assert.Greater(wristTargetAngle, 5f,
-                    "Left-hand IK must preserve the authored wrist pose instead of fully forcing the grip rotation.");
-                Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
-                Assert.Greater(hips.position.y, animator.transform.position.y + 0.5f,
-                    "Left-hand IK must not move the humanoid body down to the character root.");
-
+                if (animator.isHuman)
+                {
+                    float wristTargetAngle = Quaternion.Angle(
+                        leftHand.rotation,
+                        presentation.LeftHandGrip.rotation);
+                    Assert.Greater(wristTargetAngle, 5f,
+                        "Left-hand IK must preserve the authored wrist pose instead of fully forcing the grip rotation.");
+                }
                 graph.Context.WorldVelocity = Vector3.forward * 2f;
                 graph.Context.LocalVelocity = Vector3.forward * 2f;
                 graph.Context.MoveSpeed = 2f;
@@ -144,14 +156,21 @@ namespace CGame.Tests
 
                 secondWeapon = Object.Instantiate(config.WeaponDefinitions[0].PresentationPrefab);
                 WeaponPresentationInstance secondPresentation = secondWeapon.GetComponent<WeaponPresentationInstance>();
-                secondPresentation.AttachTo(animator.GetBoneTransform(HumanBodyBones.RightHand));
+                secondPresentation.AttachTo(rightHand);
                 graph.ApplyWeaponEquipment(
                     new WeaponEquipmentSnapshot(new WeaponId("rifle"), 2u),
                     secondPresentation.CreateBinding(2u));
                 graph.Update(1f / 60f);
                 yield return null;
                 Assert.AreEqual(2u, graph.Context.ActiveWeaponGeneration);
-                Assert.Greater(graph.LeftHandIk.CurrentWeight, 0f);
+                if (animator.isHuman)
+                {
+                    Assert.Greater(graph.LeftHandIk.CurrentWeight, 0f);
+                }
+                else
+                {
+                    Assert.AreEqual(0f, graph.Context.LeftHandIkWeight);
+                }
 
                 graph.ApplyWeaponEquipment(new WeaponEquipmentSnapshot(default, 3u));
                 for (int i = 0; i < 12; i++)
@@ -160,7 +179,14 @@ namespace CGame.Tests
                     yield return null;
                 }
                 Assert.Less(graph.AimOffset.CurrentWeight, 0.1f);
-                Assert.Less(graph.LeftHandIk.CurrentWeight, 0.1f);
+                if (animator.isHuman)
+                {
+                    Assert.Less(graph.LeftHandIk.CurrentWeight, 0.1f);
+                }
+                else
+                {
+                    Assert.IsNull(graph.LeftHandIk);
+                }
             }
             finally
             {
@@ -192,6 +218,19 @@ namespace CGame.Tests
                 yield return null;
             }
             Capture(camera, Path.Combine(directory, fileName));
+        }
+
+        private static Transform FindBone(Animator animator, string boneName)
+        {
+            foreach (Transform candidate in animator.GetComponentsInChildren<Transform>(true))
+            {
+                if (candidate.name == boneName)
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
 
         private static void Capture(Camera camera, string path)

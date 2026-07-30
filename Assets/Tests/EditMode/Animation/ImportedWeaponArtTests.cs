@@ -86,24 +86,46 @@ namespace CGame.Tests
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
 
             Assert.IsNotNull(definition);
-            Assert.IsTrue(definition.IsValid);
-            Assert.IsTrue(definition.Idle.AnimationClip.isHumanMotion);
-            Assert.IsTrue(definition.Walk.AnimationClip.isHumanMotion);
-            Assert.IsTrue(definition.Run.AnimationClip.isHumanMotion);
+            Assert.AreEqual(
+                WeaponAnimationDefinitionError.None,
+                definition.Validate(new WeaponId("rifle")));
+            Assert.AreEqual(
+                new WeaponRuntimeCapabilities(
+                    true,
+                    true,
+                    false),
+                definition.Capabilities);
+            Assert.IsTrue(
+                definition.OverlayPose.AnimationClip
+                    .isHumanMotion);
             Assert.IsNotNull(definition.Fire);
-            Assert.IsTrue(definition.Fire.AnimationClip.isHumanMotion);
-            Assert.AreSame(definition.Idle.AnimationClip, definition.Fire.AnimationClip);
-            Assert.IsNotNull(definition.WeaponModelFire);
-            Assert.AreEqual("A_W_AKX_Fire", definition.WeaponModelFire.name);
-            Assert.IsTrue(AssetDatabase.GetAssetPath(definition.WeaponModelFire).StartsWith("Assets/Art/Weapon/KINEMATION/AK/"));
-            Assert.AreSame(definition.Idle, definition.Stop);
-            Assert.IsTrue(definition.HasPoseFor("Stop"));
-            Assert.IsTrue(AssetDatabase.GetAssetPath(definition.Idle).StartsWith("Assets/Art/"));
+            Assert.IsFalse(definition.Fire.AnimationClip.legacy);
+            Assert.IsFalse(definition.Fire.AnimationClip.isLooping);
+            Assert.IsNotEmpty(
+                AnimationUtility.GetCurveBindings(
+                    definition.Fire.AnimationClip));
+            Assert.IsTrue(
+                AssetDatabase.GetAssetPath(
+                        definition.Fire.AnimationClip)
+                    .StartsWith(
+                        "Assets/Art/Weapon/KINEMATION/AK/"
+                        + "Animation/Character/"));
+            Assert.IsNotNull(definition.Reload);
+            Assert.IsFalse(
+                definition.Reload.AnimationClip.isLooping);
+            Assert.IsTrue(
+                AssetDatabase.GetAssetPath(
+                        definition.OverlayPose)
+                    .StartsWith(
+                        "Assets/Art/Animation/Weapon/"
+                        + "KINEMATION/AK/"));
             Assert.IsNotNull(prefab);
+            Assert.AreSame(prefab, definition.WeaponPrefab);
             Transform rightHandMount = prefab.transform.Find("RightHandMount");
             Assert.IsNotNull(rightHandMount);
             Assert.AreEqual(Vector3.zero, rightHandMount.localPosition);
-            Assert.Less(Quaternion.Angle(Quaternion.identity, rightHandMount.localRotation), 0.01f);
+            Quaternion expectedMountRotation = Quaternion.Euler(328.5f, 26.66f, 263.85f);
+            Assert.Less(Quaternion.Angle(expectedMountRotation, rightHandMount.localRotation), 0.1f);
             Assert.IsNotNull(prefab.transform.Find("LeftHandGrip"));
             Assert.IsNotNull(prefab.transform.Find("Muzzle"));
             Assert.IsNotEmpty(prefab.GetComponentsInChildren<Renderer>(true));

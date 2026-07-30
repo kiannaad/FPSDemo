@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using CGame.Animation;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -72,7 +73,7 @@ namespace CGame.Tests
             object manager = CreateManager();
             object operation = Invoke(manager, "BeginSpawn", CreateRequest("ready-request", Vector3.zero));
 
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < 6; i++)
             {
                 Invoke(manager, "Update", 0f);
             }
@@ -156,7 +157,7 @@ namespace CGame.Tests
                 releasedLookupFailed = !(bool)InvokeWithArguments(manager, "TryGetCharacterView", lookupArguments);
             });
 
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < 6; i++)
             {
                 Invoke(manager, "Update", 0f);
             }
@@ -211,12 +212,89 @@ namespace CGame.Tests
         }
 
         [Test]
+        public void InitialWeaponResolveFailure_DoesNotPublishReadyAndReleasesCharacterLease()
+        {
+            object manager = CreateManager();
+            var characterProvider = new ImmediateLeaseProvider(
+                Resources.Load<CharacterDefinition>("CharacterDefinition"));
+            SetField(manager, "definitionProvider", characterProvider);
+            SetField(
+                manager,
+                "weaponDefinitionProvider",
+                new FailingWeaponDefinitionProvider(
+                    WeaponAnimationDefinitionResolveError.DefinitionNotFound));
+            bool readyObserved = false;
+            AddEventHandler(manager, "CharacterReady", _ => readyObserved = true);
+            object operation = Invoke(
+                manager,
+                "BeginSpawn",
+                CreateRequest("missing-initial-weapon", Vector3.zero));
+
+            for (int i = 0; i < 3; i++)
+            {
+                Invoke(manager, "Update", 0f);
+            }
+
+            Assert.AreEqual(
+                "Failed",
+                GetProperty<object>(operation, "State").ToString());
+            Assert.AreEqual(
+                "InitialWeaponDefinitionNotFound",
+                GetProperty<object>(operation, "Error").ToString());
+            Assert.IsFalse(readyObserved);
+            Assert.AreEqual(1, characterProvider.ReleaseCount);
+            Assert.AreEqual(
+                0,
+                GameObject.Find("[CharacterRuntimeRoot]").transform.childCount);
+        }
+
+        [Test]
+        public void CancelSpawn_ReleasesLateInitialWeaponLeaseExactlyOnce()
+        {
+            object manager = CreateManager();
+            var characterProvider = new ImmediateLeaseProvider(
+                Resources.Load<CharacterDefinition>("CharacterDefinition"));
+            var weaponProvider = new DelayedWeaponDefinitionProvider();
+            SetField(manager, "definitionProvider", characterProvider);
+            SetField(manager, "weaponDefinitionProvider", weaponProvider);
+            object operation = Invoke(
+                manager,
+                "BeginSpawn",
+                CreateRequest("cancel-initial-weapon", Vector3.zero));
+
+            Invoke(manager, "Update", 0f);
+            Invoke(manager, "Update", 0f);
+            Assert.AreEqual(
+                "ResolvingInitialWeapon",
+                GetProperty<object>(operation, "State").ToString());
+            object request = GetProperty<object>(operation, "Request");
+            object requestId = GetProperty<object>(request, "RequestId");
+            Assert.IsTrue((bool)Invoke(manager, "CancelSpawn", requestId));
+            Invoke(manager, "Update", 0f);
+
+            Assert.AreEqual(
+                "Cancelled",
+                GetProperty<object>(operation, "State").ToString());
+            Assert.AreEqual(1, characterProvider.ReleaseCount);
+            Assert.AreEqual(0, weaponProvider.ReleaseCount);
+
+            weaponProvider.Complete(
+                Resources.Load<WeaponAnimationDefinition>(
+                    "FistsWeaponAnimationDefinition"));
+
+            Assert.AreEqual(1, weaponProvider.ReleaseCount);
+            Assert.AreEqual(
+                0,
+                GameObject.Find("[CharacterRuntimeRoot]").transform.childCount);
+        }
+
+        [Test]
         public void ReleasedRequestId_IsRejectedWhileNewRequestCanSpawn()
         {
             object manager = CreateManager();
             object oldRequest = CreateRequest("released-request", Vector3.zero);
             object operation = Invoke(manager, "BeginSpawn", oldRequest);
-            for (int i = 0; i < 5; i++) Invoke(manager, "Update", 0f);
+            for (int i = 0; i < 6; i++) Invoke(manager, "Update", 0f);
             Assert.AreSame(operation, Invoke(manager, "BeginSpawn", oldRequest));
             object reason = Enum.Parse(RequireRuntimeType("CGame.CharacterDespawnReason"), "Requested");
             Assert.IsTrue((bool)Invoke(manager, "Despawn", GetProperty<object>(operation, "RuntimeId"), reason));
@@ -226,7 +304,7 @@ namespace CGame.Tests
             object duplicate = Invoke(manager, "BeginSpawn", oldRequest);
             Assert.AreEqual("DuplicateRequestId", GetProperty<object>(duplicate, "Error").ToString());
             object fresh = Invoke(manager, "BeginSpawn", CreateRequest("fresh-request", new Vector3(2f, 0f, 0f)));
-            for (int i = 0; i < 5; i++) Invoke(manager, "Update", 0f);
+            for (int i = 0; i < 6; i++) Invoke(manager, "Update", 0f);
             Assert.AreEqual("CharacterReady", GetProperty<object>(fresh, "State").ToString());
         }
 
@@ -274,6 +352,15 @@ namespace CGame.Tests
 
             CharacterDefinition definition = Resources.Load<CharacterDefinition>("CharacterDefinition");
             SetField(manager, "definitionProvider", new InMemoryCharacterDefinitionProvider(new[] { definition }));
+            SetField(
+                manager,
+                "weaponDefinitionProvider",
+                new InMemoryWeaponAnimationDefinitionProvider(
+                    new[]
+                    {
+                        Resources.Load<WeaponAnimationDefinition>(
+                            "FistsWeaponAnimationDefinition"),
+                    }));
             return manager;
         }
 
@@ -286,36 +373,41 @@ namespace CGame.Tests
             InputType inputType = stage == "Possessing" ? InputType.Vehicle : InputType.Player;
             string objectName = $"Failure{stage}";
             object operation = Invoke(manager, "BeginSpawn", CreateRequest($"failure-{stage}", Vector3.zero, inputType, objectName));
-            Invoke(manager, "Update", 0f);
-            Invoke(manager, "Update", 0f);
+            string injectionState =
+                stage == "Activation" ? "Possessing" : stage;
+            for (int frame = 0;
+                 frame < 10
+                 && GetProperty<object>(operation, "State").ToString()
+                    != injectionState;
+                 frame++)
+            {
+                Invoke(manager, "Update", 0f);
+            }
 
             if (stage == "Assembling")
             {
                 SetField(manager, "assembler", null);
             }
-
-            Invoke(manager, "Update", 0f);
-            if (stage == "Registering")
+            else if (stage == "Registering")
             {
                 SetField(manager, "pawnManager", null);
             }
-
-            if (stage != "Assembling")
+            else if (stage == "Activation")
             {
-                Invoke(manager, "Update", 0f);
+                object assemblies = manager.GetType()
+                    .GetField(
+                        "assemblies",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?.GetValue(manager);
+                object assembly = ((IEnumerable)assemblies)
+                    .Cast<object>()
+                    .Select(entry => GetProperty<object>(entry, "Value"))
+                    .Single();
+                UnityEngine.Object.DestroyImmediate(
+                    GetProperty<GameObject>(assembly, "Root"));
             }
 
-            if (stage == "Activation")
-            {
-                object assemblies = manager.GetType().GetField("assemblies", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(manager);
-                object assembly = ((IEnumerable)assemblies).Cast<object>().Select(entry => GetProperty<object>(entry, "Value")).Single();
-                UnityEngine.Object.DestroyImmediate(GetProperty<GameObject>(assembly, "Root"));
-            }
-
-            if (stage == "Possessing" || stage == "Activation")
-            {
-                Invoke(manager, "Update", 0f);
-            }
+            Invoke(manager, "Update", 0f);
 
             Assert.AreEqual("Failed", GetProperty<object>(operation, "State").ToString(), stage);
             Assert.AreEqual(1, provider.ReleaseCount, stage);
@@ -447,6 +539,61 @@ namespace CGame.Tests
                 return new CharacterDefinitionResolveResult(
                     new ResolvedCharacterDefinitionLease(definition, () => ReleaseCount++),
                     CharacterDefinitionResolveError.None);
+            }
+        }
+
+        private sealed class FailingWeaponDefinitionProvider :
+            IWeaponAnimationDefinitionProvider
+        {
+            private readonly WeaponAnimationDefinitionResolveError error;
+
+            public FailingWeaponDefinitionProvider(
+                WeaponAnimationDefinitionResolveError error)
+            {
+                this.error = error;
+            }
+
+            public IWeaponAnimationDefinitionResolveOperation BeginResolve(
+                WeaponId weaponId)
+            {
+                return WeaponAnimationDefinitionResolveOperation.Completed(
+                    new WeaponAnimationDefinitionResolveResult(
+                        (ResolvedWeaponAnimationDefinitionLease)null,
+                        error));
+            }
+
+            public void Dispose()
+            {
+            }
+        }
+
+        private sealed class DelayedWeaponDefinitionProvider :
+            IWeaponAnimationDefinitionProvider
+        {
+            private readonly WeaponAnimationDefinitionResolveOperation
+                operation = new WeaponAnimationDefinitionResolveOperation();
+
+            public int ReleaseCount { get; private set; }
+
+            public IWeaponAnimationDefinitionResolveOperation BeginResolve(
+                WeaponId weaponId)
+            {
+                return operation;
+            }
+
+            public void Complete(WeaponAnimationDefinition definition)
+            {
+                operation.Complete(
+                    new WeaponAnimationDefinitionResolveResult(
+                        new ResolvedWeaponAnimationDefinitionLease(
+                            definition,
+                            () => ReleaseCount++),
+                        WeaponAnimationDefinitionResolveError.None));
+            }
+
+            public void Dispose()
+            {
+                operation.Dispose();
             }
         }
     }

@@ -101,9 +101,16 @@ namespace CGame.Tests
                 runtime.RequestFire(out _);
                 yield return Tick(graph, bridge, runtime, 2, 0f, -15f, 0f);
                 yield return Capture(camera, Path.Combine(evidenceDirectory, "02-single-fire-peak.png"));
-                Assert.Less(Vector3.Distance(
-                    graph.Context.Animator.GetBoneTransform(HumanBodyBones.LeftHand).position,
-                    bridge.CurrentPresentation.LeftHandGrip.position), 0.12f);
+                if (graph.Context.Animator.isHuman)
+                {
+                    Assert.Less(Vector3.Distance(
+                        graph.Context.Animator.GetBoneTransform(HumanBodyBones.LeftHand).position,
+                        bridge.CurrentPresentation.LeftHandGrip.position), 0.12f);
+                }
+                else
+                {
+                    Assert.AreEqual(0f, graph.Context.LeftHandIkWeight);
+                }
 
                 yield return Tick(graph, bridge, runtime, 12, 0f, -15f, 0f);
                 yield return Capture(camera, Path.Combine(evidenceDirectory, "03-aim-recovered.png"));

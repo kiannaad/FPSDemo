@@ -4,6 +4,7 @@
     "references": [
         "CGame.Character.Definition",
         "CGame.Animation",
+        "CGame.Weapon",
         "CGame.Input"
     ],
     "includePlatforms": [

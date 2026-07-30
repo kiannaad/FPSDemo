@@ -29,7 +29,16 @@ namespace CGame.Tests
                 Assert.IsNotNull(GetProperty<object>(assembly, "Movement"));
                 object animationComponent = GetProperty<object>(assembly, "AnimationComponent");
                 Assert.IsNotNull(animationComponent);
-                Assert.AreSame(definition.AnimationConfig, animationComponent.GetType().GetField("config", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(animationComponent));
+                Assert.IsNotNull(
+                    animationComponent.GetType().GetField(
+                        "animationConfig",
+                        BindingFlags.Instance | BindingFlags.NonPublic),
+                    "The runtime requires the character-level UpperBodyMask configuration.");
+                Assert.AreEqual(
+                    AnimationPlaybackState.Playing,
+                    GetProperty<AnimationPlaybackHandle>(
+                        assembly,
+                        "InitialWeaponPoseHandle").State);
                 Assert.IsEmpty(GetAssemblerType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic));
 
                 ((IDisposable)assembly).Dispose();
@@ -63,6 +72,46 @@ namespace CGame.Tests
         }
 
         [Test]
+        public void Assemble_PreservesAuthoredVisualGroundAgainstCapsule()
+        {
+            CharacterDefinition definition = CreateValidDefinition();
+            SetField(
+                definition,
+                "visualPrefab",
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    "Assets/Art/Character/Kinemation/KinemationVisualCharacter.prefab"));
+            try
+            {
+                object assembly = Assemble(definition, null, "GroundAlignedCharacter");
+                GameObject root = GetProperty<GameObject>(assembly, "Root");
+                Animator animator = GetProperty<Animator>(assembly, "Animator");
+                CapsuleCollider capsule = root.GetComponent<CapsuleCollider>();
+                Transform visualRoot = root.transform.Find("CharacterVisual");
+                Transform leftToes = animator.GetComponentsInChildren<Transform>(true)
+                    .First(transform => transform.name == "Left_Toes");
+                Transform rightToes = animator.GetComponentsInChildren<Transform>(true)
+                    .First(transform => transform.name == "Right_Toes");
+
+                Assert.NotNull(capsule);
+                Assert.NotNull(visualRoot);
+                Assert.AreEqual(0f, capsule.center.y - capsule.height * 0.5f, 0.001f);
+                Assert.AreEqual(Vector3.zero, visualRoot.localPosition);
+                Assert.That(
+                    root.transform.InverseTransformPoint(leftToes.position).y,
+                    Is.InRange(-0.05f, 0.12f));
+                Assert.That(
+                    root.transform.InverseTransformPoint(rightToes.position).y,
+                    Is.InRange(-0.05f, 0.12f));
+
+                ((IDisposable)assembly).Dispose();
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(definition);
+            }
+        }
+
+        [Test]
         public void Assemble_RejectsInvalidDefinitionBeforeCreatingRoot()
         {
             CharacterDefinition definition = CreateValidDefinition();
@@ -84,10 +133,12 @@ namespace CGame.Tests
         {
             MethodInfo assembleMethod = GetAssemblerType()
                 .GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                .Single(method => method.Name == "Assemble" && method.GetParameters().Length == 5);
+                .Single(method => method.Name == "Assemble" && method.GetParameters().Length == 6);
             return assembleMethod.Invoke(Activator.CreateInstance(GetAssemblerType()), new object[]
             {
                 definition,
+                Resources.Load<WeaponAnimationDefinition>(
+                    "FistsWeaponAnimationDefinition"),
                 parent,
                 Vector3.zero,
                 Quaternion.identity,
@@ -111,9 +162,14 @@ namespace CGame.Tests
         {
             CharacterDefinition definition = ScriptableObject.CreateInstance<CharacterDefinition>();
             SetField(definition, "definitionId", "assembly-test");
-            SetField(definition, "visualPrefab", AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Art/Animation/FemaleLocomotionSet/Prefabs/Robot Kyle.prefab"));
+            SetField(
+                definition,
+                "visualPrefab",
+                AssetDatabase.LoadAssetAtPath<GameObject>(
+                    "Assets/Art/Character/Kinemation/KinemationVisualCharacter.prefab"));
             SetField(definition, "animationConfig", Resources.Load<CharacterAnimationConfig>("CharacterAnimationConfig"));
             SetField(definition, "supportedControlKinds", new[] { CharacterControlKind.LocalPlayer });
+            SetField(definition, "initialWeaponId", "knife");
             return definition;
         }
 

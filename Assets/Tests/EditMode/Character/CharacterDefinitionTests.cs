@@ -104,6 +104,7 @@ namespace CGame.Tests
             SetField(definition, "visualPrefab", LoadVisualPrefab());
             SetField(definition, "animationConfig", Resources.Load<CharacterAnimationConfig>("CharacterAnimationConfig"));
             SetField(definition, "supportedControlKinds", new[] { CharacterControlKind.LocalPlayer });
+            SetField(definition, "initialWeaponId", "knife");
             Assert.IsTrue(definition.IsValid);
             return definition;
         }

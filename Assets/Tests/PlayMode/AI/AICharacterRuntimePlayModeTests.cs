@@ -62,7 +62,7 @@ namespace CGame.Tests
         {
             object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
             object operation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("perception-ai", "PerceptionAI", Vector3.zero));
-            AdvanceSpawn(spawnManager, 5);
+            AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
 
             object runtime = GetAIRuntime(spawnManager, GetProperty<object>(operation, "RuntimeId"));
@@ -147,7 +147,7 @@ namespace CGame.Tests
         {
             object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
             object operation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("decision-ai", "DecisionAI", Vector3.zero));
-            AdvanceSpawn(spawnManager, 5);
+            AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
 
             object runtime = GetAIRuntime(spawnManager, GetProperty<object>(operation, "RuntimeId"));
@@ -547,7 +547,7 @@ namespace CGame.Tests
                 spawnManager,
                 "BeginSpawn",
                 CreateAIRequest("cover-combat-ai", "CoverCombatAI", new Vector3(0f, 0f, -4f)));
-            AdvanceSpawn(spawnManager, 5);
+            AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
 
             object runtime = GetAIRuntime(spawnManager, GetProperty<object>(operation, "RuntimeId"));
@@ -705,7 +705,7 @@ namespace CGame.Tests
 
             object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
             object operation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("navigation-ai", "NavigationAI", new Vector3(-4f, 0f, -4f)));
-            AdvanceSpawn(spawnManager, 5);
+            AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(operation, "State").ToString());
 
             object runtimeId = GetProperty<object>(operation, "RuntimeId");
@@ -761,12 +761,12 @@ namespace CGame.Tests
         {
             object spawnManager = CharacterSpawnTestConfiguration.CreateManagerWithInMemoryDefinition();
             object localOperation = Invoke(spawnManager, "BeginSpawn", CreateLocalPlayerRequest("local-control", "LocalControlCharacter", new Vector3(-4f, 0f, 0f)));
-            AdvanceSpawn(spawnManager, 5);
+            AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(localOperation, "State").ToString());
             Assert.IsFalse(TryGetAIRuntime(spawnManager, GetProperty<object>(localOperation, "RuntimeId"), out _));
 
             object firstOperation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("ai-first", "FirstAI", Vector3.zero));
-            AdvanceSpawn(spawnManager, 5);
+            AdvanceSpawn(spawnManager, 6);
 
             Assert.AreEqual("CharacterReady", GetProperty<object>(firstOperation, "State").ToString());
             object firstRuntimeId = GetProperty<object>(firstOperation, "RuntimeId");
@@ -847,13 +847,13 @@ namespace CGame.Tests
             object savedBinder = GetField(spawnManager, "aiControllerBinder");
             SetField(spawnManager, "aiControllerBinder", null);
             object failedOperation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("ai-bind-failure", "FailedAI", new Vector3(4f, 0f, 0f)));
-            AdvanceSpawn(spawnManager, 5);
+            AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("Failed", GetProperty<object>(failedOperation, "State").ToString());
             Assert.IsNull(GameObject.Find("FailedAI"));
             SetField(spawnManager, "aiControllerBinder", savedBinder);
 
             object secondOperation = Invoke(spawnManager, "BeginSpawn", CreateAIRequest("ai-second", "SecondAI", new Vector3(2f, 0f, 0f)));
-            AdvanceSpawn(spawnManager, 5);
+            AdvanceSpawn(spawnManager, 6);
             Assert.AreEqual("CharacterReady", GetProperty<object>(secondOperation, "State").ToString());
             object secondRuntimeId = GetProperty<object>(secondOperation, "RuntimeId");
             Assert.AreNotEqual(firstRuntimeId, secondRuntimeId);

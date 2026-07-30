@@ -158,6 +158,7 @@ namespace CGame.Tests
                 "Assets/Art/Animation/FemaleLocomotionSet/Prefabs/Robot Kyle.prefab"));
             SetField(definition, "animationConfig", Resources.Load<CharacterAnimationConfig>("CharacterAnimationConfig"));
             SetField(definition, "supportedControlKinds", new[] { CharacterControlKind.LocalPlayer });
+            SetField(definition, "initialWeaponId", "knife");
             Assert.IsTrue(definition.IsValid);
             return definition;
         }

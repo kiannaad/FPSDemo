@@ -24,6 +24,28 @@ namespace CGame.Tests
         }
 
         [Test]
+        public void ClipAsset_PreservesPlaybackNotifyAndNamedCurveFacts()
+        {
+            var clip = new AnimationClip { frameRate = 30f };
+            AnimationClipAsset asset = ScriptableObject.CreateInstance<AnimationClipAsset>();
+            asset.TryInitialize(clip);
+            asset.FadeDuration = 0.12f;
+            asset.Speed = 1.25f;
+            asset.OverrideNormalizedStartTime = true;
+            asset.NormalizedStartTime = 0.4f;
+            asset.AddNotifyTrack("Footsteps");
+            asset.SetNamedCurve("MaskLeftHandIK", AnimationCurve.Linear(0f, 0f, 1f, 1f));
+
+            Assert.AreEqual(0.12f, asset.FadeDuration);
+            Assert.AreEqual(1.25f, asset.Speed);
+            Assert.IsTrue(asset.OverrideNormalizedStartTime);
+            Assert.AreEqual(0.4f, asset.NormalizedStartTime);
+            Assert.AreEqual(1, asset.NotifyTracks.Count);
+            Assert.IsTrue(asset.TryGetNamedCurve("MaskLeftHandIK", out AnimationCurve curve));
+            Assert.AreEqual(0.5f, curve.Evaluate(0.5f), 0.001f);
+        }
+
+        [Test]
         public void SequenceAsset_ExposesFirstClipAsMainClip()
         {
             AnimationClip clip = new AnimationClip();
@@ -117,39 +139,6 @@ namespace CGame.Tests
             {
                 window.Close();
             }
-        }
-
-        [Test]
-        public void TwoDimensionalBlend_PreservesClipAssetsAndThresholds()
-        {
-            AnimationClip idleClip = new AnimationClip();
-            AnimationClip moveClip = new AnimationClip();
-            AnimationClipAsset idle = ScriptableObject.CreateInstance<AnimationClipAsset>();
-            AnimationClipAsset move = ScriptableObject.CreateInstance<AnimationClipAsset>();
-            idle.TryInitialize(idleClip);
-            move.TryInitialize(moveClip);
-
-            TwoDimensionalAnimationBlendAsset blend = ScriptableObject.CreateInstance<TwoDimensionalAnimationBlendAsset>();
-            blend.Children = new[]
-            {
-                new TwoDimensionalAnimationBlendAsset.BlendChild
-                {
-                    ClipAsset = idle,
-                    Threshold = Vector2.zero,
-                },
-                new TwoDimensionalAnimationBlendAsset.BlendChild
-                {
-                    ClipAsset = move,
-                    Threshold = Vector2.up,
-                },
-            };
-
-            Assert.IsTrue(blend.IsValid);
-            Assert.AreEqual(2, blend.Children.Length);
-            Assert.AreSame(idle, blend.Children[0].ClipAsset);
-            Assert.AreSame(move, blend.Children[1].ClipAsset);
-            Assert.AreEqual(Vector2.zero, blend.Children[0].Threshold);
-            Assert.AreEqual(Vector2.up, blend.Children[1].Threshold);
         }
 
 #if ANIMANCER
@@ -465,6 +454,37 @@ namespace CGame.Tests
                 AssetDatabase.DeleteAsset(createdPath);
                 }
 
+                AssetDatabase.DeleteAsset(clipPath);
+                AssetDatabase.DeleteAsset(folderPath);
+                DeleteAssetFolderIfEmpty("Assets/Temp");
+            }
+        }
+
+        [Test]
+        public void AnimationClipAssetFactory_CreateOrUpdateIsIdempotent()
+        {
+            const string folderPath = "Assets/Temp/AnimationAssetTests";
+            const string assetPath = folderPath + "/IdempotentClipAsset.asset";
+            EnsureAssetFolder("Assets", "Temp");
+            EnsureAssetFolder("Assets/Temp", "AnimationAssetTests");
+            string clipPath = AssetDatabase.GenerateUniqueAssetPath($"{folderPath}/IdempotentSource.anim");
+
+            try
+            {
+                var clip = new AnimationClip();
+                AssetDatabase.CreateAsset(clip, clipPath);
+
+                AnimationClipAsset first = AnimationClipAssetFactory.CreateOrUpdateFromClip(clip, assetPath);
+                AnimationClipAsset second = AnimationClipAssetFactory.CreateOrUpdateFromClip(clip, assetPath);
+
+                Assert.IsNotNull(first);
+                Assert.AreSame(first, second);
+                Assert.AreSame(clip, second.AnimationClip);
+                Assert.AreEqual(1, AssetDatabase.FindAssets("t:AnimationClipAsset", new[] { folderPath }).Length);
+            }
+            finally
+            {
+                AssetDatabase.DeleteAsset(assetPath);
                 AssetDatabase.DeleteAsset(clipPath);
                 AssetDatabase.DeleteAsset(folderPath);
                 DeleteAssetFolderIfEmpty("Assets/Temp");

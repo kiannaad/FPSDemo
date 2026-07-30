@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using CGame.Animation;
 using NUnit.Framework;
 using UnityEditor;
@@ -14,12 +15,12 @@ namespace CGame.Tests
         {
             CollectionAssert.AreEqual(new[]
             {
-                "FullBodyAction",
+                "AnimatorController",
+                "WeaponPose",
                 "UpperBodyWeaponAction",
                 "AimAdditive",
                 "AdditiveReaction",
                 "LeftHandIK",
-                "RootDelta",
             }, CharacterAnimationGraph.CompositionOrder);
         }
 
@@ -30,18 +31,19 @@ namespace CGame.Tests
             runtime.RequestEquip(new WeaponId("rifle"));
             runtime.RequestFire(out WeaponActionFact fire);
             AnimationClipAsset fireAsset = LoadDefinition().Fire;
-            GameObject character = (GameObject)PrefabUtility.InstantiatePrefab(LoadVisualPrefab());
             var node = new ActionNode(fireAsset, 10);
-            var output = new OutputNode(node, "PresentationEndDoesNotCompleteGameplay");
+            var graph = PlayableGraph.Create("PresentationEndDoesNotCompleteGameplay");
+            var contextObject = new GameObject("PresentationEndDoesNotCompleteGameplay");
+            var context = new AnimationGraphContext(contextObject.AddComponent<Animator>(), graph);
             var ended = new List<ActionPresentationEnded>();
             node.PresentationEnded += ended.Add;
             try
             {
-                output.Initialize(character.GetComponentInChildren<Animator>());
+                node.Initialize(context);
                 node.Request(fire.ActionId);
-                output.Update(0f);
+                node.Update(context, 0f);
                 node.ClipPlayable.SetTime(fireAsset.AnimationClip.length);
-                output.Update(0f);
+                node.Update(context, 0f);
 
                 Assert.AreEqual(1, ended.Count);
                 Assert.AreEqual(fire.ActionId, ended[0].RequestId);
@@ -51,8 +53,12 @@ namespace CGame.Tests
             }
             finally
             {
-                output.Destroy();
-                Object.DestroyImmediate(character);
+                node.Destroy();
+                if (graph.IsValid())
+                {
+                    graph.Destroy();
+                }
+                Object.DestroyImmediate(contextObject);
             }
         }
 
@@ -67,7 +73,9 @@ namespace CGame.Tests
             {
                 Animator animator = character.GetComponentInChildren<Animator>();
                 WeaponPresentationInstance presentation = weapon.GetComponent<WeaponPresentationInstance>();
-                presentation.AttachTo(animator.GetBoneTransform(HumanBodyBones.RightHand));
+                Transform rightHand = animator.GetComponentsInChildren<Transform>(true)
+                    .First(transform => transform.name == "Right_Hand");
+                presentation.AttachTo(rightHand);
                 graph = new CharacterAnimationGraph(animator, config);
                 graph.ApplyWeaponEquipment(
                     new WeaponEquipmentSnapshot(new WeaponId("rifle"), 1u),
@@ -142,8 +150,8 @@ namespace CGame.Tests
                 WeaponModelActionPlayer player = weapon.GetComponent<WeaponPresentationInstance>().ModelActionPlayer;
                 Assert.IsNotNull(player);
                 Assert.IsNotNull(definition.WeaponModelFire);
-                Assert.AreEqual("A_W_AKX_Fire", definition.WeaponModelFire.name);
-                Assert.IsTrue(player.Play(definition.WeaponModelFire, 9ul));
+                Assert.AreEqual("A_W_AKX_Fire", definition.WeaponModelFire.AnimationClip.name);
+                Assert.IsTrue(player.Play(definition.WeaponModelFire.AnimationClip, 9ul));
                 Assert.IsTrue(player.IsPlaying);
                 Assert.IsFalse(player.Stop(8ul));
                 Assert.IsTrue(player.Stop(9ul));
@@ -166,7 +174,7 @@ namespace CGame.Tests
         private static GameObject LoadVisualPrefab()
         {
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-                "Assets/Art/Animation/FemaleLocomotionSet/Prefabs/Robot Kyle.prefab");
+                "Assets/Art/Character/Kinemation/KinemationVisualCharacter.prefab");
             Assert.IsNotNull(prefab);
             return prefab;
         }
