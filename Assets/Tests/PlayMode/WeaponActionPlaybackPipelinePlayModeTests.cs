@@ -185,7 +185,7 @@ namespace CGame.Tests
                     "WeaponRuntime");
             WeaponAnimationDefinition definition =
                 Resources.Load<WeaponAnimationDefinition>(
-                    "FistsWeaponAnimationDefinition");
+                    "KnifeWeaponAnimationDefinition");
             var cameraObject =
                 new GameObject("Weapon Action Evidence Camera");
             var lightObject =

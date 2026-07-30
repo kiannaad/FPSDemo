@@ -10,7 +10,7 @@ namespace CGame.Animation
             {
                 {
                     new WeaponId("knife"),
-                    "FistsWeaponAnimationDefinition"
+                    "KnifeWeaponAnimationDefinition"
                 },
                 {
                     new WeaponId("rifle"),

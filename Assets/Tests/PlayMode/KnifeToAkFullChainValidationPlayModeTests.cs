@@ -42,6 +42,7 @@ namespace CGame.Tests
                 YooAssets.RemovePackage("DefaultPackage");
                 YooAssets.Destroy();
             }
+
         }
 
         [UnityTearDown]
@@ -69,6 +70,7 @@ namespace CGame.Tests
                 YooAssets.RemovePackage("DefaultPackage");
                 YooAssets.Destroy();
             }
+
         }
 
         [UnityTest]
@@ -198,7 +200,7 @@ namespace CGame.Tests
                     "WeaponAnimationCatalog"));
             Assert.IsTrue(
                 AssetManager.Instance.CheckLocation(
-                    "FistsWeaponAnimationDefinition"));
+                    "KnifeWeaponAnimationDefinition"));
             Assert.IsTrue(
                 AssetManager.Instance.CheckLocation(
                     "RifleAKAnimationDefinition"));

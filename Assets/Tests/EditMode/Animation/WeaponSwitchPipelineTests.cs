@@ -104,7 +104,7 @@ namespace CGame.Tests
             }
         }
 
-        [TestCase("knife", "FistsWeaponAnimationDefinition")]
+        [TestCase("knife", "KnifeWeaponAnimationDefinition")]
         [TestCase("rifle", "RifleAKAnimationDefinition")]
         public void DefinitionLocationResolver_MapsSupportedWeapons(
             string weaponId,

@@ -102,7 +102,7 @@ namespace CGame.Tests
             Assert.IsFalse(runtime.Capabilities.SupportsFire);
             WeaponAnimationDefinition knife =
                 Resources.Load<WeaponAnimationDefinition>(
-                    "FistsWeaponAnimationDefinition");
+                    "KnifeWeaponAnimationDefinition");
             Vector3 startPosition =
                 character.transform.position;
 

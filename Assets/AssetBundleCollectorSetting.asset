@@ -38,7 +38,7 @@ MonoBehaviour:
         FilterRuleName: CollectAll
         AssetTags:
         UserData:
-      - CollectPath: Assets/Resources/FistsWeaponAnimationDefinition.asset
+      - CollectPath: Assets/Resources/KnifeWeaponAnimationDefinition.asset
         CollectorGUID: f608bde65d7fe334bb07733b338eef9e
         CollectorType: 0
         AddressRuleName: AddressByFileName

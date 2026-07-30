@@ -69,7 +69,7 @@ namespace CGame.Tests
         }
 
         [Test]
-        public void Sequencer_IsIdempotentSamplesSlotCurveAndCompletesMatchingAction()
+        public void Sequencer_IsIdempotentSamplesKnifeSlotCurveAndCompletesMatchingAction()
         {
             using (var fixture = new PlayablesFixture())
             {
@@ -98,10 +98,11 @@ namespace CGame.Tests
                         fixture.Definition.MeleeAttack.AnimationClip.length
                         * 0.426239));
                     fixture.Controller.Update(0.016f);
-                    Assert.Greater(
+                    Assert.AreEqual(
+                        1f,
                         fixture.Controller.GetCurveValue(
-                            "PelvisYawOffset"),
-                        1f);
+                            "MaskLeftHand"),
+                        0.0001f);
 
                     double terminalTime =
                         fixture.Definition.MeleeAttack.AnimationClip.length
@@ -290,7 +291,7 @@ namespace CGame.Tests
             {
                 WeaponAnimationDefinition definition =
                     Resources.Load<WeaponAnimationDefinition>(
-                        "FistsWeaponAnimationDefinition");
+                        "KnifeWeaponAnimationDefinition");
                 Assert.NotNull(definition);
                 return definition;
             }

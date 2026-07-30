@@ -138,7 +138,7 @@ namespace CGame.Tests
             {
                 definition,
                 Resources.Load<WeaponAnimationDefinition>(
-                    "FistsWeaponAnimationDefinition"),
+                    "KnifeWeaponAnimationDefinition"),
                 parent,
                 Vector3.zero,
                 Quaternion.identity,

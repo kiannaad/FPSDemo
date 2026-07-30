@@ -11,7 +11,7 @@ namespace CGame.Tests
     public sealed class KnifeToAkFullChainValidationTests
     {
         private const string KnifeDefinitionPath =
-            "Assets/Resources/FistsWeaponAnimationDefinition.asset";
+            "Assets/Resources/KnifeWeaponAnimationDefinition.asset";
         private const string RifleDefinitionPath =
             "Assets/Art/Animation/Weapon/KINEMATION/AK/"
             + "RifleAKAnimationDefinition.asset";
@@ -49,7 +49,7 @@ namespace CGame.Tests
                     new WeaponId("knife"),
                     out string knifeLocation));
             Assert.AreEqual(
-                "FistsWeaponAnimationDefinition",
+                "KnifeWeaponAnimationDefinition",
                 knifeLocation);
             Assert.IsTrue(
                 resolver.TryResolveLocation(
@@ -59,7 +59,7 @@ namespace CGame.Tests
                 "RifleAKAnimationDefinition",
                 rifleLocation);
 
-            AssertClip(knife.OverlayPose, true);
+            AssertClip(knife.OverlayPose, false);
             AssertClip(knife.Equip, false);
             AssertClip(knife.Unequip, false);
             AssertClip(knife.MeleeAttack, false);
@@ -104,7 +104,7 @@ namespace CGame.Tests
                 "Assets/Resources/WeaponAnimationCatalog.asset",
                 collector);
             StringAssert.Contains(
-                "Assets/Resources/FistsWeaponAnimationDefinition.asset",
+                "Assets/Resources/KnifeWeaponAnimationDefinition.asset",
                 collector);
             StringAssert.Contains(RifleDefinitionPath, collector);
             StringAssert.Contains(
