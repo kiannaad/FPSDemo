@@ -1,0 +1,15 @@
+{
+    "name": "CGame.GameplayTags.Editor.Tests",
+    "rootNamespace": "CGame.GameplayTags.Editor.Tests",
+    "references": ["CGame.GameplayTags", "CGame.GameplayTags.Editor", "CGame.GameplayTags.AuthoringFixtures"],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": ["TestAssemblies"]
+}

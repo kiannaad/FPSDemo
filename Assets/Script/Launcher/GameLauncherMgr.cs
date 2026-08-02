@@ -1,6 +1,7 @@
 ﻿using System;
 using UnityEngine;
 using System.Collections.Generic;
+using CGame.GameplayTags;
 
 namespace CGame
 {
@@ -77,15 +78,64 @@ namespace CGame
     
     public class GameLauncherMgr : MonoBehaviour
     {
+        [SerializeField] private GameplayTagConfig gameplayTagConfig;
+
+        public bool GameplayTagsInitialized { get; private set; }
+
         public void Awake()
         {
+            if (!InitializeGameplayTags())
+            {
+                return;
+            }
+
             GameLauncher.Instance.InitGameStep();
             GameLauncher.Instance.NextFun();
         }
 
+        public bool InitializeGameplayTags()
+        {
+            GameplayTagsInitialized = false;
+            GameplayTagManager.Instance.Shutdown();
+
+            if (gameplayTagConfig == null)
+            {
+                Debug.LogError("GameLauncherMgr requires a GameplayTagConfig reference before launch.", this);
+                return false;
+            }
+
+            GameplayTagRegistryBuildResult result = GameplayTagManager.Instance.Initialize(
+                gameplayTagConfig.Sources,
+                gameplayTagConfig.Redirects);
+            if (!result.Succeeded)
+            {
+                foreach (GameplayTagRegistryError error in result.Errors)
+                {
+                    Debug.LogError($"GameplayTag initialization failed: {error}", this);
+                }
+
+                return false;
+            }
+
+            GameplayTagsInitialized = true;
+            return true;
+        }
+
         public void Update()
         {
-            GameLauncher.Instance.Update();
+            if (GameplayTagsInitialized)
+            {
+                GameLauncher.Instance.Update();
+            }
+        }
+
+        public void OnDestroy()
+        {
+            if (GameplayTagsInitialized)
+            {
+                GameplayTagManager.Instance.Shutdown();
+                GameplayTagsInitialized = false;
+            }
         }
     }
 }

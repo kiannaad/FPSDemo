@@ -1,0 +1,19 @@
+{
+    "name": "CGame.GameplayTags.PlayMode.Tests",
+    "rootNamespace": "CGame.GameplayTags.PlayMode.Tests",
+    "references": [
+        "CGame.GameplayTags"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}
