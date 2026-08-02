@@ -1,0 +1,25 @@
+GAS 整体 Demo 说明
+==================
+
+入口
+- 菜单 Tools/MmGAS/Open GAS Demo Scene  一键开场景并挂好 GAS_Demo
+- 或 Tools/MmGAS/Create GAS Demo Object  在当前场景生成物体后 Play
+
+闭环内容
+1. Stat  HP(即时) MP(即时) Attack(被动)
+2. Tag   State.Ready 作为技能 Need
+3. Ability
+   - Fireball  耗蓝30 CD2s  即时扣HP
+   - WarCry    耗蓝20 CD4s  攻击+15 持续8s 可叠3层
+   - Poison    耗蓝15 CD1s  周期毒伤 可叠层
+4. GE 经技能 Activate 时 ApplyConfiguredEffects 挂到自身
+
+操作
+- 键盘 1 / 2 / 3 放技能
+- R 回满血蓝
+- T 开关 State.Ready 看标签拦截
+- 左上角 OnGUI 也可点
+
+Ability 编辑器
+- Tools/MmGAS → Ability 页 浏览/创建/筛选/删技能 SO
+- 资产默认目录 Assets/_Scripts/GAS/Core/AbilitySystem/Data/So
