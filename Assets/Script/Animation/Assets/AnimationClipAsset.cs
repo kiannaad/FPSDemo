@@ -11,7 +11,7 @@ namespace CGame.Animation
         [FormerlySerializedAs("fadeDuration")]
         [SerializeField, Min(0f)] private float blendInTime = 0.25f;
         [SerializeField, Min(0f)] private float blendOutTime = 0.25f;
-        [SerializeField, Min(0.0001f)] private float speed = 1f;
+        [SerializeField] private float speed = 1f;
         [SerializeField] private bool overrideNormalizedStartTime;
         [SerializeField, Range(0f, 1f)] private float normalizedStartTime;
         [SerializeField] private AvatarMask mask;
@@ -109,9 +109,9 @@ namespace CGame.Animation
                 return false;
             }
 
-            if (speed <= 0f)
+            if (Mathf.Approximately(speed, 0f))
             {
-                error = $"Animation clip '{animationClip.name}' requires Speed greater than zero.";
+                error = $"Animation clip '{animationClip.name}' requires a non-zero Speed.";
                 return false;
             }
 

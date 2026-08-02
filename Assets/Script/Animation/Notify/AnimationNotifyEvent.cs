@@ -63,5 +63,36 @@ namespace CGame.Animation
             int clampedEnd = Mathf.Clamp(newEndFrame, startFrame, Mathf.Max(0, maxFrame));
             SetFrameRange(startFrame, clampedEnd - startFrame, maxFrame);
         }
+
+        public bool TryValidateForRuntime(int maxFrame, out string error)
+        {
+            if (notify == null)
+            {
+                error = "Animation Notify event requires a Notify definition.";
+                return false;
+            }
+
+            int clampedMaxFrame = Mathf.Max(0, maxFrame);
+            if (startFrame > clampedMaxFrame || EndFrame > clampedMaxFrame)
+            {
+                error = $"Animation Notify '{notify.DisplayName}' is outside the clip frame range.";
+                return false;
+            }
+
+            if (notify is AnimationDurationNotify && durationFrames <= 0)
+            {
+                error = $"Duration Notify '{notify.DisplayName}' requires DurationFrames greater than zero.";
+                return false;
+            }
+
+            if (notify is AnimationInstantNotify && durationFrames != 0)
+            {
+                error = $"Instant Notify '{notify.DisplayName}' requires DurationFrames equal to zero.";
+                return false;
+            }
+
+            error = string.Empty;
+            return true;
+        }
     }
 }

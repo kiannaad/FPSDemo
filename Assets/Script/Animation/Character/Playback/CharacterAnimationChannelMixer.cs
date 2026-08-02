@@ -20,19 +20,23 @@ namespace CGame.Animation
             public float ManualBlendOutDuration;
             public AnimationPlaybackState BlendOutTerminalState;
             public bool StartsAtFullWeight;
+            public AnimationNotifyPlaybackState NotifyState;
         }
 
         private readonly PlayableGraph graph;
+        private readonly Pawn pawn;
         private readonly int firstUserInput;
         private readonly List<Slot> slots = new List<Slot>(SlotCount);
         private AnimationLayerMixerPlayable mixer;
         private Slot activeSlot;
         private bool isDisposed;
+        private bool isUpdating;
 
         public CharacterAnimationChannelMixer(
             PlayableGraph graph,
             int baseInputCount,
-            Playable baseInput)
+            Playable baseInput,
+            Pawn pawn = null)
         {
             if (!graph.IsValid())
             {
@@ -40,6 +44,7 @@ namespace CGame.Animation
             }
 
             this.graph = graph;
+            this.pawn = pawn;
             firstUserInput = baseInputCount;
             mixer = AnimationLayerMixerPlayable.Create(graph, baseInputCount + SlotCount);
             if (baseInputCount > 0)
@@ -63,10 +68,16 @@ namespace CGame.Animation
             long requestId,
             bool autoBlendOut,
             bool useOverrideMask,
-            bool startAtFullWeight = false)
+            bool startAtFullWeight = false,
+            bool dispatchNotifies = true)
         {
-            if (isDisposed || !mixer.IsValid())
+            if (isDisposed || !mixer.IsValid() || isUpdating)
             {
+                if (isUpdating)
+                {
+                    Debug.LogError("Synchronous Play during CharacterAnimationChannelMixer.Update is not allowed.");
+                }
+
                 return AnimationPlaybackHandle.CreateFailed(
                     playbackId,
                     requestId,
@@ -106,7 +117,10 @@ namespace CGame.Animation
 
             if (slots.Count == SlotCount)
             {
-                ReleaseSlot(slots[0], AnimationPlaybackState.Interrupted);
+                ReleaseSlot(
+                    slots[0],
+                    AnimationPlaybackState.Interrupted,
+                    AnimationNotifyEndReason.Interrupted);
             }
 
             for (int i = 0; i < slots.Count; i++)
@@ -120,7 +134,20 @@ namespace CGame.Animation
                 InputIndex = inputIndex,
                 Animation = animation,
                 StartsAtFullWeight = startAtFullWeight,
+                NotifyState = dispatchNotifies
+                    ? new AnimationNotifyPlaybackState(
+                        pawn,
+                        animation.NotifyEntries,
+                        animation.Length,
+                        animation.Handle.Clip.isLooping,
+                        animation.Speed)
+                    : null,
             };
+            for (int i = 0; i < slots.Count; i++)
+            {
+                slots[i].NotifyState?.MarkReplaced();
+            }
+
             slots.Add(slot);
             activeSlot = slot;
             mixer.ConnectInput(
@@ -145,62 +172,82 @@ namespace CGame.Animation
 
         public void Update()
         {
-            if (isDisposed || !mixer.IsValid() || activeSlot == null)
+            if (isDisposed || !mixer.IsValid() || activeSlot == null || isUpdating)
             {
                 return;
             }
 
-            if (activeSlot.IsManualBlendOut)
+            isUpdating = true;
+            try
             {
+                if (activeSlot.IsManualBlendOut)
+                {
+                    UpdateManualBlendOut(activeSlot);
+                    return;
+                }
+
+                CharacterAnimationPlayable active = activeSlot.Animation;
+                float blendInWeight = CalculateBlendInWeight(active);
+                mixer.SetInputWeight(activeSlot.InputIndex, blendInWeight);
+                active.Handle.State = blendInWeight < 1f
+                    ? AnimationPlaybackState.BlendingIn
+                    : AnimationPlaybackState.Playing;
+                UpdateNotifyState(activeSlot);
+
+                for (int i = slots.Count - 1; i >= 0; i--)
+                {
+                    Slot slot = slots[i];
+                    if (slot == activeSlot)
+                    {
+                        continue;
+                    }
+
+                    float weight = Mathf.Lerp(slot.CachedWeight, 0f, blendInWeight);
+                    mixer.SetInputWeight(slot.InputIndex, weight);
+                    UpdateNotifyState(slot);
+                    if (Mathf.Approximately(blendInWeight, 1f))
+                    {
+                        ReleaseSlot(
+                            slot,
+                            AnimationPlaybackState.Interrupted,
+                            AnimationNotifyEndReason.Interrupted);
+                    }
+                }
+
+                bool reachedEnd = active.Speed >= 0f
+                    ? active.LocalTime >= active.Length
+                    : active.LocalTime <= 0f;
+                if (!active.AutoBlendOut || !reachedEnd)
+                {
+                    if (!active.AutoBlendOut && !active.Handle.Clip.isLooping && reachedEnd)
+                    {
+                        active.Playable.SetTime(active.Speed >= 0f ? active.Length : 0f);
+                    }
+
+                    return;
+                }
+
+                BeginBlendOut(
+                    activeSlot,
+                    active.LocalTime,
+                    active.BlendOutTime,
+                    AnimationPlaybackState.Completed);
                 UpdateManualBlendOut(activeSlot);
-                return;
             }
-
-            CharacterAnimationPlayable active = activeSlot.Animation;
-            float blendInWeight = CalculateBlendInWeight(active);
-            mixer.SetInputWeight(activeSlot.InputIndex, blendInWeight);
-            active.Handle.State = blendInWeight < 1f
-                ? AnimationPlaybackState.BlendingIn
-                : AnimationPlaybackState.Playing;
-
-            for (int i = slots.Count - 1; i >= 0; i--)
+            finally
             {
-                Slot slot = slots[i];
-                if (slot == activeSlot)
-                {
-                    continue;
-                }
-
-                float weight = Mathf.Lerp(slot.CachedWeight, 0f, blendInWeight);
-                mixer.SetInputWeight(slot.InputIndex, weight);
-                if (Mathf.Approximately(blendInWeight, 1f))
-                {
-                    ReleaseSlot(slot, AnimationPlaybackState.Interrupted);
-                }
+                isUpdating = false;
             }
-
-            if (!active.AutoBlendOut || active.LocalTime < active.Length)
-            {
-                if (!active.AutoBlendOut
-                    && !active.Handle.Clip.isLooping
-                    && active.LocalTime > active.Length)
-                {
-                    active.Playable.SetTime(active.Length);
-                }
-
-                return;
-            }
-
-            BeginBlendOut(
-                activeSlot,
-                active.Length,
-                active.BlendOutTime,
-                AnimationPlaybackState.Completed);
-            UpdateManualBlendOut(activeSlot);
         }
 
         public bool Stop(AnimationPlaybackHandle handle)
         {
+            if (isUpdating)
+            {
+                Debug.LogError("Synchronous Stop during CharacterAnimationChannelMixer.Update is not allowed.");
+                return false;
+            }
+
             Slot slot = FindSlot(handle);
             if (slot == null)
             {
@@ -209,7 +256,7 @@ namespace CGame.Animation
 
             if (slot != activeSlot)
             {
-                ReleaseSlot(slot, AnimationPlaybackState.Cancelled);
+                ReleaseSlot(slot, AnimationPlaybackState.Cancelled, AnimationNotifyEndReason.StateStopped);
                 return true;
             }
 
@@ -238,6 +285,12 @@ namespace CGame.Animation
 
         public bool TrySetPlaybackTime(AnimationPlaybackHandle handle, double time)
         {
+            if (isUpdating)
+            {
+                Debug.LogError("Synchronous SetTime during CharacterAnimationChannelMixer.Update is not allowed.");
+                return false;
+            }
+
             Slot slot = FindSlot(handle);
             if (slot == null || !slot.Animation.Playable.IsValid())
             {
@@ -245,6 +298,7 @@ namespace CGame.Animation
             }
 
             slot.Animation.Playable.SetTime(time);
+            slot.NotifyState?.ResetTime(time);
             return true;
         }
 
@@ -257,7 +311,7 @@ namespace CGame.Animation
 
             for (int i = slots.Count - 1; i >= 0; i--)
             {
-                ReleaseSlot(slots[i], AnimationPlaybackState.Cancelled);
+                ReleaseSlot(slots[i], AnimationPlaybackState.Cancelled, AnimationNotifyEndReason.OwnerDisabled);
             }
 
             if (graph.IsValid() && mixer.IsValid())
@@ -283,7 +337,7 @@ namespace CGame.Animation
             }
 
             return Mathf.Clamp01(
-                (animation.LocalTime - animation.StartTime) / animation.BlendInTime);
+                Mathf.Abs(animation.LocalTime - animation.StartTime) / animation.BlendInTime);
         }
 
         private void BeginBlendOut(
@@ -310,15 +364,21 @@ namespace CGame.Animation
             float alpha = Mathf.Approximately(slot.ManualBlendOutDuration, 0f)
                 ? 1f
                 : Mathf.Clamp01(
-                    (slot.Animation.LocalTime - slot.ManualBlendOutStart)
+                    Mathf.Abs(slot.Animation.LocalTime - slot.ManualBlendOutStart)
                     / slot.ManualBlendOutDuration);
             mixer.SetInputWeight(
                 slot.InputIndex,
                 Mathf.Lerp(slot.CachedWeight, 0f, alpha));
             if (Mathf.Approximately(alpha, 1f))
             {
-                ReleaseSlot(slot, slot.BlendOutTerminalState);
+                AnimationNotifyEndReason reason = slot.BlendOutTerminalState == AnimationPlaybackState.Completed
+                    ? AnimationNotifyEndReason.NaturalEnd
+                    : AnimationNotifyEndReason.StateStopped;
+                ReleaseSlot(slot, slot.BlendOutTerminalState, reason);
+                return;
             }
+
+            UpdateNotifyState(slot);
         }
 
         private int FindUnusedInputIndex()
@@ -364,7 +424,17 @@ namespace CGame.Animation
             return null;
         }
 
-        private void ReleaseSlot(Slot slot, AnimationPlaybackState terminalState)
+        private void UpdateNotifyState(Slot slot)
+        {
+            slot.NotifyState?.Update(
+                slot.Animation.LocalTime,
+                mixer.GetInputWeight(slot.InputIndex));
+        }
+
+        private void ReleaseSlot(
+            Slot slot,
+            AnimationPlaybackState terminalState,
+            AnimationNotifyEndReason notifyEndReason)
         {
             if (slot == null)
             {
@@ -376,12 +446,19 @@ namespace CGame.Animation
                 mixer.DisconnectInput(slot.InputIndex);
             }
 
+            slot.NotifyState?.EndAll(notifyEndReason);
             slot.Animation.Handle.State = terminalState;
             slot.Animation.Dispose();
             slots.Remove(slot);
             if (ReferenceEquals(activeSlot, slot))
             {
                 activeSlot = slots.Count > 0 ? slots[slots.Count - 1] : null;
+                if (activeSlot != null)
+                {
+                    activeSlot.NotifyState?.Restore(
+                        activeSlot.Animation.LocalTime,
+                        mixer.GetInputWeight(activeSlot.InputIndex));
+                }
             }
         }
     }

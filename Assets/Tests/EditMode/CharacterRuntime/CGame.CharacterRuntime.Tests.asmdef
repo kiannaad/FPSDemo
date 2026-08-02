@@ -1,0 +1,21 @@
+{
+    "name": "CGame.CharacterRuntime.Tests",
+    "rootNamespace": "CGame.CharacterRuntime.Tests",
+    "references": [
+        "CGame.CharacterRuntime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

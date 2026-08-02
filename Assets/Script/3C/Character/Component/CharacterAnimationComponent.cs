@@ -43,6 +43,7 @@ namespace CGame
             this.pawn = pawn;
             animInstance?.Dispose();
             animInstance = new CharacterAnimInstance(
+                pawn,
                 new AnimationCharacterSource(motor),
                 animator,
                 animationConfig.UpperBodyMask);

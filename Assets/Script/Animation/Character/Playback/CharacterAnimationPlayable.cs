@@ -21,7 +21,9 @@ namespace CGame.Animation
             float blendOutTime,
             float startTime,
             bool autoBlendOut,
-            Dictionary<string, AnimationCurve> namedCurves)
+            Dictionary<string, AnimationCurve> namedCurves,
+            AnimationNotifyRuntimeEntry[] notifyEntries,
+            float speed)
         {
             Playable = playable;
             Handle = handle;
@@ -33,6 +35,8 @@ namespace CGame.Animation
             StartTime = startTime;
             AutoBlendOut = autoBlendOut;
             this.namedCurves = namedCurves;
+            NotifyEntries = notifyEntries;
+            Speed = speed;
         }
 
         public AnimationClipPlayable Playable { get; private set; }
@@ -44,6 +48,8 @@ namespace CGame.Animation
         public float BlendOutTime { get; }
         public float StartTime { get; }
         public bool AutoBlendOut { get; }
+        public float Speed { get; }
+        public AnimationNotifyRuntimeEntry[] NotifyEntries { get; }
         public float LocalTime => Playable.IsValid() ? (float)Playable.GetTime() : 0f;
         public float Length => Handle.Clip != null ? Handle.Clip.length : 0f;
 
@@ -75,6 +81,7 @@ namespace CGame.Animation
             }
 
             AnimationClip clip = asset.AnimationClip;
+            AnimationNotifyRuntimeEntry[] notifyEntries = CreateNotifyEntries(asset, clip);
             var curveSnapshots = new Dictionary<string, AnimationCurve>(StringComparer.Ordinal);
             for (int i = 0; i < asset.NamedCurves.Count; i++)
             {
@@ -90,7 +97,6 @@ namespace CGame.Animation
                 curveSnapshots.Add(source.Name, curve);
             }
 
-            IReadOnlyList<AnimationNotifySnapshot> notifySnapshots = CreateNotifySnapshots(asset);
             AnimationClipPlayable playable = AnimationClipPlayable.Create(graph, clip);
             if (!playable.IsValid())
             {
@@ -100,10 +106,12 @@ namespace CGame.Animation
 
             float normalizedStart = asset.OverrideNormalizedStartTime
                 ? Mathf.Clamp01(asset.NormalizedStartTime)
-                : 0f;
+                : asset.Speed < 0f ? 1f : 0f;
             float startTime = normalizedStart * clip.length;
             playable.SetTime(startTime);
             playable.SetSpeed(asset.Speed);
+            playable.SetDuration(double.PositiveInfinity);
+            playable.SetDone(false);
             playable.SetApplyFootIK(false);
             playable.SetApplyPlayableIK(false);
 
@@ -111,7 +119,6 @@ namespace CGame.Animation
                 playbackId,
                 requestId,
                 clip,
-                notifySnapshots,
                 AnimationPlaybackState.Pending);
             animationPlayable = new CharacterAnimationPlayable(
                 playable,
@@ -123,7 +130,9 @@ namespace CGame.Animation
                 asset.BlendOutTime,
                 startTime,
                 autoBlendOut,
-                curveSnapshots);
+                curveSnapshots,
+                notifyEntries,
+                asset.Speed);
             error = string.Empty;
             return true;
         }
@@ -160,43 +169,47 @@ namespace CGame.Animation
             isDisposed = true;
         }
 
-        private static IReadOnlyList<AnimationNotifySnapshot> CreateNotifySnapshots(
-            AnimationClipAsset asset)
+        private static AnimationNotifyRuntimeEntry[] CreateNotifyEntries(
+            AnimationClipAsset asset,
+            AnimationClip clip)
         {
-            var snapshots = new List<AnimationNotifySnapshot>();
-            IReadOnlyList<AnimationNotifyTrack> tracks = asset.NotifyTracks;
-            for (int trackIndex = 0; trackIndex < tracks.Count; trackIndex++)
+            var entries = new List<AnimationNotifyRuntimeEntry>();
+            int maxFrame = Mathf.CeilToInt(clip.length * clip.frameRate);
+            for (int trackIndex = 0; trackIndex < asset.NotifyTracks.Count; trackIndex++)
             {
-                AnimationNotifyTrack track = tracks[trackIndex];
+                AnimationNotifyTrack track = asset.NotifyTracks[trackIndex];
                 if (track == null)
                 {
                     continue;
                 }
 
-                List<AnimationNotifyEvent> events = track.Events;
-                for (int eventIndex = 0; eventIndex < events.Count; eventIndex++)
+                for (int eventIndex = 0; eventIndex < track.Events.Count; eventIndex++)
                 {
-                    AnimationNotifyEvent notifyEvent = events[eventIndex];
-                    AnimationNotify notify = notifyEvent?.Notify;
-                    if (notify == null)
+                    AnimationNotifyEvent notifyEvent = track.Events[eventIndex];
+                    string error = string.Empty;
+                    if (notifyEvent == null
+                        || !notifyEvent.TryValidateForRuntime(maxFrame, out error))
                     {
+                        Debug.LogError(string.IsNullOrWhiteSpace(error)
+                            ? $"Invalid Animation Notify at track {trackIndex}, event {eventIndex}."
+                            : error);
                         continue;
                     }
 
-                    snapshots.Add(new AnimationNotifySnapshot(
-                        track.Name,
-                        notify.GetType().FullName,
-                        notify.DisplayName,
-                        notify.EventTag,
-                        notify.ContextTags,
-                        notify.DispatchPolicy,
+                    entries.Add(new AnimationNotifyRuntimeEntry(
+                        notifyEvent.Notify,
                         notifyEvent.StartFrame,
-                        notifyEvent.DurationFrames,
-                        notifyEvent.MinTriggerWeight));
+                        notifyEvent.EndFrame,
+                        notifyEvent.StartFrame / clip.frameRate,
+                        notifyEvent.EndFrame / clip.frameRate,
+                        notifyEvent.MinTriggerWeight,
+                        trackIndex,
+                        eventIndex));
                 }
             }
 
-            return snapshots.ToArray();
+            entries.Sort();
+            return entries.ToArray();
         }
     }
 }

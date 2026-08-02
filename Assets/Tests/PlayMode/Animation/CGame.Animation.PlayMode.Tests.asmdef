@@ -1,0 +1,21 @@
+{
+    "name": "CGame.Animation.PlayMode.Tests",
+    "rootNamespace": "CGame.Animation.PlayMode.Tests",
+    "references": [
+        "CGame.Animation",
+        "CGame.CharacterRuntime",
+        "CGame.Weapon"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

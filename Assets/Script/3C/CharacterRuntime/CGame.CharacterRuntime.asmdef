@@ -1,10 +1,8 @@
 {
-    "name": "CGame.Animation",
-    "rootNamespace": "CGame.Animation",
+    "name": "CGame.CharacterRuntime",
+    "rootNamespace": "CGame",
     "references": [
-        "CGame.CharacterRuntime",
-        "CGame.Weapon",
-        "YooAsset"
+        "CGame.Weapon"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

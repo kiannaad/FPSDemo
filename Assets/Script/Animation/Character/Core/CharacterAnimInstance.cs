@@ -15,17 +15,22 @@ namespace CGame.Animation
         private bool isDisposed;
 
         public CharacterAnimInstance(
+            Pawn pawn,
             IAnimationCharacterSource source,
             Animator animator,
             AvatarMask upperBodyMask = null,
             WeaponAnimationDefinition weaponDefinition = null)
         {
+            if (pawn == null) throw new ArgumentNullException(nameof(pawn));
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (animator == null) throw new ArgumentNullException(nameof(animator));
 
             updateContext = new AnimationUpdateContext(source);
             animatorController = new CharacterAnimatorController(animator, updateContext);
-            playablesController = new CharacterPlayablesController(animator, upperBodyMask);
+            playablesController = new CharacterPlayablesController(
+                pawn,
+                animator,
+                upperBodyMask);
             boneController = new CharacterBoneController(animator);
             weaponAdapter = new CharacterWeaponAnimationAdapter();
             if (weaponDefinition != null)

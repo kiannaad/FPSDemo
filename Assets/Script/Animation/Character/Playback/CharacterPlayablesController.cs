@@ -26,6 +26,7 @@ namespace CGame.Animation
         private static long nextPlaybackId;
         private static long nextRequestId;
 
+        private readonly Pawn pawn;
         private readonly Animator animator;
         private readonly AvatarMask upperBodyMask;
         private readonly List<SynchronizedOverride> synchronizedOverrides =
@@ -40,8 +41,12 @@ namespace CGame.Animation
         private PlayableOutput projectOutput;
         private bool isDisposed;
 
-        public CharacterPlayablesController(Animator animator, AvatarMask upperBodyMask = null)
+        public CharacterPlayablesController(
+            Pawn pawn,
+            Animator animator,
+            AvatarMask upperBodyMask = null)
         {
+            this.pawn = pawn ?? throw new ArgumentNullException(nameof(pawn));
             this.animator = animator ?? throw new ArgumentNullException(nameof(animator));
             this.upperBodyMask = upperBodyMask;
         }
@@ -119,15 +124,21 @@ namespace CGame.Animation
 
             try
             {
-                overlayMixer = new CharacterAnimationChannelMixer(graph, 0, Playable.Null);
+                overlayMixer = new CharacterAnimationChannelMixer(
+                    graph,
+                    0,
+                    Playable.Null,
+                    pawn);
                 slotMixer = new CharacterAnimationChannelMixer(
                     graph,
                     1,
-                    overlayMixer.Mixer);
+                    overlayMixer.Mixer,
+                    pawn);
                 overrideMixer = new CharacterAnimationChannelMixer(
                     graph,
                     1,
-                    slotMixer.Mixer);
+                    slotMixer.Mixer,
+                    pawn);
                 masterMixer = AnimationLayerMixerPlayable.Create(graph, 2);
                 masterMixer.ConnectInput(0, source, 0, 1f);
                 masterMixer.ConnectInput(1, overrideMixer.Mixer, 0, 0f);
@@ -228,7 +239,9 @@ namespace CGame.Animation
                 NextPlaybackId(),
                 resolvedRequestId,
                 true,
-                true);
+                true,
+                false,
+                false);
             if (overrideHandle.State == AnimationPlaybackState.Failed)
             {
                 slotMixer.Stop(slotHandle);

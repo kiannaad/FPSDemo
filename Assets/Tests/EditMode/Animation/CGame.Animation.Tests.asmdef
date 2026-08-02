@@ -1,0 +1,22 @@
+{
+    "name": "CGame.Animation.Tests",
+    "rootNamespace": "CGame.Animation.Tests",
+    "references": [
+        "CGame.Animation",
+        "CGame.CharacterRuntime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}
