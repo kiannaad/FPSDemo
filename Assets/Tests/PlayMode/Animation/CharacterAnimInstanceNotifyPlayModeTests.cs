@@ -1,8 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using CGame.Ability;
+using CGame.Ability.Animation;
+using CGame.GameplayTags;
 using NUnit.Framework;
 #if UNITY_EDITOR
+using UnityEditor;
 using UnityEditor.Animations;
 #endif
 using UnityEngine;
@@ -184,6 +188,221 @@ namespace CGame.Animation.PlayMode.Tests
             UnityEngine.Object.Destroy(asset);
         }
 
+        [UnityTest]
+        public IEnumerator UpdateAnimation_RealGraphRoutesGameEventToPawnAscOnceWithoutOverrideDuplication()
+        {
+            GameplayTagSource tagSource = ScriptableObject.CreateInstance<GameplayTagSource>();
+            tagSource.SetDefinition(
+                "AbilityGameEventPlayMode",
+                new[]
+                {
+                    new GameplayTagSourceNode(
+                        "Event",
+                        false,
+                        children: new[]
+                        {
+                            new GameplayTagSourceNode(
+                                "Weapon",
+                                false,
+                                children: new[] { new GameplayTagSourceNode("Reload", true) })
+                        })
+                });
+            GameplayTagRegistryBuildResult tagResult = GameplayTagManager.Instance.Initialize(new[] { tagSource });
+            Assert.That(tagResult.Succeeded, Is.True, string.Join(Environment.NewLine, tagResult.Errors));
+            GameplayTag eventTag = GameplayTagManager.Instance.RequestTag("Event.Weapon.Reload");
+            var abilitySystem = new AbilitySystemComponent(pawn);
+            pawn.BindingAbilitySystem(abilitySystem);
+            int eventCount = 0;
+            AbilityGameEventRegistration registration = abilitySystem.RegisterGameEvent(
+                eventTag,
+                AbilityGameEventMatchPolicy.Exact,
+                payload => eventCount++);
+            AnimationClipAsset asset = CreateAsset("AbilityEvent", 1f, 0.4f);
+            asset.OverrideMask = new AvatarMask();
+            asset.AddNotifyTrack().AddEvent(
+                new global::CGame.Ability.Animation.AnimationGameEventNotify { EventTag = eventTag },
+                2);
+
+            try
+            {
+                AnimationPlaybackHandle handle = animInstance.PlayablesController.PlayAnimation(asset);
+                yield return PumpUntil(() => eventCount == 1);
+
+                Assert.That(handle.State, Is.Not.EqualTo(AnimationPlaybackState.Failed));
+                Assert.That(eventCount, Is.EqualTo(1));
+                Assert.That(abilitySystem.AbilityCount, Is.Zero);
+            }
+            finally
+            {
+                registration.Dispose();
+                pawn.ClearingAbilitySystem(abilitySystem);
+                abilitySystem.Dispose();
+                GameplayTagManager.Instance.Shutdown();
+                UnityEngine.Object.Destroy(asset.OverrideMask);
+                UnityEngine.Object.Destroy(asset);
+                UnityEngine.Object.Destroy(tagSource);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator UpdateAnimation_RealGraphEventCompletesActiveWaitTaskAndAbility()
+        {
+            GameplayTagSource tagSource = ScriptableObject.CreateInstance<GameplayTagSource>();
+            tagSource.SetDefinition(
+                "AbilityTaskPlayMode",
+                new[]
+                {
+                    new GameplayTagSourceNode(
+                        "Ability",
+                        false,
+                        children: new[]
+                        {
+                            new GameplayTagSourceNode(
+                                "Weapon",
+                                false,
+                                children: new[] { new GameplayTagSourceNode("Reload", true) })
+                        }),
+                    new GameplayTagSourceNode(
+                        "Event",
+                        false,
+                        children: new[]
+                        {
+                            new GameplayTagSourceNode(
+                                "Weapon",
+                                false,
+                                children: new[] { new GameplayTagSourceNode("Reload", true) })
+                        })
+                });
+            GameplayTagRegistryBuildResult tagResult = GameplayTagManager.Instance.Initialize(new[] { tagSource });
+            Assert.That(tagResult.Succeeded, Is.True, string.Join(Environment.NewLine, tagResult.Errors));
+            GameplayTag abilityTag = GameplayTagManager.Instance.RequestTag("Ability.Weapon.Reload");
+            GameplayTag eventTag = GameplayTagManager.Instance.RequestTag("Event.Weapon.Reload");
+            object source = new object();
+            var abilitySystem = new AbilitySystemComponent(pawn);
+            pawn.BindingAbilitySystem(abilitySystem);
+            AbilitySpecHandle specHandle = abilitySystem.GiveAbility(
+                new EventEndingAbilityDefinition(abilityTag, eventTag),
+                source);
+            AbilityActivationResult activation = abilitySystem.TryActivateAbilityByTag(abilityTag);
+            Assert.That(activation.Succeeded, Is.True);
+            Assert.That(abilitySystem.TryGetSpec(specHandle, out AbilitySpec spec), Is.True);
+            var instance = (EventEndingAbilityInstance)spec.PrimaryInstance;
+            AnimationClipAsset asset = CreateAsset("AbilityTaskEvent", 1f, 0.4f);
+            asset.AddNotifyTrack().AddEvent(
+                new global::CGame.Ability.Animation.AnimationGameEventNotify { EventTag = eventTag },
+                2);
+
+            try
+            {
+                AnimationPlaybackHandle handle = animInstance.PlayablesController.PlayAnimation(asset);
+                yield return PumpUntil(() => instance.State == AbilityInstanceState.Inactive);
+
+                Assert.That(handle.State, Is.Not.EqualTo(AnimationPlaybackState.Failed));
+                Assert.That(instance.EventCount, Is.EqualTo(1));
+                Assert.That(instance.CommitCount, Is.EqualTo(1));
+                Assert.That(instance.LastEndReason, Is.EqualTo(AbilityEndReason.Completed));
+                Assert.That(instance.WaitTask.State, Is.EqualTo(AbilityTaskState.Completed));
+                Assert.That(instance.WaitTask.IsListening, Is.False);
+                Assert.That(instance.ActiveTaskCount, Is.Zero);
+            }
+            finally
+            {
+                pawn.ClearingAbilitySystem(abilitySystem);
+                abilitySystem.Dispose();
+                GameplayTagManager.Instance.Shutdown();
+                UnityEngine.Object.Destroy(asset);
+                UnityEngine.Object.Destroy(tagSource);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator WeaponActionAbility_RealGraphNotifyCommitsAndCompletesMelee()
+        {
+            GameplayTagSource tagSource = ScriptableObject.CreateInstance<GameplayTagSource>();
+            tagSource.SetDefinition("WeaponActionGraph", new[]
+            {
+                new GameplayTagSourceNode("Ability", false, children: new[]
+                {
+                    new GameplayTagSourceNode("Weapon", false, children: new[]
+                    {
+                        new GameplayTagSourceNode("Melee", true)
+                    })
+                }),
+                new GameplayTagSourceNode("Event", false, children: new[]
+                {
+                    new GameplayTagSourceNode("Weapon", false, children: new[]
+                    {
+                        new GameplayTagSourceNode("Melee", true)
+                    })
+                }),
+                new GameplayTagSourceNode("State", false, children: new[]
+                {
+                    new GameplayTagSourceNode("Weapon", false, children: new[]
+                    {
+                        new GameplayTagSourceNode("Action", true)
+                    })
+                })
+            });
+            GameplayTagRegistryBuildResult tags = GameplayTagManager.Instance.Initialize(new[] { tagSource });
+            Assert.That(tags.Succeeded, Is.True, string.Join(Environment.NewLine, tags.Errors));
+            GameplayTag eventTag = GameplayTagManager.Instance.RequestTag("Event.Weapon.Melee");
+            AnimationClipAsset actionAsset = CreateAsset("MeleeAbilityAction", 1f, 0.4f);
+            actionAsset.AddNotifyTrack().AddEvent(
+                new global::CGame.Ability.Animation.AnimationGameEventNotify { EventTag = eventTag },
+                2);
+            WeaponAnimationDefinition definition = ScriptableObject.CreateInstance<WeaponAnimationDefinition>();
+            var serialized = new SerializedObject(definition);
+            serialized.FindProperty("weaponId").stringValue = "knife";
+            serialized.FindProperty("supportsMeleeAttack").boolValue = true;
+            serialized.FindProperty("meleeAttack").objectReferenceValue = actionAsset;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            var controller = new Controller();
+            controller.PossessingPawn(pawn);
+            Assert.That(controller.InitializeWeapon(
+                new WeaponId("knife"),
+                definition.Capabilities), Is.True);
+            var abilitySystem = new AbilitySystemComponent(pawn);
+            pawn.BindingAbilitySystem(abilitySystem);
+            var player = new GraphAnimationPlayer(animInstance.PlayablesController);
+            var slot = new EquipmentSlot(abilitySystem, controller.WeaponRuntime, player);
+            Assert.That(slot.TryEquip(
+                new TestDefinitionLease(definition),
+                new[] { WeaponActionAbilitySetFactory.Create(definition) },
+                out _), Is.EqualTo(EquipmentEquipResult.Equipped));
+
+            try
+            {
+                Assert.That(controller.RequestPrimaryWeaponAction(out WeaponActionFact action), Is.True);
+                Assert.That(action.Kind, Is.EqualTo(WeaponActionKind.MeleeAttack));
+                for (int frame = 0;
+                     frame < 300 && controller.WeaponRuntime.ActiveAction.IsValid;
+                     frame++)
+                {
+                    animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+                    player.Tick();
+                    yield return null;
+                }
+
+                Assert.That(controller.WeaponRuntime.ActiveAction.IsValid, Is.False);
+                AbilitySpec spec = abilitySystem.TryGetSpec(
+                    slot.Current.GrantReceipts[0].SpecHandles[0],
+                    out AbilitySpec resolved) ? resolved : null;
+                Assert.That(spec, Is.Not.Null);
+                Assert.That(spec.PrimaryInstance.LastEndReason, Is.EqualTo(AbilityEndReason.Completed));
+                Assert.That(spec.PrimaryInstance.HasCommitted, Is.True);
+            }
+            finally
+            {
+                slot.Dispose();
+                pawn.ClearingAbilitySystem(abilitySystem);
+                abilitySystem.Dispose();
+                GameplayTagManager.Instance.Shutdown();
+                UnityEngine.Object.Destroy(definition);
+                UnityEngine.Object.Destroy(actionAsset);
+                UnityEngine.Object.Destroy(tagSource);
+            }
+        }
+
         private IEnumerator PumpUntil(Func<bool> condition, int maximumFrames = 30)
         {
             for (int frame = 0; frame < maximumFrames && !condition(); frame++)
@@ -261,6 +480,133 @@ namespace CGame.Animation.PlayMode.Tests
             public Transform Transform { get; }
             public Vector3 Velocity => Vector3.zero;
             public bool IsGrounded => true;
+        }
+
+        private sealed class TestDefinitionLease : IEquipmentDefinitionLease
+        {
+            public TestDefinitionLease(WeaponAnimationDefinition definition)
+            {
+                Definition = definition;
+            }
+
+            public WeaponAnimationDefinition Definition { get; private set; }
+            public WeaponId WeaponId => Definition == null ? default : Definition.WeaponId;
+            public bool IsValid => !IsDisposed && Definition != null;
+            public bool IsDisposed { get; private set; }
+
+            public void Dispose()
+            {
+                IsDisposed = true;
+                Definition = null;
+            }
+        }
+
+        private sealed class GraphAnimationPlayer : IAbilityAnimationPlayer
+        {
+            private readonly CharacterPlayablesController controller;
+
+            public GraphAnimationPlayer(CharacterPlayablesController controller)
+            {
+                this.controller = controller;
+            }
+
+            public event Action Updated;
+
+            public IAbilityAnimationPlayback PlayAnimation(AnimationClipAsset asset, long requestId)
+            {
+                return new GraphPlayback(controller.PlayAnimation(asset, requestId));
+            }
+
+            public bool StopAnimation(IAbilityAnimationPlayback playback)
+            {
+                return playback is GraphPlayback graphPlayback
+                    && controller.Stop(graphPlayback.Handle);
+            }
+
+            public void Tick()
+            {
+                Updated?.Invoke();
+            }
+
+            private sealed class GraphPlayback : IAbilityAnimationPlayback
+            {
+                public GraphPlayback(AnimationPlaybackHandle handle)
+                {
+                    Handle = handle;
+                }
+
+                public AnimationPlaybackHandle Handle { get; }
+                public bool IsTerminal => Handle == null || Handle.IsTerminal;
+                public AbilityAnimationPlaybackState State
+                {
+                    get
+                    {
+                        if (Handle == null || Handle.State == AnimationPlaybackState.Failed)
+                            return AbilityAnimationPlaybackState.Failed;
+                        if (Handle.State == AnimationPlaybackState.Completed)
+                            return AbilityAnimationPlaybackState.Completed;
+                        if (Handle.State == AnimationPlaybackState.Interrupted)
+                            return AbilityAnimationPlaybackState.Interrupted;
+                        if (Handle.State == AnimationPlaybackState.Cancelled)
+                            return AbilityAnimationPlaybackState.Cancelled;
+                        if (Handle.State == AnimationPlaybackState.Pending
+                            || Handle.State == AnimationPlaybackState.BlendingIn)
+                            return AbilityAnimationPlaybackState.Pending;
+                        return AbilityAnimationPlaybackState.Playing;
+                    }
+                }
+            }
+        }
+
+        private sealed class EventEndingAbilityDefinition : AbilityDefinition
+        {
+            private readonly GameplayTag eventTag;
+
+            public EventEndingAbilityDefinition(GameplayTag abilityTag, GameplayTag eventTag)
+                : base(abilityTag)
+            {
+                this.eventTag = eventTag;
+            }
+
+            protected override AbilityInstance CreateInstance()
+            {
+                return new EventEndingAbilityInstance(eventTag);
+            }
+        }
+
+        private sealed class EventEndingAbilityInstance : AbilityInstance
+        {
+            private readonly GameplayTag eventTag;
+
+            public EventEndingAbilityInstance(GameplayTag eventTag)
+            {
+                this.eventTag = eventTag;
+            }
+
+            public WaitGameEventTask WaitTask { get; private set; }
+            public int EventCount { get; private set; }
+            public int CommitCount { get; private set; }
+
+            protected override void OnActivate()
+            {
+                WaitTask = StartTask(new WaitGameEventTask(
+                    eventTag,
+                    AbilityGameEventMatchPolicy.Exact,
+                    onlyTriggerOnce: true,
+                    OnEvent));
+            }
+
+            protected override void OnCommit()
+            {
+                CommitCount++;
+            }
+
+            private void OnEvent(AbilityGameEventPayload payload)
+            {
+                EventCount++;
+                TryCommit();
+                EndAbility(AbilityEndReason.Completed);
+            }
         }
 
         [Serializable]

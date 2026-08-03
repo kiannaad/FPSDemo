@@ -1,13 +1,10 @@
 {
-    "name": "CGame.Animation.PlayMode.Tests",
-    "rootNamespace": "CGame.Animation.PlayMode.Tests",
+    "name": "CGame.PlayerState.PlayMode.Tests",
+    "rootNamespace": "CGame.PlayerState.PlayMode.Tests",
     "references": [
-        "CGame.Animation",
-        "CGame.Ability.Animation",
+        "CGame.PlayerState",
         "CGame.Ability",
         "CGame.CharacterRuntime",
-        "CGame.Weapon",
-        "CGame.Weapon.Equipment",
         "CGame.GameplayTags"
     ],
     "includePlatforms": [],

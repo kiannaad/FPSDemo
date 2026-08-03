@@ -1,14 +1,14 @@
 {
-    "name": "CGame.Animation.PlayMode.Tests",
-    "rootNamespace": "CGame.Animation.PlayMode.Tests",
+    "name": "CGame.Weapon.Equipment.PlayMode.Tests",
+    "rootNamespace": "CGame.Weapon.Equipment.PlayMode.Tests",
     "references": [
-        "CGame.Animation",
-        "CGame.Ability.Animation",
-        "CGame.Ability",
-        "CGame.CharacterRuntime",
-        "CGame.Weapon",
         "CGame.Weapon.Equipment",
-        "CGame.GameplayTags"
+        "CGame.Weapon",
+        "CGame.Ability",
+        "CGame.Animation",
+        "CGame.GameplayTags",
+        "CGame.PlayerState",
+        "CGame.CharacterRuntime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
