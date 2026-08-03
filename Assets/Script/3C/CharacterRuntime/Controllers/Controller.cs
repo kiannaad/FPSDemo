@@ -1,4 +1,5 @@
 using UnityEngine;
+using CGame.Ability;
 
 namespace CGame
 {
@@ -38,24 +39,69 @@ namespace CGame
             WeaponId weaponId,
             out WeaponSwitchFact weaponSwitch)
         {
-            return weaponRuntime.RequestSwitchWeapon(
+            WeaponSwitchRequestResult request = weaponRuntime.RequestSwitchWeapon(
                 weaponId,
                 out weaponSwitch);
+            if (request != WeaponSwitchRequestResult.Started
+                || controlledPawn?.AbilitySystem == null)
+            {
+                return request;
+            }
+
+            AbilityActivationResult activation = controlledPawn.AbilitySystem
+                .TryActivateAbilityByTag(WeaponSwitchGameplayTags.SwitchAbility);
+            if (activation.Succeeded)
+            {
+                return request;
+            }
+
+            weaponRuntime.FailSwitch(
+                weaponSwitch.SwitchId,
+                WeaponSwitchEndReason.AbilityActivationFailed);
+            weaponSwitch = default;
+            return WeaponSwitchRequestResult.AbilityActivationFailed;
         }
 
         public bool RequestFireWeapon(out WeaponActionFact action)
         {
-            return weaponRuntime.RequestFire(out action);
+            if (controlledPawn?.AbilitySystem == null)
+            {
+                return weaponRuntime.RequestFire(out action);
+            }
+
+            AbilityActivationResult result = controlledPawn.AbilitySystem
+                .TryActivateAbilityByTag(WeaponActionGameplayTags.FireAbility);
+            action = result.Succeeded ? weaponRuntime.ActiveAction : default;
+            return result.Succeeded && action.IsValid;
         }
 
         public bool RequestPrimaryWeaponAction(out WeaponActionFact action)
         {
-            return weaponRuntime.RequestPrimaryAction(out action);
+            if (controlledPawn?.AbilitySystem == null)
+            {
+                return weaponRuntime.RequestPrimaryAction(out action);
+            }
+
+            var tag = weaponRuntime.Capabilities.SupportsFire
+                ? WeaponActionGameplayTags.FireAbility
+                : WeaponActionGameplayTags.MeleeAbility;
+            AbilityActivationResult result = controlledPawn.AbilitySystem
+                .TryActivateAbilityByTag(tag);
+            action = result.Succeeded ? weaponRuntime.ActiveAction : default;
+            return result.Succeeded && action.IsValid;
         }
 
         public bool RequestReloadWeapon(out WeaponActionFact action)
         {
-            return weaponRuntime.RequestReload(out action);
+            if (controlledPawn?.AbilitySystem == null)
+            {
+                return weaponRuntime.RequestReload(out action);
+            }
+
+            AbilityActivationResult result = controlledPawn.AbilitySystem
+                .TryActivateAbilityByTag(WeaponActionGameplayTags.ReloadAbility);
+            action = result.Succeeded ? weaponRuntime.ActiveAction : default;
+            return result.Succeeded && action.IsValid;
         }
 
         public bool CompleteWeaponAction(ulong actionId)

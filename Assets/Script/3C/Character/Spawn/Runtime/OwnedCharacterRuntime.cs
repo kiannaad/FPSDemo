@@ -1,5 +1,4 @@
 using System;
-using CGame.Animation;
 using UnityEngine;
 using YooAsset;
 
@@ -14,6 +13,7 @@ namespace CGame
         private ICharacterControllerBinding controllerBinding;
         private IPawnRegistration pawnRegistration;
         private AssetHandle definitionHandle;
+        private EquipmentSlot equipmentSlot;
 
         public OwnedCharacterRuntime(
             GameObject root,
@@ -22,7 +22,8 @@ namespace CGame
             CharacterPhysicsMotor motor,
             ICharacterControllerBinding controllerBinding,
             IPawnRegistration pawnRegistration,
-            AssetHandle definitionHandle)
+            AssetHandle definitionHandle,
+            EquipmentSlot equipmentSlot = null)
         {
             this.root = root ?? throw new ArgumentNullException(nameof(root));
             this.character =
@@ -36,6 +37,7 @@ namespace CGame
                 definitionHandle
                 ?? throw new ArgumentNullException(
                     nameof(definitionHandle));
+            this.equipmentSlot = equipmentSlot;
         }
 
         public Transform Transform => root == null ? null : root.transform;
@@ -54,6 +56,8 @@ namespace CGame
                 root.SetActive(false);
             }
 
+            equipmentSlot?.Dispose();
+            equipmentSlot = null;
             controllerBinding?.Dispose();
             controllerBinding = null;
             pawnRegistration?.Dispose();

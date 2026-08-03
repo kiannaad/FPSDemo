@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CGame.Ability;
 using UnityEngine;
 
 namespace CGame
@@ -14,6 +15,7 @@ namespace CGame
         private bool sprintRequested;
 
         public Controller Controller => controller;
+        public AbilitySystemComponent AbilitySystem { get; private set; }
         public PawnHost Host { get; private set; }
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
 
@@ -52,6 +54,29 @@ namespace CGame
             if (this.controller == controller)
             {
                 this.controller = null;
+            }
+        }
+
+        public void BindingAbilitySystem(AbilitySystemComponent abilitySystem)
+        {
+            if (abilitySystem == null)
+            {
+                throw new System.ArgumentNullException(nameof(abilitySystem));
+            }
+
+            if (AbilitySystem != null && !ReferenceEquals(AbilitySystem, abilitySystem))
+            {
+                throw new System.InvalidOperationException("Pawn is already bound to another AbilitySystemComponent.");
+            }
+
+            AbilitySystem = abilitySystem;
+        }
+
+        public void ClearingAbilitySystem(AbilitySystemComponent abilitySystem)
+        {
+            if (ReferenceEquals(AbilitySystem, abilitySystem))
+            {
+                AbilitySystem = null;
             }
         }
 
@@ -203,6 +228,7 @@ namespace CGame
 
             components.Clear();
             controller = null;
+            AbilitySystem = null;
             Host = null;
             movementInput = Vector3.zero;
             pendingForce = Vector3.zero;

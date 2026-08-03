@@ -59,6 +59,8 @@ namespace CGame.Animation
                 && animator.runtimeAnimatorController == runtimeController;
         }
 
+        internal Animator Animator => animator;
+
         public bool TryBind()
         {
             parametersValid = false;

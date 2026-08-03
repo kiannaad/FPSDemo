@@ -14,8 +14,10 @@ namespace CGame.Animation
         [SerializeField] private AnimationClipAsset unequip;
         [SerializeField] private bool supportsFire;
         [SerializeField] private AnimationClipAsset fire;
+        [SerializeField] private AnimationClipAsset weaponModelFire;
         [SerializeField] private bool supportsReload;
         [SerializeField] private AnimationClipAsset reload;
+        [SerializeField] private AnimationClipAsset weaponModelReload;
         [SerializeField] private bool supportsMeleeAttack;
         [SerializeField] private AnimationClipAsset meleeAttack;
 
@@ -26,8 +28,10 @@ namespace CGame.Animation
         public AnimationClipAsset Unequip => unequip;
         public bool SupportsFire => supportsFire;
         public AnimationClipAsset Fire => fire;
+        public AnimationClipAsset WeaponModelFire => weaponModelFire;
         public bool SupportsReload => supportsReload;
         public AnimationClipAsset Reload => reload;
+        public AnimationClipAsset WeaponModelReload => weaponModelReload;
         public bool SupportsMeleeAttack => supportsMeleeAttack;
         public AnimationClipAsset MeleeAttack => meleeAttack;
         public WeaponRuntimeCapabilities Capabilities =>
@@ -48,10 +52,6 @@ namespace CGame.Animation
         public AnimationClipAsset Run => overlayPose;
         [System.Obsolete("Weapon locomotion remains Animator-native.")]
         public AnimationClipAsset Stop => overlayPose;
-        [System.Obsolete("Weapon model animation is outside the V1 definition.")]
-        public AnimationClipAsset WeaponModelFire => fire;
-        [System.Obsolete("Weapon model animation is outside the V1 definition.")]
-        public AnimationClipAsset WeaponModelReload => reload;
         [System.Obsolete("Use clip-local blend times.")]
         public float BlendDuration =>
             overlayPose != null ? overlayPose.BlendInTime : 0f;

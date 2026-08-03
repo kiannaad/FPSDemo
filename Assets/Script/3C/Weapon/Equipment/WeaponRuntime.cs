@@ -12,6 +12,7 @@ namespace CGame
         private WeaponSwitchFact activeSwitch;
         private WeaponRuntimeCapabilities capabilities;
         private bool isInitialized;
+        private bool activeActionCommitted;
 
         public event Action<WeaponEquipmentSnapshot> EquipmentChanged;
         public event Action<WeaponActionFact> ActionChanged;
@@ -24,6 +25,7 @@ namespace CGame
         public bool IsInitialized => isInitialized;
         public WeaponSwitchFact ActiveSwitch => activeSwitch;
         public bool IsSwitching => activeSwitch.IsValid;
+        public bool IsActiveActionCommitted => activeActionCommitted;
 
         public bool Initialize(
             WeaponId weaponId,
@@ -145,8 +147,8 @@ namespace CGame
                 WeaponActionEndReason.None,
                 authoritativeStartTime);
             activeAction = started;
+            activeActionCommitted = false;
             ActionChanged?.Invoke(started);
-            FireCommitted?.Invoke(started);
             return true;
         }
 
@@ -171,6 +173,7 @@ namespace CGame
                 WeaponActionEndReason.None,
                 authoritativeStartTime);
             activeAction = started;
+            activeActionCommitted = false;
             ActionChanged?.Invoke(started);
             return true;
         }
@@ -198,6 +201,7 @@ namespace CGame
                 WeaponActionEndReason.None,
                 authoritativeStartTime);
             activeAction = started;
+            activeActionCommitted = false;
             ActionChanged?.Invoke(started);
             return true;
         }
@@ -207,6 +211,24 @@ namespace CGame
             return activeAction.IsValid
                 && activeAction.ActionId == actionId
                 && EndActiveAction(WeaponActionPhase.Completed, WeaponActionEndReason.Completed);
+        }
+
+        public bool CommitAction(ulong actionId)
+        {
+            if (!activeAction.IsValid
+                || activeAction.ActionId != actionId
+                || activeActionCommitted)
+            {
+                return false;
+            }
+
+            activeActionCommitted = true;
+            if (activeAction.Kind == WeaponActionKind.Fire)
+            {
+                FireCommitted?.Invoke(activeAction);
+            }
+
+            return true;
         }
 
         public bool CancelAction(ulong actionId, WeaponActionEndReason reason = WeaponActionEndReason.Cancelled)
@@ -281,6 +303,7 @@ namespace CGame
 
             WeaponActionFact ended = activeAction.End(phase, reason);
             activeAction = default;
+            activeActionCommitted = false;
             ActionChanged?.Invoke(ended);
             return true;
         }

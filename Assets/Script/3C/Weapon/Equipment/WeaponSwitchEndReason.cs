@@ -8,6 +8,7 @@ namespace CGame
         UnequipFailed,
         TargetPlaybackFailed,
         RestoreFailed,
+        AbilityActivationFailed,
         Cancelled,
         OwnerDisposed,
     }

@@ -14,6 +14,7 @@ namespace CGame
         private readonly Dictionary<CharacterSpawnOperation, AssetHandle> definitionHandles = new Dictionary<CharacterSpawnOperation, AssetHandle>();
         private readonly Dictionary<CharacterSpawnOperation, CharacterDefinition> definitions = new Dictionary<CharacterSpawnOperation, CharacterDefinition>();
         private readonly Dictionary<CharacterSpawnOperation, AssetHandle> weaponDefinitionHandles = new Dictionary<CharacterSpawnOperation, AssetHandle>();
+        private readonly Dictionary<CharacterSpawnOperation, AssetHandle> equipmentDefinitionHandles = new Dictionary<CharacterSpawnOperation, AssetHandle>();
         private readonly Dictionary<CharacterSpawnOperation, WeaponAnimationDefinition> weaponDefinitions = new Dictionary<CharacterSpawnOperation, WeaponAnimationDefinition>();
         private readonly Dictionary<CharacterSpawnOperation, CharacterAssembly> assemblies = new Dictionary<CharacterSpawnOperation, CharacterAssembly>();
         private readonly Dictionary<CharacterSpawnOperation, IPawnRegistration> pawnRegistrations = new Dictionary<CharacterSpawnOperation, IPawnRegistration>();
@@ -156,13 +157,17 @@ namespace CGame
             InputManager inputManager = GameManager.GetManager<InputManager>();
             pawnManager = GameManager.GetManager<PawnManager>();
             controllerManager = GameManager.GetManager<ControllerManager>();
+            PlayerStateRuntimeManager playerStateRuntimeManager = GameManager.GetManager<PlayerStateRuntimeManager>();
             GameManager.GetManager<PhysicsManager>();
             definitionLocationResolver =
                 new CharacterDefinitionLocationResolver();
             weaponDefinitionLocationResolver =
                 new WeaponAnimationDefinitionLocationResolver();
             assembler = new CharacterAssembler();
-            localPlayerBinder = new LocalPlayerControllerBinder(inputManager, controllerManager);
+            localPlayerBinder = new LocalPlayerControllerBinder(
+                inputManager,
+                controllerManager,
+                playerStateRuntimeManager.StateManager);
             aiRuntimeRegistry = new AIRuntimeRegistry();
             aiControllerBinder = new AIControllerBinder(
                 controllerManager,
@@ -216,6 +221,12 @@ namespace CGame
             }
 
             weaponDefinitionHandles.Clear();
+            foreach (AssetHandle handle in equipmentDefinitionHandles.Values)
+            {
+                handle.Release();
+            }
+
+            equipmentDefinitionHandles.Clear();
             foreach (AssetHandle handle in definitionHandles.Values)
             {
                 handle.Release();
@@ -371,6 +382,11 @@ namespace CGame
                             global::AssetManager.Instance
                                 .LoadAsset<WeaponAnimationDefinition>(
                                     weaponDefinitionLocation));
+                        equipmentDefinitionHandles.Add(
+                            operation,
+                            global::AssetManager.Instance
+                                .LoadAsset<WeaponAnimationDefinition>(
+                                    weaponDefinitionLocation));
                         operation.State =
                             CharacterSpawnState.ResolvingInitialWeapon;
                         break;
@@ -378,6 +394,13 @@ namespace CGame
                         AssetHandle weaponDefinitionHandle =
                             weaponDefinitionHandles[operation];
                         if (!weaponDefinitionHandle.IsDone)
+                        {
+                            break;
+                        }
+
+                        AssetHandle equipmentDefinitionHandle =
+                            equipmentDefinitionHandles[operation];
+                        if (!equipmentDefinitionHandle.IsDone)
                         {
                             break;
                         }
@@ -460,11 +483,61 @@ namespace CGame
                                 definitionHandles[operation];
                             AssetHandle readyWeaponDefinitionHandle =
                                 weaponDefinitionHandles[operation];
-                            readyAssembly.AnimationComponent
-                                .ConfigureWeaponRuntimeResources(
-                                    weaponDefinitionLocationResolver,
-                                    readyWeaponDefinitionHandle);
+                            EquipmentSlot equipmentSlot = null;
+                            AssetHandle readyEquipmentDefinitionHandle =
+                                equipmentDefinitionHandles[operation];
+                            if (!readyAssembly.AnimationComponent
+                                    .ConfigureWeaponPresentation(
+                                        readyWeaponDefinition,
+                                        binding.WeaponRuntime,
+                                        binding.WeaponRuntime.Snapshot.Generation))
+                            {
+                                throw new InvalidOperationException(
+                                    "The initial weapon presentation could not be equipped.");
+                            }
+
+                            readyWeaponDefinitionHandle.Release();
                             weaponDefinitionHandles.Remove(operation);
+                            if (readyAssembly.Character.AbilitySystem != null)
+                            {
+                                if (!YooAssetWeaponAnimationDefinitionLease.TryTakeOwnership(
+                                        readyEquipmentDefinitionHandle,
+                                        readyWeaponDefinition.WeaponId,
+                                        out YooAssetWeaponAnimationDefinitionLease equipmentLease))
+                                {
+                                    throw new InvalidOperationException(
+                                        "The initial equipment definition lease could not be acquired.");
+                                }
+
+                                equipmentDefinitionHandles.Remove(operation);
+                                equipmentSlot = new EquipmentSlot(
+                                    readyAssembly.Character.AbilitySystem,
+                                    binding.WeaponRuntime,
+                                    readyAssembly.AnimationComponent,
+                                    new YooAssetEquipmentDefinitionLoader(
+                                        weaponDefinitionLocationResolver),
+                                    readyAssembly.AnimationComponent);
+                                if (equipmentSlot.TryEquip(
+                                        equipmentLease,
+                                        new[]
+                                        {
+                                            WeaponActionAbilitySetFactory.Create(
+                                                readyWeaponDefinition),
+                                            WeaponSwitchAbilitySetFactory.Create()
+                                        },
+                                        out _) != EquipmentEquipResult.Equipped)
+                                {
+                                    equipmentSlot.Dispose();
+                                    throw new InvalidOperationException(
+                                        "The initial weapon action AbilitySet could not be equipped.");
+                                }
+                            }
+                            else
+                            {
+                                readyEquipmentDefinitionHandle.Release();
+                                equipmentDefinitionHandles.Remove(operation);
+                            }
+
                             var runtime = new OwnedCharacterRuntime(
                                 readyAssembly.Root,
                                 readyAssembly.Character,
@@ -472,7 +545,8 @@ namespace CGame
                                 readyAssembly.Motor,
                                 binding,
                                 readyPawnRegistration,
-                                readyDefinitionHandle);
+                                readyDefinitionHandle,
+                                equipmentSlot);
                             readyAssembly.TransferRuntimeOwnership();
                             var view = new CharacterView(runtimeId, runtime.Transform);
                             runtimes.Add(runtimeId, runtime);
@@ -549,6 +623,14 @@ namespace CGame
             {
                 weaponDefinitionHandle.Release();
                 weaponDefinitionHandles.Remove(operation);
+            }
+
+            if (equipmentDefinitionHandles.TryGetValue(
+                    operation,
+                    out AssetHandle equipmentDefinitionHandle))
+            {
+                equipmentDefinitionHandle.Release();
+                equipmentDefinitionHandles.Remove(operation);
             }
 
             definitions.Remove(operation);

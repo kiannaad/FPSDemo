@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using YooAsset;
 
 namespace CGame.Animation
 {
@@ -10,16 +9,14 @@ namespace CGame.Animation
         private readonly CharacterAnimatorController animatorController;
         private readonly CharacterPlayablesController playablesController;
         private readonly CharacterBoneController boneController;
-        private readonly CharacterWeaponAnimationAdapter weaponAdapter;
-        private WeaponAnimationSequencer weaponSequencer;
+        private CharacterWeaponPresentationController weaponPresentationController;
         private bool isDisposed;
 
         public CharacterAnimInstance(
             Pawn pawn,
             IAnimationCharacterSource source,
             Animator animator,
-            AvatarMask upperBodyMask = null,
-            WeaponAnimationDefinition weaponDefinition = null)
+            AvatarMask upperBodyMask = null)
         {
             if (pawn == null) throw new ArgumentNullException(nameof(pawn));
             if (source == null) throw new ArgumentNullException(nameof(source));
@@ -32,55 +29,18 @@ namespace CGame.Animation
                 animator,
                 upperBodyMask);
             boneController = new CharacterBoneController(animator);
-            weaponAdapter = new CharacterWeaponAnimationAdapter();
-            if (weaponDefinition != null)
-            {
-                weaponSequencer = new WeaponAnimationSequencer(
-                    playablesController,
-                    weaponDefinition);
-            }
         }
 
         public AnimationUpdateContext UpdateContext => updateContext;
         internal CharacterAnimatorController AnimatorController => animatorController;
         internal CharacterPlayablesController PlayablesController => playablesController;
-        internal WeaponAnimationSequencer WeaponSequencer =>
-            weaponSequencer;
-
-        public void ConfigureWeaponRuntimeResources(
-            IWeaponAnimationDefinitionLocationResolver locationResolver,
-            AssetHandle initialDefinitionHandle,
-            AnimationPlaybackHandle initialOverlayHandle)
-        {
-            if (isDisposed)
-            {
-                throw new ObjectDisposedException(
-                    nameof(CharacterAnimInstance));
-            }
-
-            if (weaponSequencer != null)
-            {
-                throw new InvalidOperationException(
-                    "Weapon runtime resources are already configured.");
-            }
-
-            weaponSequencer = new WeaponAnimationSequencer(
-                playablesController,
-                locationResolver,
-                initialDefinitionHandle,
-                initialOverlayHandle);
-        }
-
-        public void UpdateAnimation(
-            float deltaTime,
-            WeaponRuntime weaponRuntime = null)
+        public void UpdateAnimation(float deltaTime)
         {
             if (isDisposed || deltaTime <= 0f)
             {
                 return;
             }
 
-            SynchronizeWeaponRuntime(weaponRuntime);
             updateContext.Update(deltaTime);
             if (!animatorController.IsValid())
             {
@@ -90,19 +50,17 @@ namespace CGame.Animation
             if (!animatorController.IsValid())
             {
                 playablesController.RestoreNativeOutput();
-                weaponSequencer?.Update();
                 return;
             }
 
             animatorController.UpdateParameters(deltaTime);
             if (!playablesController.IsValid() && !playablesController.TryRebuild())
             {
-                weaponSequencer?.Update();
                 return;
             }
 
             playablesController.Update(deltaTime);
-            weaponSequencer?.Update();
+            weaponPresentationController?.Update(deltaTime);
             if (boneController.IsValid())
             {
                 boneController.Update(deltaTime);
@@ -112,6 +70,48 @@ namespace CGame.Animation
         public void MarkDiscontinuity()
         {
             updateContext.MarkDiscontinuity();
+        }
+
+        public AnimationPlaybackHandle PlayAbilityAnimation(
+            AnimationClipAsset asset,
+            long requestId)
+        {
+            return isDisposed
+                ? null
+                : playablesController.PlayAnimation(asset, requestId);
+        }
+
+        public bool StopAbilityAnimation(AnimationPlaybackHandle handle)
+        {
+            return !isDisposed && playablesController.Stop(handle);
+        }
+
+        public bool ConfigureWeaponPresentation(
+            WeaponAnimationDefinition definition,
+            WeaponRuntime runtime,
+            uint generation)
+        {
+            if (isDisposed || definition == null || runtime == null)
+            {
+                return false;
+            }
+
+            weaponPresentationController ??=
+                new CharacterWeaponPresentationController(animatorController.Animator);
+            weaponPresentationController.BindRuntime(runtime);
+            return weaponPresentationController.TryEquip(definition, generation);
+        }
+
+        public CharacterWeaponPresentationReplacement
+            PrepareWeaponPresentationReplacement(
+                WeaponAnimationDefinition definition,
+                uint generation)
+        {
+            return isDisposed
+                ? null
+                : weaponPresentationController?.PrepareReplacement(
+                    definition,
+                    generation);
         }
 
         public AnimationPlaybackHandle PrepareInitialPose(
@@ -136,42 +136,12 @@ namespace CGame.Animation
             }
 
             boneController.Dispose();
-            weaponSequencer?.Dispose();
-            weaponAdapter?.Dispose();
+            weaponPresentationController?.Dispose();
+            weaponPresentationController = null;
             playablesController.Dispose();
             updateContext.Reset();
             isDisposed = true;
         }
 
-        private void SynchronizeWeaponRuntime(WeaponRuntime runtime)
-        {
-            if (weaponAdapter == null || weaponSequencer == null)
-            {
-                return;
-            }
-
-            if (weaponAdapter.BoundRuntime != runtime)
-            {
-                weaponSequencer.BindRuntime(runtime);
-                weaponAdapter.BindRuntime(runtime);
-            }
-
-            while (weaponAdapter.TryDequeueEvent(
-                       out WeaponAnimationEvent animationEvent))
-            {
-                if (animationEvent.Kind
-                    == WeaponAnimationEventKind.Action)
-                {
-                    weaponSequencer.Consume(
-                        animationEvent.Action);
-                }
-                else if (animationEvent.Kind
-                         == WeaponAnimationEventKind.Switch)
-                {
-                    weaponSequencer.Consume(
-                        animationEvent.Switch);
-                }
-            }
-        }
     }
 }

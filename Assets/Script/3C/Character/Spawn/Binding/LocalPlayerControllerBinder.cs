@@ -6,11 +6,16 @@ namespace CGame
     {
         private readonly InputManager inputManager;
         private readonly ControllerManager controllerManager;
+        private readonly PlayerStateManager playerStateManager;
 
-        public LocalPlayerControllerBinder(InputManager inputManager, ControllerManager controllerManager)
+        public LocalPlayerControllerBinder(
+            InputManager inputManager,
+            ControllerManager controllerManager,
+            PlayerStateManager playerStateManager)
         {
             this.inputManager = inputManager ?? throw new ArgumentNullException(nameof(inputManager));
             this.controllerManager = controllerManager ?? throw new ArgumentNullException(nameof(controllerManager));
+            this.playerStateManager = playerStateManager ?? throw new ArgumentNullException(nameof(playerStateManager));
         }
 
         public LocalPlayerControllerBinding Bind(Pawn pawn, InputType inputType)
@@ -26,15 +31,19 @@ namespace CGame
             }
 
             PlayerController controller = controllerManager.CreateController<PlayerController>(out IControllerRegistration registration);
+            PlayerStateAvatarBinding avatarBinding = null;
             try
             {
                 controller.SettingInputHandle(inputManager.GetHandle(inputType));
                 controller.PossessingPawn(pawn);
-                return new LocalPlayerControllerBinding(controller, registration);
+                avatarBinding = playerStateManager.BindAvatar(pawn);
+                return new LocalPlayerControllerBinding(controller, registration, avatarBinding);
             }
             catch
             {
+                avatarBinding?.Dispose();
                 controller.SettingInputHandle(null);
+                controller.UnpossessingPawn();
                 registration.Dispose();
                 throw;
             }

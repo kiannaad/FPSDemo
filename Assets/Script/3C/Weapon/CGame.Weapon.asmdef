@@ -1,7 +1,9 @@
 {
     "name": "CGame.Weapon",
     "rootNamespace": "CGame",
-    "references": [],
+    "references": [
+        "CGame.GameplayTags"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

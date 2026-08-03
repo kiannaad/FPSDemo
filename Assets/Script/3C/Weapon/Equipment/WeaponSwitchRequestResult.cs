@@ -7,5 +7,6 @@ namespace CGame
         InvalidWeaponId,
         AlreadyEquipped,
         AlreadySwitching,
+        AbilityActivationFailed,
     }
 }
