@@ -74,6 +74,20 @@ namespace CGame
             PlayerState.SetAvatar(pawn);
             AttachPossessedActor(pawn);
             pawn.SettingController(this);
+            try
+            {
+                if (pawn.TryGetComponent(out PawnHeroComponent hero) && hero.HasInputProfile)
+                {
+                    hero.Bind(inputSource?.InputHandle, PlayerState.AbilitySystem);
+                }
+            }
+            catch
+            {
+                DetachPossessedActor(pawn);
+                pawn.ClearingController(this);
+                PlayerState.ClearAvatar(pawn);
+                throw;
+            }
         }
 
         public void Unpossess()
@@ -84,6 +98,7 @@ namespace CGame
                 return;
             }
 
+            if (oldPawn.TryGetComponent(out PawnHeroComponent hero)) hero.Unbind();
             DetachPossessedActor(oldPawn);
             oldPawn.ClearingController(this);
             oldPawn.ClearingControlIntent();
@@ -103,11 +118,9 @@ namespace CGame
             ControlRotation = Quaternion.Euler(ControlPitch, ControlYaw, 0f);
             PossessedPawn?.ApplyingControlRotation(ControlRotation);
             PossessedPawn?.SubmitControlIntent(inputSource.ReadControlIntent());
-            if (inputSource.FirePressed) equipmentActionTarget?.Fire();
-            if (inputSource.ReloadPressed) equipmentActionTarget?.Reload();
-            if (inputSource.MeleePressed) equipmentActionTarget?.Melee();
             int requestedSlot = inputSource.RequestedQuickBarSlot;
             if (requestedSlot >= 0) QuickBar?.SelectSlot(requestedSlot);
+            PlayerState?.AbilitySystem.ProcessAbilityInput();
         }
 
         public PawnBindingReceipt BindEquipmentActionTarget(IEquipmentActionTarget target)

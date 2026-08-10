@@ -10,6 +10,7 @@ namespace CGame
         private InputService inputService;
 
         public int TickCount { get; private set; }
+        public InputHandle InputHandle => inputService?.GetHandle(InputType.Player);
 
         public bool FirePressed => ReadState().FirePressed;
         public bool ReloadPressed => ReadState().ReloadPressed;

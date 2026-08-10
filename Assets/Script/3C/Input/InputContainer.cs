@@ -69,6 +69,44 @@ namespace CGame
             RemovingStateCallbackRegistration(inputAction, phase, callback);
         }
 
+        internal IDisposable RegisterActionCallback(
+            InputActionReference actionReference,
+            InputCallbackPhase phase,
+            Action<InputAction.CallbackContext> callback)
+        {
+            if (actionReference == null || actionReference.action == null)
+            {
+                throw new ArgumentNullException(nameof(actionReference));
+            }
+
+            if (callback == null)
+            {
+                throw new ArgumentNullException(nameof(callback));
+            }
+
+            InputAction sourceAction = actionReference.action;
+            if (sourceAction.actionMap == null || sourceAction.actionMap.id != ActionMap.id)
+            {
+                throw new ArgumentException("The InputActionReference does not belong to this InputHandle mapping.", nameof(actionReference));
+            }
+
+            InputAction action = ActionMap.FindAction(sourceAction.id);
+            if (action == null)
+            {
+                throw new ArgumentException("The InputActionReference could not be resolved in this InputHandle mapping.", nameof(actionReference));
+            }
+
+            BindingCallback(action, phase, callback);
+            _stateCallbackRegistrations.Add(new StateCallbackRegistration(action, phase, callback));
+            return new ActionCallbackRegistration(this, action, phase, callback);
+        }
+
+        internal void RemoveActionCallback(InputAction action, InputCallbackPhase phase, Action<InputAction.CallbackContext> callback)
+        {
+            UnbindingCallback(action, phase, callback);
+            RemovingStateCallbackRegistration(action, phase, callback);
+        }
+
         /// <summary>
         /// 根据状态语义查找对应的底层 Action。
         /// </summary>
@@ -202,6 +240,33 @@ namespace CGame
                 InputAction = inputAction;
                 Phase = phase;
                 Callback = callback;
+            }
+        }
+
+        private sealed class ActionCallbackRegistration : IDisposable
+        {
+            private InputContainer container;
+            private readonly InputAction action;
+            private readonly InputCallbackPhase phase;
+            private readonly Action<InputAction.CallbackContext> callback;
+
+            public ActionCallbackRegistration(InputContainer container, InputAction action, InputCallbackPhase phase, Action<InputAction.CallbackContext> callback)
+            {
+                this.container = container;
+                this.action = action;
+                this.phase = phase;
+                this.callback = callback;
+            }
+
+            public void Dispose()
+            {
+                if (container == null)
+                {
+                    return;
+                }
+
+                container.RemoveActionCallback(action, phase, callback);
+                container = null;
             }
         }
     }

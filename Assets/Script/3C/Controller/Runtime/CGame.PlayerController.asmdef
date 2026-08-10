@@ -9,7 +9,8 @@
     "CGame.CharacterRuntime",
     "CGame.Character.Definition",
     "CGame.Inventory",
-    "CGame.Animation"
+    "CGame.Animation",
+    "CGame.Input"
   ],
   "autoReferenced": true
 }

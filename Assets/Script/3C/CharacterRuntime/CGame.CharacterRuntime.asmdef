@@ -4,7 +4,9 @@
     "references": [
         "CGame.World",
         "CGame.Ability",
-        "CGame.GameplayTags"
+        "CGame.GameplayTags",
+        "CGame.Input",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

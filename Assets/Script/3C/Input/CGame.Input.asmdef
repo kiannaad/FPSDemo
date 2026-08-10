@@ -2,7 +2,8 @@
     "name": "CGame.Input",
     "rootNamespace": "CGame",
     "references": [
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "CGame.GameplayTags"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

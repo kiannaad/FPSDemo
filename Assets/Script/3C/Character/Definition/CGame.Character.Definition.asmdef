@@ -4,7 +4,8 @@
   "references": [
     "CGame.Ability",
     "CGame.GameplayTags",
-    "CGame.Animation"
+    "CGame.Animation",
+    "CGame.Input"
   ],
   "autoReferenced": true
 }

@@ -15,6 +15,7 @@ namespace CGame
         [SerializeField] private Mesh firstPersonMesh;
         [SerializeField] private Material firstPersonMaterial;
         [SerializeField] private bool requireCamera;
+        [SerializeField] private InputProfile inputProfile;
         [NonSerialized] private AbilitySet[] runtimeBaseAbilitySets;
 
         public IReadOnlyList<AbilitySet> ResolveBaseAbilitySets()
@@ -31,6 +32,12 @@ namespace CGame
         public Material FirstPersonMaterial => firstPersonMaterial;
 
         public bool RequireCamera => requireCamera;
+        public InputProfile InputProfile => inputProfile;
+
+        public void SetInputProfile(InputProfile inputProfile)
+        {
+            this.inputProfile = inputProfile;
+        }
 
         public static PawnDefinition CreateRuntime(
             GameObject pawnPrefab,
