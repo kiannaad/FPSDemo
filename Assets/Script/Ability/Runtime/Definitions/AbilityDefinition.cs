@@ -9,23 +9,30 @@ namespace CGame.Ability
         private readonly GameplayTag[] activationOwnedTags;
         private readonly GameplayTag[] requiredOwnedTags;
         private readonly GameplayTag[] blockedOwnedTags;
+        private readonly GameplayTag[] triggerEventTags;
 
         protected AbilityDefinition(
             GameplayTag abilityTag,
             IEnumerable<GameplayTag> activationOwnedTags = null,
             IEnumerable<GameplayTag> requiredOwnedTags = null,
-            IEnumerable<GameplayTag> blockedOwnedTags = null)
+            IEnumerable<GameplayTag> blockedOwnedTags = null,
+            AbilityInputActivationPolicy inputActivationPolicy = AbilityInputActivationPolicy.OnInputTriggered,
+            IEnumerable<GameplayTag> triggerEventTags = null)
         {
             AbilityTag = abilityTag;
             this.activationOwnedTags = Copy(activationOwnedTags);
             this.requiredOwnedTags = Copy(requiredOwnedTags);
             this.blockedOwnedTags = Copy(blockedOwnedTags);
+            InputActivationPolicy = inputActivationPolicy;
+            this.triggerEventTags = Copy(triggerEventTags);
         }
 
         public GameplayTag AbilityTag { get; }
         public IReadOnlyList<GameplayTag> ActivationOwnedTags => activationOwnedTags;
         public IReadOnlyList<GameplayTag> RequiredOwnedTags => requiredOwnedTags;
         public IReadOnlyList<GameplayTag> BlockedOwnedTags => blockedOwnedTags;
+        public AbilityInputActivationPolicy InputActivationPolicy { get; }
+        public IReadOnlyList<GameplayTag> TriggerEventTags => triggerEventTags;
 
         protected abstract AbilityInstance CreateInstance();
 

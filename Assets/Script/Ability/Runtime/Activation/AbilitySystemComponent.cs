@@ -12,6 +12,10 @@ namespace CGame.Ability
         private readonly Dictionary<int, GameplayTag> ownedTagGrants = new Dictionary<int, GameplayTag>();
         private readonly List<AbilityGrantReceipt> grantReceipts = new List<AbilityGrantReceipt>();
         private readonly List<GameEventListener> gameEventListeners = new List<GameEventListener>();
+        private readonly HashSet<AbilitySpecHandle> removeWhenEnded = new HashSet<AbilitySpecHandle>();
+        private readonly HashSet<AbilitySpecHandle> pressedInputHandles = new HashSet<AbilitySpecHandle>();
+        private readonly HashSet<AbilitySpecHandle> heldInputHandles = new HashSet<AbilitySpecHandle>();
+        private readonly HashSet<AbilitySpecHandle> releasedInputHandles = new HashSet<AbilitySpecHandle>();
         private readonly IAbilityExecutionGate executionGate;
         private int nextSpecHandle;
         private int nextTagGrantHandle;
@@ -57,15 +61,43 @@ namespace CGame.Ability
             ownedTagGrants.Clear();
             ownedTagCounts.Clear();
             gameEventListeners.Clear();
+            pressedInputHandles.Clear();
+            heldInputHandles.Clear();
+            releasedInputHandles.Clear();
             Avatar = null;
             IsDisposed = true;
         }
 
         public AbilitySpecHandle GiveAbility(AbilityDefinition definition, object sourceObject)
         {
+            return GiveAbility(new AbilityGrantDefinition(definition), sourceObject);
+        }
+
+        public AbilitySpecHandle GiveAbility(AbilityGrantDefinition grant, object sourceObject)
+        {
+            return GiveAbility(grant, sourceObject, null);
+        }
+
+        private AbilitySpecHandle GiveAbility(AbilityGrantDefinition grant, object sourceObject, ISet<AbilitySpecHandle> replacementHandles)
+        {
+            if (grant == null)
+            {
+                throw new ArgumentNullException(nameof(grant));
+            }
+
+            if (!grant.InputTag.IsEmpty && !IsExplicitLeafTag(grant.InputTag))
+            {
+                throw new ArgumentException("InputTag must be a registered explicit leaf GameplayTag.", nameof(grant));
+            }
+
+            if (!grant.InputTag.IsEmpty && specs.Values.Any(spec => spec.InputTag == grant.InputTag && (replacementHandles == null || !replacementHandles.Contains(spec.Handle))))
+            {
+                throw new InvalidOperationException("An AbilitySystemComponent can only grant one spec for a non-empty InputTag.");
+            }
+
             var handle = new AbilitySpecHandle(++nextSpecHandle);
-            var spec = new AbilitySpec(handle, definition, sourceObject);
-            spec.PrimaryInstance = definition.CreateInstanceForSpec();
+            var spec = new AbilitySpec(handle, grant.Definition, sourceObject, grant.InputTag);
+            spec.PrimaryInstance = grant.Definition.CreateInstanceForSpec();
             specs.Add(handle, spec);
             return handle;
         }
@@ -75,7 +107,7 @@ namespace CGame.Ability
             return specs.TryGetValue(handle, out spec);
         }
 
-        public AbilityGrantReceipt GiveAbilitySet(AbilitySet abilitySet, object sourceObject)
+        public AbilityGrantReceipt GiveAbilitySet(AbilitySet abilitySet, object sourceObject, IReadOnlyList<AbilityGrantReceipt> replacedReceipts = null)
         {
             if (abilitySet == null)
             {
@@ -98,11 +130,19 @@ namespace CGame.Ability
 
             var specHandles = new List<AbilitySpecHandle>();
             var tagHandles = new List<GameplayTagGrantHandle>();
+            var replacementHandles = new HashSet<AbilitySpecHandle>();
+            if (replacedReceipts != null)
+            {
+                foreach (AbilityGrantReceipt replacedReceipt in replacedReceipts.Where(candidateReceipt => candidateReceipt != null && candidateReceipt.IsActive))
+                {
+                    foreach (AbilitySpecHandle handle in replacedReceipt.SpecHandles) replacementHandles.Add(handle);
+                }
+            }
             try
             {
-                foreach (AbilityDefinition definition in abilitySet.Abilities)
+                foreach (AbilityGrantDefinition grant in abilitySet.Grants)
                 {
-                    specHandles.Add(GiveAbility(definition, sourceObject));
+                    specHandles.Add(GiveAbility(grant, sourceObject, replacementHandles));
                 }
 
                 foreach (GameplayTag tag in abilitySet.OwnedTags)
@@ -161,8 +201,102 @@ namespace CGame.Ability
             }
 
             spec.PrimaryInstance.EndAbility(reason);
+            RemoveInputState(spec);
+            removeWhenEnded.Remove(handle);
             specs.Remove(handle);
             return true;
+        }
+
+        public void AbilityInputTagPressed(GameplayTag inputTag)
+        {
+            AbilitySpec spec = specs.Values.SingleOrDefault(candidate => candidate.InputTag == inputTag);
+            if (spec == null)
+            {
+                return;
+            }
+
+            spec.InputPressed = true;
+            pressedInputHandles.Add(spec.Handle);
+            heldInputHandles.Add(spec.Handle);
+        }
+
+        public void AbilityInputTagReleased(GameplayTag inputTag)
+        {
+            AbilitySpec spec = specs.Values.SingleOrDefault(candidate => candidate.InputTag == inputTag);
+            if (spec == null)
+            {
+                return;
+            }
+
+            spec.InputPressed = false;
+            heldInputHandles.Remove(spec.Handle);
+            releasedInputHandles.Add(spec.Handle);
+        }
+
+        public void ClearAbilityInput()
+        {
+            foreach (AbilitySpecHandle handle in heldInputHandles.ToArray())
+            {
+                if (specs.TryGetValue(handle, out AbilitySpec spec))
+                {
+                    spec.InputPressed = false;
+                    spec.PrimaryInstance.NotifyInputReleased();
+                }
+            }
+
+            pressedInputHandles.Clear();
+            heldInputHandles.Clear();
+            releasedInputHandles.Clear();
+        }
+
+        public void ProcessAbilityInput()
+        {
+            var activationRequests = new HashSet<AbilitySpecHandle>();
+            foreach (AbilitySpecHandle handle in heldInputHandles.ToArray())
+            {
+                if (specs.TryGetValue(handle, out AbilitySpec spec) &&
+                    spec.PrimaryInstance.State == AbilityInstanceState.Inactive &&
+                    spec.Definition.InputActivationPolicy == AbilityInputActivationPolicy.WhileInputActive)
+                {
+                    activationRequests.Add(handle);
+                }
+            }
+
+            foreach (AbilitySpecHandle handle in pressedInputHandles.ToArray())
+            {
+                if (!specs.TryGetValue(handle, out AbilitySpec spec)) continue;
+                if (spec.PrimaryInstance.State == AbilityInstanceState.Active)
+                {
+                    spec.PrimaryInstance.NotifyInputPressed();
+                }
+                else if (spec.Definition.InputActivationPolicy == AbilityInputActivationPolicy.OnInputTriggered)
+                {
+                    activationRequests.Add(handle);
+                }
+            }
+
+            foreach (AbilitySpecHandle handle in activationRequests)
+            {
+                TryActivateAbility(handle);
+            }
+
+            foreach (AbilitySpecHandle handle in releasedInputHandles.ToArray())
+            {
+                if (specs.TryGetValue(handle, out AbilitySpec spec)) spec.PrimaryInstance.NotifyInputReleased();
+            }
+
+            pressedInputHandles.Clear();
+            releasedInputHandles.Clear();
+        }
+
+        public AbilityActivationResult TryActivateAbility(AbilitySpecHandle handle)
+        {
+            if (!specs.TryGetValue(handle, out AbilitySpec spec))
+            {
+                return AbilityActivationResult.Failure(new[] { AbilityFailureTags.NotFound });
+            }
+
+            return TryActivateSpec(spec, null);
         }
 
         public AbilityActivationResult TryActivateAbilityByTag(GameplayTag abilityTag)
@@ -187,12 +321,61 @@ namespace CGame.Ability
                 return AbilityActivationResult.Failure(new[] { AbilityFailureTags.Ambiguous });
             }
 
+            return TryActivateSpec(matches[0], null);
+        }
+
+        public AbilityActivationResult TriggerAbilityFromGameplayEvent(
+            AbilitySpecHandle handle,
+            GameplayTag eventTag,
+            AbilityGameEventPayload payload)
+        {
+            if (!specs.TryGetValue(handle, out AbilitySpec spec))
+            {
+                return AbilityActivationResult.Failure(new[] { AbilityFailureTags.NotFound });
+            }
+
+            if (!IsExplicitLeafTag(eventTag) || !spec.Definition.TriggerEventTags.Contains(eventTag))
+            {
+                return AbilityActivationResult.Failure(new[] { AbilityFailureTags.InvalidEventTag });
+            }
+
+            if (payload == null || !ReferenceEquals(payload.TargetAbilitySystem, this) || !ReferenceEquals(payload.Avatar, Avatar))
+            {
+                return AbilityActivationResult.Failure(new[] { AbilityFailureTags.InvalidEventPayload });
+            }
+
+            return TryActivateSpec(spec, payload);
+        }
+
+        public AbilityActivationResult GiveAbilityAndActivateOnce(AbilityDefinition definition, object sourceObject)
+        {
+            AbilitySpecHandle handle = GiveAbility(definition, sourceObject);
+            removeWhenEnded.Add(handle);
+            AbilityActivationResult result = TryActivateAbility(handle);
+            if (!result.Succeeded)
+            {
+                RemoveAbility(handle);
+            }
+
+            return result;
+        }
+
+        internal void NotifyAbilityEnded(AbilitySpecHandle handle)
+        {
+            if (removeWhenEnded.Contains(handle))
+            {
+                RemoveAbility(handle, AbilityEndReason.Completed);
+            }
+        }
+
+        private AbilityActivationResult TryActivateSpec(AbilitySpec spec, AbilityGameEventPayload eventPayload)
+        {
             if (Avatar == null)
             {
                 return AbilityActivationResult.Failure(new[] { AbilityFailureTags.InvalidAvatar });
             }
 
-            if (matches[0].SourceObject == null)
+            if (spec.SourceObject == null)
             {
                 return AbilityActivationResult.Failure(new[] { AbilityFailureTags.InvalidSource });
             }
@@ -202,24 +385,24 @@ namespace CGame.Ability
                 return AbilityActivationResult.Failure(new[] { AbilityFailureTags.NotLocal });
             }
 
-            if (matches[0].Definition.RequiredOwnedTags.Any(tag => !HasOwnedTag(tag)))
+            if (spec.Definition.RequiredOwnedTags.Any(tag => !HasOwnedTag(tag)))
             {
                 return AbilityActivationResult.Failure(new[] { AbilityFailureTags.RequiredTagMissing });
             }
 
-            if (matches[0].Definition.BlockedOwnedTags.Any(HasOwnedTag))
+            if (spec.Definition.BlockedOwnedTags.Any(HasOwnedTag))
             {
                 return AbilityActivationResult.Failure(new[] { AbilityFailureTags.BlockedTagPresent });
             }
 
-            if (matches[0].PrimaryInstance.State != AbilityInstanceState.Inactive)
+            if (spec.PrimaryInstance.State != AbilityInstanceState.Inactive)
             {
                 return AbilityActivationResult.Failure(new[] { AbilityFailureTags.AlreadyActive });
             }
 
             var activationHandle = new AbilityActivationHandle(++nextActivationHandle);
-            var context = new AbilityActivationContext(this, matches[0], Avatar, activationHandle);
-            matches[0].PrimaryInstance.Activate(context);
+            var context = new AbilityActivationContext(this, spec, Avatar, activationHandle, eventPayload);
+            spec.PrimaryInstance.Activate(context);
             return AbilityActivationResult.Success(activationHandle);
         }
 
@@ -365,6 +548,21 @@ namespace CGame.Ability
             return listener.MatchPolicy == AbilityGameEventMatchPolicy.Exact
                 ? listener.EventTag == eventTag
                 : GameplayTagManager.Instance.MatchesTag(eventTag, listener.EventTag);
+        }
+
+        private static bool IsExplicitLeafTag(GameplayTag tag)
+        {
+            return !tag.IsEmpty &&
+                   GameplayTagManager.Instance.IsExplicitTag(tag) &&
+                   GameplayTagManager.Instance.GetDirectChildren(tag).Count == 0;
+        }
+
+        private void RemoveInputState(AbilitySpec spec)
+        {
+            spec.InputPressed = false;
+            pressedInputHandles.Remove(spec.Handle);
+            heldInputHandles.Remove(spec.Handle);
+            releasedInputHandles.Remove(spec.Handle);
         }
 
         private sealed class GameEventListener

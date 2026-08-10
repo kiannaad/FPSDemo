@@ -14,6 +14,8 @@ namespace CGame.Ability
         public static GameplayTag NotLocal { get; } = Create("Ability.ActivateFail.NotLocal");
         public static GameplayTag AlreadyActive { get; } = Create("Ability.ActivateFail.AlreadyActive");
         public static GameplayTag InvalidAbilityTag { get; } = Create("Ability.ActivateFail.InvalidAbilityTag");
+        public static GameplayTag InvalidEventTag { get; } = Create("Ability.ActivateFail.InvalidEventTag");
+        public static GameplayTag InvalidEventPayload { get; } = Create("Ability.ActivateFail.InvalidEventPayload");
 
         private static GameplayTag Create(string name)
         {

@@ -6,13 +6,15 @@ namespace CGame.Ability
             AbilitySystemComponent abilitySystem,
             AbilitySpec spec,
             object avatar,
-            AbilityActivationHandle activationHandle)
+            AbilityActivationHandle activationHandle,
+            AbilityGameEventPayload eventPayload)
         {
             AbilitySystem = abilitySystem;
             Spec = spec;
             Avatar = avatar;
             SourceObject = spec.SourceObject;
             ActivationHandle = activationHandle;
+            EventPayload = eventPayload;
         }
 
         public AbilitySystemComponent AbilitySystem { get; }
@@ -20,5 +22,6 @@ namespace CGame.Ability
         public object Avatar { get; }
         public object SourceObject { get; }
         public AbilityActivationHandle ActivationHandle { get; }
+        public AbilityGameEventPayload EventPayload { get; }
     }
 }

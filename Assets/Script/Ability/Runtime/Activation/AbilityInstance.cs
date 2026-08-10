@@ -61,6 +61,7 @@ namespace CGame.Ability
 
             activationTagGrants.Clear();
             activationContext.Spec.ActiveInstanceCount--;
+            activationContext.AbilitySystem.NotifyAbilityEnded(activationContext.Spec.Handle);
             LastEndReason = reason;
             activationContext = null;
             State = AbilityInstanceState.Inactive;
@@ -119,6 +120,30 @@ namespace CGame.Ability
 
         protected virtual void OnCommit()
         {
+        }
+
+        protected virtual void OnInputPressed()
+        {
+        }
+
+        protected virtual void OnInputReleased()
+        {
+        }
+
+        internal void NotifyInputPressed()
+        {
+            if (State == AbilityInstanceState.Active)
+            {
+                OnInputPressed();
+            }
+        }
+
+        internal void NotifyInputReleased()
+        {
+            if (State == AbilityInstanceState.Active)
+            {
+                OnInputReleased();
+            }
         }
 
         protected virtual void OnEnd(AbilityEndReason reason)

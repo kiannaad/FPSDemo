@@ -6,27 +6,39 @@ namespace CGame.Ability
 {
     public sealed class AbilitySet
     {
-        private readonly AbilityDefinition[] abilities;
+        private readonly AbilityGrantDefinition[] grants;
         private readonly GameplayTag[] ownedTags;
 
         public AbilitySet(
             IEnumerable<AbilityDefinition> abilities = null,
             IEnumerable<GameplayTag> ownedTags = null)
         {
-            this.abilities = abilities == null
-                ? Array.Empty<AbilityDefinition>()
-                : new List<AbilityDefinition>(abilities).ToArray();
+            grants = abilities == null
+                ? Array.Empty<AbilityGrantDefinition>()
+                : new List<AbilityDefinition>(abilities).ConvertAll(definition => new AbilityGrantDefinition(definition)).ToArray();
             this.ownedTags = ownedTags == null
                 ? Array.Empty<GameplayTag>()
                 : new List<GameplayTag>(ownedTags).ToArray();
 
-            if (Array.Exists(this.abilities, ability => ability == null))
+            if (Array.Exists(grants, grant => grant == null))
             {
                 throw new ArgumentException("AbilitySet cannot contain a null AbilityDefinition.", nameof(abilities));
             }
         }
 
-        public IReadOnlyList<AbilityDefinition> Abilities => abilities;
+        public AbilitySet(IEnumerable<AbilityGrantDefinition> grants, IEnumerable<GameplayTag> ownedTags = null)
+        {
+            this.grants = grants == null ? Array.Empty<AbilityGrantDefinition>() : new List<AbilityGrantDefinition>(grants).ToArray();
+            this.ownedTags = ownedTags == null ? Array.Empty<GameplayTag>() : new List<GameplayTag>(ownedTags).ToArray();
+
+            if (Array.Exists(this.grants, grant => grant == null))
+            {
+                throw new ArgumentException("AbilitySet cannot contain a null AbilityGrantDefinition.", nameof(grants));
+            }
+        }
+
+        public IReadOnlyList<AbilityGrantDefinition> Grants => grants;
+        public IReadOnlyList<AbilityDefinition> Abilities => Array.ConvertAll(grants, grant => grant.Definition);
         public IReadOnlyList<GameplayTag> OwnedTags => ownedTags;
     }
 }
