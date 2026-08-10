@@ -2,6 +2,7 @@
     "name": "CGame.Animation",
     "rootNamespace": "CGame.Animation",
     "references": [
+        "CGame.World",
         "CGame.CharacterRuntime",
         "CGame.Ability",
         "CGame.Weapon"

@@ -7,297 +7,216 @@ namespace CGame
 {
     public sealed class World
     {
-        private readonly IReadOnlyList<IWorldCoreService> coreServices;
-        private readonly List<IWorldCoreService> initializedServices = new List<IWorldCoreService>();
-        private readonly GameLauncher gameLauncher;
-        private readonly TickFunctionHandle motorStepTick;
-        private readonly TickFunctionHandle physicsEventTick;
-        private readonly TickFunctionHandle motorPresentationTick;
-        private readonly List<IWorldController> controllers = new List<IWorldController>();
-        private readonly List<TickFunctionHandle> coreServiceTickHandles = new List<TickFunctionHandle>();
-        private float currentPresentationTime;
-        private long nextGameSessionId;
-        private GameSessionId activeSessionId;
-        private IWorldSession currentGameSession;
+        private readonly Dictionary<Type, WorldSubSystem> subSystemsByType =
+            new Dictionary<Type, WorldSubSystem>();
+        private readonly List<WorldSubSystem> orderedSubSystems = new List<WorldSubSystem>();
+        private readonly List<WorldSubSystem> initializedSubSystems = new List<WorldSubSystem>();
+        private readonly List<WorldSubSystem> begunSubSystems = new List<WorldSubSystem>();
+        private readonly Dictionary<WorldSubSystem, IDisposable> subSystemTickRegistrations =
+            new Dictionary<WorldSubSystem, IDisposable>();
+        private readonly List<ActorRegistration> actorRegistrations = new List<ActorRegistration>();
+        private readonly WorldConfiguration configuration;
+        private Task shutdownTask;
 
-        private World(
-            IEnumerable<IWorldCoreService> coreServices,
-            GameLauncher gameLauncher,
-            TickScheduler tickScheduler,
-            ICharacterMotorSimulation characterMotorSimulation)
+        private World(IEnumerable<WorldSubSystem> subSystems, WorldConfiguration configuration)
         {
-            this.coreServices = new List<IWorldCoreService>(coreServices ??
-                throw new ArgumentNullException(nameof(coreServices)));
-            this.gameLauncher = gameLauncher ?? throw new ArgumentNullException(nameof(gameLauncher));
-            TickScheduler = tickScheduler ?? new TickScheduler();
-            CharacterMotorSimulation = characterMotorSimulation ?? new NullCharacterMotorSimulation();
-            foreach (IWorldCoreService service in this.coreServices)
-            {
-                if (service is IWorldTickCoreService tickService)
-                {
-                    coreServiceTickHandles.Add(TickScheduler.Register(
-                        $"CoreService.{service.Name}",
-                        tickService.TickGroup,
-                        tickService.Tick,
-                        critical: true));
-                }
-            }
-            motorStepTick = TickScheduler.Register(
-                "CharacterMotorSimulation.Step",
-                TickGroup.TG_CharacterMotorSimulation,
-                CharacterMotorSimulation.Step,
-                critical: true);
-            physicsEventTick = TickScheduler.Register(
-                "CharacterMotorSimulation.ConsumePostPhysicsEvents",
-                TickGroup.TG_PostPhysics,
-                CharacterMotorSimulation.ConsumePostPhysicsEvents,
-                critical: true);
-            motorPresentationTick = TickScheduler.Register(
-                "CharacterMotorSimulation.Present",
-                TickGroup.TG_CharacterPresentation,
-                ignoredDeltaTime => CharacterMotorSimulation.Present(currentPresentationTime),
-                critical: true);
+            this.configuration = configuration;
+            TickTaskManager = new TickTaskManager();
+            TickTaskManager.OwnerFaulted += OnTickOwnerFaulted;
+            AddSubSystems(subSystems ?? Array.Empty<WorldSubSystem>());
+            BuildSubSystemOrder();
         }
 
         public static World Current { get; private set; }
 
         public WorldState State { get; private set; } = WorldState.Created;
 
-        public GameStartRequest? PendingGameStartRequest { get; private set; }
-
         public string Failure { get; private set; } = string.Empty;
 
-        public TickScheduler TickScheduler { get; }
+        public TickTaskManager TickTaskManager { get; }
 
-        public ICharacterMotorSimulation CharacterMotorSimulation { get; }
+        public Player LocalPlayer { get; private set; }
 
-        public IReadOnlyList<IWorldController> Controllers => controllers;
+        public GameMode GameMode { get; private set; }
 
-        public IWorldSession CurrentGameSession => currentGameSession;
+        public int RegisteredActorCount => actorRegistrations.Count;
 
-        public T GetCoreService<T>() where T : class
+        public static World Create() => Create(Array.Empty<WorldSubSystem>(), null);
+
+        public static World Create(IEnumerable<WorldSubSystem> subSystems) => Create(subSystems, null);
+
+        public static World Create(WorldConfiguration configuration)
         {
-            foreach (IWorldCoreService service in coreServices)
-            {
-                if (service is T match)
-                {
-                    return match;
-                }
-            }
-
-            return null;
+            IReadOnlyList<WorldSubSystem> subSystems = configuration == null
+                ? Array.Empty<WorldSubSystem>()
+                : configuration.CreateWorldSubSystems();
+            return Create(subSystems, configuration);
         }
 
-        public static World Create(
-            IEnumerable<IWorldCoreService> coreServices,
-            GameLauncher gameLauncher,
-            TickScheduler tickScheduler = null,
-            ICharacterMotorSimulation characterMotorSimulation = null)
+        private static World Create(IEnumerable<WorldSubSystem> subSystems, WorldConfiguration configuration)
         {
             if (Current != null)
             {
                 throw new InvalidOperationException("Only one active World is allowed.");
             }
 
-            World world = new World(coreServices, gameLauncher, tickScheduler, characterMotorSimulation);
+            var world = new World(subSystems, configuration);
             Current = world;
             return world;
         }
 
-        public async Task<WorldStartResult> StartAsync(CancellationToken cancellationToken = default)
+        public async Task InitializeAsync(CancellationToken cancellationToken = default)
         {
-            if (State != WorldState.Created)
-            {
-                throw new InvalidOperationException($"Cannot start World while it is {State}.");
-            }
-
+            EnsureState(WorldState.Created, "initialize");
             State = WorldState.Initializing;
-            foreach (IWorldCoreService service in coreServices)
-            {
-                try
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await service.InitializeAsync(cancellationToken);
-                    initializedServices.Add(service);
-                }
-                catch (Exception exception)
-                {
-                    Failure = $"{service?.Name ?? "Unknown core service"}: {exception.Message}";
-                    await ShutdownInitializedServicesAsync();
-                    State = WorldState.InitializationFailed;
-                    return WorldStartResult.Fail(Failure);
-                }
-            }
-
-            State = WorldState.Launching;
-            GameLaunchResult launchResult = await gameLauncher.LaunchAsync(cancellationToken);
-            if (!launchResult.Succeeded)
-            {
-                Failure = launchResult.Failure?.ToString() ?? "Launch failed.";
-                State = WorldState.LaunchFailed;
-                return WorldStartResult.Fail(Failure);
-            }
-
-            PendingGameStartRequest = launchResult.Request;
-            return WorldStartResult.Success(launchResult.Request);
-        }
-
-        public async Task<WorldStartResult> ReturnToLoginAsync(CancellationToken cancellationToken = default)
-        {
-            bool hasPendingRequest = State == WorldState.Launching && PendingGameStartRequest.HasValue;
-            bool hasActiveSession = (State == WorldState.StartingGame || State == WorldState.Running)
-                                    && currentGameSession != null;
-            if (!hasPendingRequest && !hasActiveSession)
-            {
-                throw new InvalidOperationException($"Cannot return to login while World is {State}.");
-            }
-
-            State = WorldState.ReturningToLogin;
-            PendingGameStartRequest = null;
-            ShutdownCurrentSession();
-            GameLaunchResult launchResult = await gameLauncher.ReturnToLoginAsync(cancellationToken);
-            if (!launchResult.Succeeded)
-            {
-                Failure = launchResult.Failure?.ToString() ?? "Launch failed.";
-                State = WorldState.LaunchFailed;
-                return WorldStartResult.Fail(Failure);
-            }
-
-            PendingGameStartRequest = launchResult.Request;
-            State = WorldState.Launching;
-            return WorldStartResult.Success(launchResult.Request);
-        }
-
-        public GameSessionStartResult StartGame(IGameSessionFactory sessionFactory)
-        {
-            if (sessionFactory == null)
-            {
-                throw new ArgumentNullException(nameof(sessionFactory));
-            }
-
-            if (State != WorldState.Launching || !PendingGameStartRequest.HasValue)
-            {
-                throw new InvalidOperationException($"Cannot start a gameplay session while World is {State}.");
-            }
-
-            GameStartRequest request = PendingGameStartRequest.Value;
-            GameSessionId sessionId = new GameSessionId(++nextGameSessionId);
-            activeSessionId = sessionId;
-            State = WorldState.StartingGame;
             try
             {
-                IWorldSession session = sessionFactory.Create(this, sessionId, request);
-                if (session == null || session.Id != sessionId || !session.IsActive)
+                for (int index = 0; index < orderedSubSystems.Count; index++)
                 {
-                    session?.Shutdown();
-                    throw new InvalidOperationException("Game session factory returned an invalid session.");
+                    cancellationToken.ThrowIfCancellationRequested();
+                    WorldSubSystem subSystem = orderedSubSystems[index];
+                    subSystem.Attach(this);
+                    await subSystem.InitializeSubSystemAsync(cancellationToken);
+                    initializedSubSystems.Add(subSystem);
+                    IDisposable registration = TickTaskManager.RegisterOwner(
+                        subSystem,
+                        subSystem.TickTasks,
+                        critical: true);
+                    subSystemTickRegistrations.Add(subSystem, registration);
                 }
 
-                currentGameSession = session;
-                PendingGameStartRequest = null;
-                return GameSessionStartResult.Success(sessionId);
+                LocalPlayer = new Player(configuration?.CreatePlayerSubSystems());
+                await LocalPlayer.InitializeAsync(TickTaskManager, cancellationToken);
+                GameMode gameMode = configuration?.CreateGameMode(this, LocalPlayer);
+                if (gameMode != null)
+                {
+                    GameMode = gameMode;
+                    RegisterActor(gameMode, critical: true);
+                    gameMode.CreateAndAttachPlayerController();
+                    await gameMode.SpawnDefaultPawn(gameMode.PlayerController, cancellationToken);
+                }
+
+                State = WorldState.Initialized;
             }
             catch (Exception exception)
             {
-                ShutdownControllers();
-                activeSessionId = default;
                 Failure = exception.Message;
-                State = WorldState.GameStartFailed;
-                return GameSessionStartResult.Fail(Failure);
+                State = WorldState.Faulted;
+                DisposeAllActors();
+                GameMode = null;
+                if (LocalPlayer != null)
+                {
+                    await LocalPlayer.ShutdownAsync(TickTaskManager);
+                    LocalPlayer = null;
+                }
+                await ShutdownInitializedSubSystemsAsync();
+                throw;
             }
         }
 
-        public WorldControllerRegistration RegisterController(
-            GameSessionId sessionId,
-            IWorldController controller)
+        public void StartPlay()
         {
-            if (!sessionId.IsValid || sessionId != activeSessionId)
+            EnsureState(WorldState.Initialized, "start play");
+            State = WorldState.StartingPlay;
+            try
             {
-                throw new InvalidOperationException("Controller belongs to a stale or inactive GameSessionId.");
-            }
+                for (int index = 0; index < orderedSubSystems.Count; index++)
+                {
+                    WorldSubSystem subSystem = orderedSubSystems[index];
+                    subSystem.BeginPlaySubSystem();
+                    begunSubSystems.Add(subSystem);
+                    TickTaskManager.SetOwnerEnabled(subSystem, true);
+                }
 
-            if (controller == null)
+                LocalPlayer?.BeginPlay(TickTaskManager);
+                for (int index = 0; index < actorRegistrations.Count; index++)
+                {
+                    actorRegistrations[index].Activate();
+                }
+
+                State = WorldState.Playing;
+            }
+            catch (Exception exception)
             {
-                throw new ArgumentNullException(nameof(controller));
+                Failure = exception.Message;
+                DisposeAllActors();
+                LocalPlayer?.ShutdownAsync(TickTaskManager).GetAwaiter().GetResult();
+                EndBegunSubSystems();
+                State = WorldState.Faulted;
+                throw;
             }
-
-            if (controller.SessionId != sessionId || !controller.IsActive)
-            {
-                throw new InvalidOperationException("Only an active Controller from the current session can register.");
-            }
-
-            if (controllers.Contains(controller))
-            {
-                throw new InvalidOperationException("Controller is already registered with this World.");
-            }
-
-            controllers.Add(controller);
-            return new WorldControllerRegistration(this, controller);
         }
 
-        public bool IsCurrentSession(GameSessionId sessionId)
+        public T GetSubSystem<T>() where T : WorldSubSystem
         {
-            return sessionId.IsValid
-                && sessionId == activeSessionId
-                && currentGameSession != null
-                && currentGameSession.IsActive;
+            return subSystemsByType.TryGetValue(typeof(T), out WorldSubSystem subSystem)
+                ? (T)subSystem
+                : null;
         }
 
-        public bool TryRunForSession(GameSessionId sessionId, Action<IWorldSession> callback)
+        public ActorRegistration RegisterActor(Actor actor, bool critical = false)
         {
-            if (!IsCurrentSession(sessionId))
+            if (State == WorldState.ShuttingDown || State == WorldState.Destroyed || State == WorldState.Faulted)
             {
-                return false;
+                throw new InvalidOperationException($"World cannot register an Actor while it is {State}.");
             }
 
-            callback?.Invoke(currentGameSession);
-            return true;
+            ActorRegistration registration = ActorRegistration.Register(actor, TickTaskManager, critical);
+            registration.Disposed += OnActorRegistrationDisposed;
+            actorRegistrations.Add(registration);
+            return registration;
         }
 
-        public bool TryEnterRunning(GameSessionId sessionId)
+        public void UnregisterActor(ActorRegistration registration)
         {
-            if (State != WorldState.StartingGame || !IsCurrentSession(sessionId))
+            if (registration == null || !actorRegistrations.Contains(registration))
             {
-                return false;
+                throw new InvalidOperationException("ActorRegistration does not belong to this World.");
             }
 
-            State = WorldState.Running;
-            return true;
+            registration.Dispose();
         }
 
-        public bool TryFailGameStart(GameSessionId sessionId, string failure)
+        public void ActivateActor(ActorRegistration registration)
         {
-            if (State != WorldState.StartingGame || !IsCurrentSession(sessionId))
+            if (registration == null || !actorRegistrations.Contains(registration))
             {
-                return false;
+                throw new InvalidOperationException("ActorRegistration does not belong to this World.");
             }
 
-            Failure = string.IsNullOrWhiteSpace(failure) ? "Pawn initialization failed." : failure;
-            State = WorldState.GameStartFailed;
-            return true;
+            registration.Activate();
         }
 
-        public async Task ShutdownAsync()
+        public void FixedTick(float deltaTime) => ExecuteTick(TickDomain.Fixed, deltaTime);
+
+        public void UpdateTick(float deltaTime) => ExecuteTick(TickDomain.Update, deltaTime);
+
+        public void LateTick(float deltaTime) => ExecuteTick(TickDomain.Late, deltaTime);
+
+        public Task ShutdownAsync()
         {
-            if (State == WorldState.Destroyed)
+            if (shutdownTask != null)
             {
-                return;
+                return shutdownTask;
             }
 
+            shutdownTask = ShutdownInternalAsync();
+            return shutdownTask;
+        }
+
+        private async Task ShutdownInternalAsync()
+        {
             State = WorldState.ShuttingDown;
-            PendingGameStartRequest = null;
-            ShutdownCurrentSession();
-            await gameLauncher.ShutdownAsync();
-            for (int index = coreServiceTickHandles.Count - 1; index >= 0; index--)
+            DisposeAllActors();
+            GameMode = null;
+            if (LocalPlayer != null)
             {
-                coreServiceTickHandles[index].Dispose();
+                await LocalPlayer.ShutdownAsync(TickTaskManager);
+                LocalPlayer = null;
             }
-            coreServiceTickHandles.Clear();
-            motorPresentationTick.Dispose();
-            physicsEventTick.Dispose();
-            motorStepTick.Dispose();
-            CharacterMotorSimulation.Dispose();
-            await ShutdownInitializedServicesAsync();
+            EndBegunSubSystems();
+            await ShutdownInitializedSubSystemsAsync();
+            TickTaskManager.OwnerFaulted -= OnTickOwnerFaulted;
             State = WorldState.Destroyed;
             if (ReferenceEquals(Current, this))
             {
@@ -305,96 +224,152 @@ namespace CGame
             }
         }
 
-        public void FixedTick(float deltaTime)
+        private void AddSubSystems(IEnumerable<WorldSubSystem> subSystems)
         {
-            if (CanTick())
+            foreach (WorldSubSystem subSystem in subSystems)
             {
-                TickScheduler.ExecuteDomain(TickDomain.Fixed, deltaTime);
+                if (subSystem == null)
+                {
+                    throw new InvalidOperationException("World contains a null SubSystem.");
+                }
+
+                Type type = subSystem.GetType();
+                if (subSystemsByType.ContainsKey(type))
+                {
+                    throw new InvalidOperationException($"World already contains SubSystem {type.Name}.");
+                }
+
+                subSystemsByType.Add(type, subSystem);
             }
         }
 
-        public void UpdateTick(float deltaTime)
+        private void BuildSubSystemOrder()
         {
-            if (CanTick())
+            var visiting = new HashSet<Type>();
+            var visited = new HashSet<Type>();
+            foreach (WorldSubSystem subSystem in subSystemsByType.Values)
             {
-                TickScheduler.ExecuteDomain(TickDomain.Update, deltaTime);
+                VisitSubSystem(subSystem, visiting, visited);
             }
         }
 
-        public void LateTick(float deltaTime, float currentTime)
+        private void VisitSubSystem(WorldSubSystem subSystem, HashSet<Type> visiting, HashSet<Type> visited)
         {
-            if (CanTick())
+            Type type = subSystem.GetType();
+            if (visited.Contains(type))
             {
-                currentPresentationTime = currentTime;
-                TickScheduler.ExecuteDomain(TickDomain.Late, deltaTime);
+                return;
+            }
+
+            if (!visiting.Add(type))
+            {
+                throw new InvalidOperationException($"SubSystem dependency cycle includes {type.Name}.");
+            }
+
+            for (int index = 0; index < subSystem.Dependencies.Count; index++)
+            {
+                Type dependencyType = subSystem.Dependencies[index];
+                if (!subSystemsByType.TryGetValue(dependencyType, out WorldSubSystem dependency))
+                {
+                    throw new InvalidOperationException($"SubSystem {type.Name} requires missing {dependencyType.Name}.");
+                }
+
+                VisitSubSystem(dependency, visiting, visited);
+            }
+
+            visiting.Remove(type);
+            visited.Add(type);
+            orderedSubSystems.Add(subSystem);
+        }
+
+        private void ExecuteTick(TickDomain domain, float deltaTime)
+        {
+            if (State == WorldState.Playing)
+            {
+                TickTaskManager.ExecuteDomain(domain, deltaTime);
             }
         }
 
-        private async Task ShutdownInitializedServicesAsync()
+        private void OnTickOwnerFaulted(TickTaskFault fault)
         {
-            for (int index = initializedServices.Count - 1; index >= 0; index--)
+            if (!(fault.Owner is WorldSubSystem))
             {
+                return;
+            }
+
+            Failure = fault.Exception.Message;
+            EndBegunSubSystems();
+            State = WorldState.Faulted;
+        }
+
+        private void OnActorRegistrationDisposed(ActorRegistration registration)
+        {
+            registration.Disposed -= OnActorRegistrationDisposed;
+            actorRegistrations.Remove(registration);
+        }
+
+        private void DisposeAllActors()
+        {
+            while (actorRegistrations.Count > 0)
+            {
+                ActorRegistration registration = actorRegistrations[actorRegistrations.Count - 1];
+                registration.Dispose();
+                if (actorRegistrations.Contains(registration))
+                {
+                    OnActorRegistrationDisposed(registration);
+                }
+            }
+        }
+
+        private void EndBegunSubSystems()
+        {
+            for (int index = begunSubSystems.Count - 1; index >= 0; index--)
+            {
+                WorldSubSystem subSystem = begunSubSystems[index];
                 try
                 {
-                    await initializedServices[index].ShutdownAsync();
+                    TickTaskManager.SetOwnerEnabled(subSystem, false);
+                    subSystem.EndPlaySubSystem();
                 }
                 catch
                 {
-                    // Continue reverse cleanup so one service cannot leak later owners.
+                    // Continue reverse cleanup so one SubSystem cannot leak later owners.
                 }
             }
 
-            initializedServices.Clear();
+            begunSubSystems.Clear();
         }
 
-        internal void UnregisterController(IWorldController controller)
+        private async Task ShutdownInitializedSubSystemsAsync()
         {
-            if (controller != null)
+            for (int index = initializedSubSystems.Count - 1; index >= 0; index--)
             {
-                controllers.Remove(controller);
-            }
-        }
+                WorldSubSystem subSystem = initializedSubSystems[index];
+                if (subSystemTickRegistrations.TryGetValue(subSystem, out IDisposable registration))
+                {
+                    registration.Dispose();
+                    subSystemTickRegistrations.Remove(subSystem);
+                }
 
-        private void ShutdownCurrentSession()
-        {
-            IWorldSession session = currentGameSession;
-            currentGameSession = null;
-            try
-            {
-                session?.Shutdown();
-            }
-            finally
-            {
-                ShutdownControllers();
-                activeSessionId = default;
-            }
-        }
-
-        private void ShutdownControllers()
-        {
-            for (int index = controllers.Count - 1; index >= 0; index--)
-            {
                 try
                 {
-                    controllers[index].Shutdown();
+                    await subSystem.ShutdownSubSystemAsync();
                 }
                 catch
                 {
-                    // Continue reverse cleanup so one Controller cannot leak later owners.
+                    // Continue reverse cleanup so one SubSystem cannot leak later owners.
                 }
             }
 
-            controllers.Clear();
+            initializedSubSystems.Clear();
         }
 
-        private bool CanTick()
+        private void EnsureState(WorldState expected, string operation)
         {
-            return State != WorldState.Created
-                && State != WorldState.InitializationFailed
-                && State != WorldState.LaunchFailed
-                && State != WorldState.GameStartFailed
-                && State != WorldState.ShuttingDown
-                && State != WorldState.Destroyed;
+            if (State != expected)
+            {
+                throw new InvalidOperationException($"World cannot {operation} while it is {State}.");
+            }
         }
     }
 }

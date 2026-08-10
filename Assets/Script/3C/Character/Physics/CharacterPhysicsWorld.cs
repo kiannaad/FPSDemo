@@ -6,7 +6,6 @@ namespace CGame
 {
     public sealed class CharacterPhysicsWorld :
         ICharacterPhysicsWorld,
-        ICharacterMotorSimulation,
         ICharacterPhysicsEventSink
     {
         private readonly struct DiscreteCollisionEvent

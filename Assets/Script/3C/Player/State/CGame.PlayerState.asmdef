@@ -2,6 +2,7 @@
     "name": "CGame.PlayerState",
     "rootNamespace": "CGame",
     "references": [
+        "CGame.World",
         "CGame.Ability",
         "CGame.CharacterRuntime"
     ],

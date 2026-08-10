@@ -6,7 +6,5 @@ namespace CGame
 
         public IQuickBarComponent CreateQuickBar(IInventoryComponent inventory) =>
             new QuickBarComponent(inventory);
-
-        public IPlayerCameraComponent CreatePlayerCamera() => new PlayerCameraComponent();
     }
 }

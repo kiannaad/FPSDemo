@@ -6,6 +6,7 @@
     "CGame.PlayerController",
     "CGame.PlayerState",
     "CGame.CharacterRuntime",
+    "CGame.Character.Definition",
     "CGame.Ability",
     "CGame.Inventory",
     "CGame.InventoryEquipment"

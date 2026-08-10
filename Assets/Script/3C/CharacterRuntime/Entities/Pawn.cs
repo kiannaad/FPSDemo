@@ -1,60 +1,61 @@
+using System;
 using System.Collections.Generic;
 using CGame.Ability;
 using UnityEngine;
 
 namespace CGame
 {
-    public class Pawn : ICharacterIntentSink, ICharacterMovementCommandSource
+    public class Pawn : Actor, ICharacterIntentSink, ICharacterMovementCommandSource
     {
-        private readonly List<IComponent> components = new List<IComponent>();
-        private IController controller;
+        private readonly List<ActorComponent> declaredComponents;
+        private Controller controller;
         private Vector3 movementInput;
         private Vector3 pendingForce;
         private Vector3 pendingImpulse;
         private bool pendingJump;
         private bool sprintRequested;
+        private bool rootDestroyed;
 
-        public Controller Controller => controller as Controller;
-        public IController OwningController => controller;
-        public AbilitySystemComponent AbilitySystem { get; private set; }
-        public PawnHost Host { get; private set; }
-        public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
-
-        /// <summary>
-        /// 绑定 Unity 宿主对象。
-        /// </summary>
-        public virtual void BindingHost(PawnHost host)
+        public Pawn()
+            : this(null, Array.Empty<ActorComponent>())
         {
-            Host = host;
         }
 
-        /// <summary>
-        /// 解除 Unity 宿主对象绑定。
-        /// </summary>
-        public virtual void UnbindingHost(PawnHost host)
+        public Pawn(GameObject root, IEnumerable<ActorComponent> components)
         {
-            if (Host == host)
+            Root = root;
+            Transform = root != null ? root.transform : null;
+            declaredComponents = components == null
+                ? new List<ActorComponent>()
+                : new List<ActorComponent>(components);
+            if (declaredComponents.Exists(component => component == null))
             {
-                Host = null;
+                throw new ArgumentException("Pawn components cannot contain null.", nameof(components));
             }
         }
 
-        /// <summary>
-        /// 设置当前控制器。
-        /// </summary>
-        public virtual void SettingController(IController controller)
+        public GameObject Root { get; }
+
+        public Transform Transform { get; }
+
+        public Controller Controller => controller;
+
+        public AbilitySystemComponent AbilitySystem { get; private set; }
+
+        public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
+
+        public bool IsRootDestroyed => rootDestroyed || Root == null;
+
+        public virtual void SettingController(Controller nextController)
         {
-            this.controller = controller;
+            controller = nextController ?? throw new ArgumentNullException(nameof(nextController));
         }
 
-        /// <summary>
-        /// 清理当前控制器。
-        /// </summary>
-        public virtual void ClearingController(IController controller)
+        public virtual void ClearingController(Controller expectedController)
         {
-            if (this.controller == controller)
+            if (ReferenceEquals(controller, expectedController))
             {
-                this.controller = null;
+                controller = null;
             }
         }
 
@@ -62,12 +63,12 @@ namespace CGame
         {
             if (abilitySystem == null)
             {
-                throw new System.ArgumentNullException(nameof(abilitySystem));
+                throw new ArgumentNullException(nameof(abilitySystem));
             }
 
             if (AbilitySystem != null && !ReferenceEquals(AbilitySystem, abilitySystem))
             {
-                throw new System.InvalidOperationException("Pawn is already bound to another AbilitySystemComponent.");
+                throw new InvalidOperationException("Pawn is already bound to another AbilitySystemComponent.");
             }
 
             AbilitySystem = abilitySystem;
@@ -81,17 +82,11 @@ namespace CGame
             }
         }
 
-        /// <summary>
-        /// 应用控制器传入的控制旋转。
-        /// </summary>
         public virtual void ApplyingControlRotation(Quaternion controlRotation)
         {
             ControlRotation = controlRotation;
         }
 
-        /// <summary>
-        /// 提交一次控制意图。移动是最新持续值，跳跃是一次性请求。
-        /// </summary>
         public void SubmitControlIntent(in CharacterControlIntent intent)
         {
             movementInput = intent.MovementInput;
@@ -99,9 +94,6 @@ namespace CGame
             sprintRequested = intent.SprintRequested;
         }
 
-        /// <summary>
-        /// 消费当前物理步命令。连续移动保留到下一物理步，跳跃只交付一次。
-        /// </summary>
         public CharacterMovementCommand ConsumeMovementCommand()
         {
             bool jumpRequested = pendingJump;
@@ -109,17 +101,8 @@ namespace CGame
             return new CharacterMovementCommand(movementInput, jumpRequested, sprintRequested);
         }
 
-        /// <summary>
-        /// 查看当前持续移动意图，不会消费它。
-        /// </summary>
-        public Vector3 PeekingMovementInput()
-        {
-            return movementInput;
-        }
+        public Vector3 PeekingMovementInput() => movementInput;
 
-        /// <summary>
-        /// 清空控制意图，供换控或销毁时消除残留命令。
-        /// </summary>
         public void ClearingControlIntent()
         {
             movementInput = Vector3.zero;
@@ -127,10 +110,7 @@ namespace CGame
             sprintRequested = false;
         }
 
-        public void AddingForce(Vector3 force)
-        {
-            pendingForce += force;
-        }
+        public void AddingForce(Vector3 force) => pendingForce += force;
 
         public Vector3 ConsumingForce()
         {
@@ -139,10 +119,7 @@ namespace CGame
             return force;
         }
 
-        public void AddingImpulse(Vector3 impulse)
-        {
-            pendingImpulse += impulse;
-        }
+        public void AddingImpulse(Vector3 impulse) => pendingImpulse += impulse;
 
         public Vector3 ConsumingImpulse()
         {
@@ -156,93 +133,65 @@ namespace CGame
             SubmitControlIntent(new CharacterControlIntent(movementInput, true, sprintRequested));
         }
 
-        /// <summary>
-        /// 注册 Pawn 自管理组件。
-        /// </summary>
-        public void RegisteringComponent(IComponent component)
+        public void DestroyCandidate()
         {
-            if (component == null || components.Contains(component))
+            if (State != ActorState.Constructed)
             {
-                return;
+                throw new InvalidOperationException("Only an unregistered Pawn candidate can be destroyed directly.");
             }
 
-            components.Add(component);
-            SortingComponents();
-            component.InitializingComponent(this);
+            DestroyRoot();
         }
 
-        /// <summary>
-        /// 注销 Pawn 自管理组件。
-        /// </summary>
-        public void UnregisteringComponent(IComponent component)
+        protected override void OnInitialize()
         {
-            if (!components.Remove(component))
+            for (int index = 0; index < declaredComponents.Count; index++)
             {
-                return;
-            }
-
-            component.ShuttingDownComponent();
-        }
-
-        /// <summary>
-        /// 更新 Pawn 普通帧逻辑。
-        /// </summary>
-        public virtual void UpdatingPawn(float elapseSeconds)
-        {
-            for (int i = 0; i < components.Count; i++)
-            {
-                components[i].UpdatingComponent(elapseSeconds);
+                AddComponent(declaredComponents[index]);
             }
         }
 
-        /// <summary>
-        /// 更新 Pawn 固定帧逻辑。
-        /// </summary>
-        public virtual void FixedUpdatingPawn(float elapseSeconds)
+        protected override void OnBeginPlay()
         {
-            for (int i = 0; i < components.Count; i++)
-            {
-                components[i].FixedUpdatingComponent(elapseSeconds);
-            }
+            Root?.SetActive(true);
         }
 
-        /// <summary>
-        /// 更新 Pawn 渲染后逻辑。
-        /// </summary>
-        public virtual void LateUpdatingPawn(float elapseSeconds)
+        protected override void OnEndPlay()
         {
-            for (int i = 0; i < components.Count; i++)
-            {
-                components[i].LateUpdatingComponent(elapseSeconds);
-            }
+            Root?.SetActive(false);
+            ClearingControlIntent();
         }
 
-        /// <summary>
-        /// 关闭 Pawn 并清理全部组件。
-        /// </summary>
-        public virtual void ShuttingDownPawn()
+        protected override void OnShutdown()
         {
-            for (int i = 0; i < components.Count; i++)
-            {
-                components[i].ShuttingDownComponent();
-            }
-
-            components.Clear();
+            Controller currentController = controller;
             controller = null;
+            currentController?.NotifyPossessedActorUnregistered(this);
             AbilitySystem = null;
-            Host = null;
-            movementInput = Vector3.zero;
+            ClearingControlIntent();
             pendingForce = Vector3.zero;
             pendingImpulse = Vector3.zero;
-            pendingJump = false;
+            DestroyRoot();
         }
 
-        /// <summary>
-        /// 按组件优先级排序。
-        /// </summary>
-        private void SortingComponents()
+        private void DestroyRoot()
         {
-            components.Sort((left, right) => right.Priority.CompareTo(left.Priority));
+            if (rootDestroyed || Root == null)
+            {
+                rootDestroyed = true;
+                return;
+            }
+
+            rootDestroyed = true;
+            Root.SetActive(false);
+            if (Application.isPlaying)
+            {
+                UnityEngine.Object.Destroy(Root);
+            }
+            else
+            {
+                UnityEngine.Object.DestroyImmediate(Root);
+            }
         }
     }
 }

@@ -4,84 +4,67 @@ using UnityEngine;
 
 namespace CGame
 {
-    public sealed class PawnAnimationComponent : PawnFeatureComponent
+    public sealed class PawnAnimationComponent : ActorComponent
     {
-        private readonly Pawn pawn;
         private readonly Animator animator;
         private readonly CharacterPhysicsMotor motor;
         private readonly CharacterAnimationConfig animationConfig;
         private CharacterAnimInstance animInstance;
-        private TickFunctionHandle preAnimationTick;
-        private TickFunctionHandle postAnimationTick;
-
-        public PawnAnimationComponent() : base("Animation")
-        {
-        }
 
         public PawnAnimationComponent(
-            Pawn pawn,
             Animator animator,
             CharacterPhysicsMotor motor,
-            CharacterAnimationConfig animationConfig) : base("Animation")
+            CharacterAnimationConfig animationConfig)
         {
-            this.pawn = pawn ?? throw new ArgumentNullException(nameof(pawn));
-            this.animator = animator ?? throw new ArgumentNullException(nameof(animator));
-            this.motor = motor ?? throw new ArgumentNullException(nameof(motor));
-            this.animationConfig = animationConfig
-                ?? throw new ArgumentNullException(nameof(animationConfig));
+            this.animator = animator;
+            this.motor = motor;
+            this.animationConfig = animationConfig;
+            AddDependency<PawnMovementComponent>();
         }
 
         public Animator Animator => animator;
 
         public CharacterAnimInstance AnimInstance => animInstance;
 
-        public override void EnterState(PawnInitState nextState, PawnInitContext context)
+        public int PreAnimationTickCount { get; private set; }
+
+        public int PostAnimationTickCount { get; private set; }
+
+        protected override void OnInitialize()
         {
-            base.EnterState(nextState, context);
-            if (nextState != PawnInitState.DataInitialized || animator == null)
+            if (!(Owner is Pawn pawn))
             {
-                return;
+                throw new InvalidOperationException("PawnAnimationComponent requires a Pawn owner.");
             }
 
-            animInstance = new CharacterAnimInstance(
-                pawn,
-                new AnimationCharacterSource(motor),
-                animator,
-                animationConfig.UpperBodyMask);
-            TickScheduler scheduler = World.Current?.TickScheduler;
-            if (scheduler == null)
+            if (animator != null && motor != null && animationConfig != null)
             {
-                return;
+                animInstance = new CharacterAnimInstance(
+                    pawn,
+                    new AnimationCharacterSource(motor),
+                    animator,
+                    animationConfig.UpperBodyMask);
             }
 
-            preAnimationTick = scheduler.Register(
-                $"PawnAnimation.Pre:{animator.GetInstanceID()}",
-                TickGroup.TG_PreAnimation,
-                UpdatePreAnimation);
-            postAnimationTick = scheduler.Register(
-                $"PawnAnimation.Post:{animator.GetInstanceID()}",
-                TickGroup.TG_PostAnimation,
-                DispatchPostAnimation);
+            AddTickTask("Pawn.Animation.Pre", TickGroup.TG_PreAnimation, UpdatePreAnimation);
+            AddTickTask("Pawn.Animation.Post", TickGroup.TG_PostAnimation, DispatchPostAnimation);
         }
 
-        public override void Shutdown()
+        protected override void OnShutdown()
         {
-            postAnimationTick?.Dispose();
-            postAnimationTick = null;
-            preAnimationTick?.Dispose();
-            preAnimationTick = null;
             animInstance?.Dispose();
             animInstance = null;
-            base.Shutdown();
         }
 
         private void UpdatePreAnimation(float deltaTime)
         {
+            PreAnimationTickCount++;
             animInstance?.UpdateAnimation(deltaTime);
         }
 
         private void DispatchPostAnimation(float deltaTime)
         {
+            PostAnimationTickCount++;
             animInstance?.DispatchAnimationNotifies();
         }
 

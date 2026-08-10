@@ -2,6 +2,7 @@
     "name": "CGame.CharacterRuntime",
     "rootNamespace": "CGame",
     "references": [
+        "CGame.World",
         "CGame.Ability",
         "CGame.GameplayTags"
     ],

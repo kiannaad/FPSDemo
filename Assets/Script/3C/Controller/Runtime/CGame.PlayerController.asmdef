@@ -7,6 +7,7 @@
     "CGame.Ability",
     "CGame.GameplayTags",
     "CGame.CharacterRuntime",
+    "CGame.Character.Definition",
     "CGame.Inventory",
     "CGame.Animation"
   ],

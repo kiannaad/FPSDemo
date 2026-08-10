@@ -3,11 +3,13 @@
   "rootNamespace": "CGame",
   "references": [
     "CGame.World",
-    "CGame.Launcher",
+    "CGame.World.CoreServices",
     "CGame.PlayerController",
+    "CGame.CharacterRuntime",
+    "CGame.Character.Definition",
     "CGame.Pawn",
-    "CGame.CharacterRuntime"
-    ,"CGame.Inventory"
+    "CGame.Inventory",
+    "CGame.CharacterPhysics"
   ],
   "autoReferenced": true
 }

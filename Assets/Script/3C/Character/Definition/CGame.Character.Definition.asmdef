@@ -1,0 +1,10 @@
+{
+  "name": "CGame.Character.Definition",
+  "rootNamespace": "CGame",
+  "references": [
+    "CGame.Ability",
+    "CGame.GameplayTags",
+    "CGame.Animation"
+  ],
+  "autoReferenced": true
+}

@@ -2,38 +2,39 @@ using System;
 
 namespace CGame
 {
-    public sealed class PawnMovementComponent : PawnFeatureComponent
+    public sealed class PawnMovementComponent : ActorComponent
     {
-        private readonly Pawn pawn;
         private readonly CharacterPhysicsMotor motor;
-        private readonly MovementComp movement;
+        private MovementComp movement;
 
-        public PawnMovementComponent(Pawn pawn) : base("Movement")
+        public PawnMovementComponent(CharacterPhysicsMotor motor = null)
         {
-            this.pawn = pawn ?? throw new ArgumentNullException(nameof(pawn));
-        }
-
-        public PawnMovementComponent(Pawn pawn, CharacterPhysicsMotor motor) : base("Movement")
-        {
-            this.pawn = pawn ?? throw new ArgumentNullException(nameof(pawn));
-            this.motor = motor ?? throw new ArgumentNullException(nameof(motor));
-            movement = new MovementComp();
-            movement.BindingMotor(motor);
-            motor.CharacterController = movement;
+            this.motor = motor;
         }
 
         public CharacterPhysicsMotor Motor => motor;
 
-        public override void EnterState(PawnInitState nextState, PawnInitContext context)
+        public int TickCount { get; private set; }
+
+        protected override void OnInitialize()
         {
-            base.EnterState(nextState, context);
-            if (nextState == PawnInitState.DataAvailable)
+            if (!(Owner is Pawn pawn))
             {
-                movement?.InitializingComponent(pawn);
+                throw new InvalidOperationException("PawnMovementComponent requires a Pawn owner.");
             }
+
+            if (motor != null)
+            {
+                movement = new MovementComp();
+                movement.BindingMotor(motor);
+                movement.InitializingComponent(pawn);
+                motor.CharacterController = movement;
+            }
+
+            AddTickTask("Pawn.Movement", TickGroup.TG_PhysicsMovement, Tick);
         }
 
-        public override void Shutdown()
+        protected override void OnShutdown()
         {
             if (motor != null && ReferenceEquals(motor.CharacterController, movement))
             {
@@ -41,7 +42,12 @@ namespace CGame
             }
 
             movement?.ShuttingDownComponent();
-            base.Shutdown();
+            movement = null;
+        }
+
+        private void Tick(float deltaTime)
+        {
+            TickCount++;
         }
     }
 }

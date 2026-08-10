@@ -682,7 +682,14 @@ namespace CGame
 
         private void OnEnable()
         {
-            ICharacterPhysicsWorld physicsWorld = World.Current?.CharacterMotorSimulation as ICharacterPhysicsWorld;
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+
+            ICharacterPhysicsWorld physicsWorld = World.Current?
+                .GetSubSystem<CharacterPhysicsSubSystem>()?
+                .PhysicsWorld;
             physicsRegistration = physicsWorld?.Register(this)
                 ?? throw new InvalidOperationException("Character physics world is not initialized.");
         }

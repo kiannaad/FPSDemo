@@ -3,15 +3,11 @@ using CGame.InventoryEquipment;
 
 namespace CGame
 {
-    public sealed class EquipmentManagerComponent : PawnFeatureComponent, IEquipmentActionTarget
+    public sealed class EquipmentManagerComponent : ActorComponent, IEquipmentActionTarget
     {
         private PlayerController controller;
-        private PawnExtensionComponent extension;
+        private PawnBindingReceipt actionBinding;
         private PendingEquipmentRequest pendingRequest;
-
-        public EquipmentManagerComponent() : base("Equipment")
-        {
-        }
 
         public EquipmentInstance CurrentEquipment { get; private set; }
 
@@ -21,52 +17,31 @@ namespace CGame
 
         public string LastFailure { get; private set; } = string.Empty;
 
-        public PawnBindingReceipt Bind(
-            PlayerController playerController,
-            Pawn pawn,
-            PawnExtensionComponent pawnExtension)
+        protected override void OnInitialize()
         {
-            if (controller != null)
-            {
-                throw new InvalidOperationException("EquipmentManager is already bound.");
-            }
-
-            controller = playerController ?? throw new ArgumentNullException(nameof(playerController));
-            extension = pawnExtension ?? throw new ArgumentNullException(nameof(pawnExtension));
-            controller.QuickBar.EquipmentRequested += OnEquipmentRequested;
-            return new PawnBindingReceipt(() =>
-            {
-                if (controller == null)
-                {
-                    return;
-                }
-
-                controller.QuickBar.EquipmentRequested -= OnEquipmentRequested;
-                controller = null;
-                extension = null;
-                pendingRequest = null;
-                CurrentEquipment?.Dispose();
-                CurrentEquipment = null;
-                SetReady(true);
-            });
+            AddTickTask("Pawn.Equipment", TickGroup.TG_Gameplay, Tick);
         }
 
-        public void Tick()
+        protected override void OnBeginPlay()
         {
-            if (pendingRequest == null)
+            if (!(Owner is Pawn pawn) || !(pawn.Controller is PlayerController playerController))
             {
-                return;
+                throw new InvalidOperationException("EquipmentManagerComponent requires a possessed PlayerController.");
             }
 
-            if (pendingRequest.RemainingTicks > 0)
-            {
-                pendingRequest.RemainingTicks--;
-                return;
-            }
+            controller = playerController;
+            controller.QuickBar.EquipmentRequested += OnEquipmentRequested;
+            actionBinding = controller.BindEquipmentActionTarget(this);
+        }
 
-            PendingEquipmentRequest request = pendingRequest;
+        protected override void OnEndPlay() => ReleaseBindings();
+
+        protected override void OnShutdown()
+        {
+            ReleaseBindings();
             pendingRequest = null;
-            CompleteRequest(request);
+            CurrentEquipment?.Dispose();
+            CurrentEquipment = null;
         }
 
         public bool Fire() => CurrentWeapon?.Fire() == true;
@@ -75,19 +50,21 @@ namespace CGame
 
         public bool Melee() => CurrentWeapon?.Melee() == true;
 
-        public override void Shutdown()
+        private void Tick(float deltaTime)
         {
-            if (controller != null)
+            if (pendingRequest == null)
             {
-                controller.QuickBar.EquipmentRequested -= OnEquipmentRequested;
+                return;
             }
 
-            controller = null;
-            extension = null;
+            if (pendingRequest.RemainingTicks-- > 0)
+            {
+                return;
+            }
+
+            PendingEquipmentRequest request = pendingRequest;
             pendingRequest = null;
-            CurrentEquipment?.Dispose();
-            CurrentEquipment = null;
-            base.Shutdown();
+            CompleteRequest(request);
         }
 
         private void OnEquipmentRequested(ItemInstanceHandle handle, long generation)
@@ -106,8 +83,6 @@ namespace CGame
                 generation,
                 equippable.EquipmentDefinition,
                 equippable.EquipmentDefinition.LoadTicks);
-            SetReady(false);
-            extension?.RequestInitializationCheck();
         }
 
         private void CompleteRequest(PendingEquipmentRequest request)
@@ -115,7 +90,6 @@ namespace CGame
             if (controller == null || request.Generation != controller.QuickBar.RequestGeneration
                 || request.Handle != controller.QuickBar.RequestedHandle)
             {
-                SetReady(pendingRequest == null);
                 return;
             }
 
@@ -163,19 +137,25 @@ namespace CGame
                 }
 
                 Reject(request.Handle, request.Generation, exception.Message);
-                return;
             }
-
-            SetReady(true);
-            extension?.RequestInitializationCheck();
         }
 
         private void Reject(ItemInstanceHandle handle, long generation, string failure)
         {
             LastFailure = failure;
             controller?.QuickBar.RejectRequest(handle, generation);
-            SetReady(true);
-            extension?.RequestInitializationCheck();
+        }
+
+        private void ReleaseBindings()
+        {
+            if (controller != null)
+            {
+                controller.QuickBar.EquipmentRequested -= OnEquipmentRequested;
+            }
+
+            actionBinding?.Dispose();
+            actionBinding = null;
+            controller = null;
         }
 
         private sealed class PendingEquipmentRequest

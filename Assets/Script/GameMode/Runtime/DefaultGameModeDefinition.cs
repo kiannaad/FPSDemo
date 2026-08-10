@@ -1,35 +1,24 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace CGame
 {
     [CreateAssetMenu(fileName = "GameModeDefinition", menuName = "CGame/Gameplay/Game Mode")]
     public sealed class DefaultGameModeDefinition : GameModeDefinition
     {
-        [SerializeField] private ControllerDefinition localPlayerController;
-        [SerializeField] private PawnData pawnData;
+        [FormerlySerializedAs("pawnData")]
+        [SerializeField] private PawnDefinition pawnDefinition;
         [SerializeField] private InitialInventorySet initialInventorySet;
 
-        public override PawnData ResolvePawnData(GameStartRequest request)
+        public override GameMode CreateGameMode(World world, Player player)
         {
-            return pawnData != null
-                ? pawnData
-                : throw new InvalidOperationException("GameModeDefinition has no PawnData.");
-        }
-
-        public override InitialInventorySet ResolveInitialInventorySet(GameStartRequest request)
-        {
-            return initialInventorySet;
-        }
-
-        public override GameMode CreateRuntime(GameModeCreationContext context, PawnData resolvedPawnData)
-        {
-            if (localPlayerController == null)
+            if (pawnDefinition == null)
             {
-                throw new InvalidOperationException("GameModeDefinition has no ControllerDefinition.");
+                throw new InvalidOperationException("GameModeDefinition has no PawnData.");
             }
 
-            return new GameMode(context, localPlayerController, resolvedPawnData);
+            return new DefaultGameMode(world, player, pawnDefinition, initialInventorySet);
         }
     }
 }

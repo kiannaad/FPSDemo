@@ -4,13 +4,10 @@ namespace CGame
     {
         Created,
         Initializing,
-        Launching,
-        StartingGame,
-        Running,
-        ReturningToLogin,
-        InitializationFailed,
-        LaunchFailed,
-        GameStartFailed,
+        Initialized,
+        StartingPlay,
+        Playing,
+        Faulted,
         ShuttingDown,
         Destroyed
     }

@@ -1,114 +1,63 @@
 using System;
+using System.Collections.Generic;
 using CGame.Ability;
 using UnityEngine;
 
 namespace CGame
 {
-    public sealed class PlayerController : IWorldController, IController
+    public sealed class PlayerController : Controller
     {
-        private TickFunctionHandle tickHandle;
-        private Pawn controlledPawn;
-        private IPlayerInputSource inputSource;
+        private readonly PawnDefinition pawnDefinition;
+        private readonly InitialInventorySet initialInventorySet;
+        private readonly IPlayerInputSource inputSource;
+        private readonly IPlayerControllerComponentFactory componentFactory;
         private IEquipmentActionTarget equipmentActionTarget;
-        private float controlYaw;
-        private float controlPitch;
 
-        private PlayerController(GameSessionId sessionId)
+        private PlayerController(
+            Player player,
+            PawnDefinition pawnDefinition,
+            InitialInventorySet initialInventorySet,
+            IPlayerInputSource inputSource,
+            IPlayerControllerComponentFactory componentFactory)
+            : base(player)
         {
-            SessionId = sessionId;
+            this.pawnDefinition = pawnDefinition ?? throw new ArgumentNullException(nameof(pawnDefinition));
+            this.initialInventorySet = initialInventorySet;
+            this.inputSource = inputSource;
+            this.componentFactory = componentFactory ?? throw new ArgumentNullException(nameof(componentFactory));
         }
 
-        public GameSessionId SessionId { get; }
-
         public bool IsActive { get; private set; }
-
         public PlayerState PlayerState { get; private set; }
-
         public IInventoryComponent Inventory { get; private set; }
-
         public IQuickBarComponent QuickBar { get; private set; }
-
-        public IPlayerCameraComponent PlayerCamera { get; private set; }
-
         public int TickCount { get; private set; }
-
         public float LastTickDeltaTime { get; private set; }
-
-        public Pawn ControlledPawn => controlledPawn;
-
+        public Pawn PossessedPawn => PossessedActor as Pawn;
+        public Pawn ControlledPawn => PossessedPawn;
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
 
         public static PlayerController Create(
-            PlayerControllerCreationContext context,
+            Player player,
+            PawnDefinition pawnDefinition,
+            InitialInventorySet initialInventorySet,
+            IPlayerInputSource inputSource,
             IPlayerControllerComponentFactory componentFactory)
         {
-            if (context == null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
-
-            if (componentFactory == null)
-            {
-                throw new ArgumentNullException(nameof(componentFactory));
-            }
-
-            var controller = new PlayerController(context.SessionId);
-            try
-            {
-                controller.PlayerState = new PlayerState(
-                    context.PawnData.ResolveBaseAbilitySets(),
-                    context.PawnData);
-                controller.Inventory = componentFactory.CreateInventory()
-                    ?? throw new InvalidOperationException("Inventory factory returned null.");
-                controller.QuickBar = componentFactory.CreateQuickBar(controller.Inventory)
-                    ?? throw new InvalidOperationException("QuickBar factory returned null.");
-                controller.PlayerCamera = componentFactory.CreatePlayerCamera()
-                    ?? throw new InvalidOperationException("PlayerCamera factory returned null.");
-                controller.inputSource = context.World.GetCoreService<IPlayerInputSource>();
-                controller.tickHandle = context.World.TickScheduler.Register(
-                    $"PlayerController[{context.SessionId}]",
-                    TickGroup.TG_Controller,
-                    controller.Tick,
-                    critical: true);
-                controller.IsActive = true;
-                return controller;
-            }
-            catch
-            {
-                controller.Shutdown();
-                throw;
-            }
-        }
-
-        public void Shutdown()
-        {
-            if (!IsActive && tickHandle == null && PlayerState == null && Inventory == null
-                && QuickBar == null && PlayerCamera == null)
-            {
-                return;
-            }
-
-            IsActive = false;
-            Unpossess();
-            tickHandle?.Dispose();
-            tickHandle = null;
-            PlayerCamera?.Dispose();
-            PlayerCamera = null;
-            QuickBar?.Dispose();
-            QuickBar = null;
-            Inventory?.Dispose();
-            Inventory = null;
-            PlayerState?.Dispose();
-            PlayerState = null;
-            inputSource = null;
-            equipmentActionTarget = null;
+            return new PlayerController(
+                player,
+                pawnDefinition,
+                initialInventorySet,
+                inputSource,
+                componentFactory);
         }
 
         public void Possess(Pawn pawn)
         {
-            if (!IsActive)
+            if (State != ActorState.Initialized && State != ActorState.Playing)
             {
-                throw new ObjectDisposedException(nameof(PlayerController));
+                throw new InvalidOperationException(
+                    $"PlayerController cannot Possess while it is {State}.");
             }
 
             if (pawn == null)
@@ -116,103 +65,119 @@ namespace CGame
                 throw new ArgumentNullException(nameof(pawn));
             }
 
-            if (ReferenceEquals(controlledPawn, pawn))
+            if (ReferenceEquals(PossessedPawn, pawn))
             {
                 return;
             }
 
             Unpossess();
             PlayerState.SetAvatar(pawn);
-            controlledPawn = pawn;
+            AttachPossessedActor(pawn);
             pawn.SettingController(this);
         }
 
         public void Unpossess()
         {
-            Pawn oldPawn = controlledPawn;
-            controlledPawn = null;
+            Pawn oldPawn = PossessedPawn;
             if (oldPawn == null)
             {
                 return;
             }
 
+            DetachPossessedActor(oldPawn);
             oldPawn.ClearingController(this);
             oldPawn.ClearingControlIntent();
             PlayerState?.ClearAvatar(oldPawn);
         }
 
-        public void UpdatingController(float elapseSeconds)
+        public void UpdatingController(float elapsedSeconds)
         {
             if (inputSource == null)
             {
-                if (PlayerCamera is IPlayerCameraRuntime idleCameraRuntime)
-                {
-                    idleCameraRuntime.UpdatePresentation(controlledPawn, ControlRotation);
-                }
                 return;
             }
 
-            Vector2 lookDelta = inputSource.ReadLookDelta(elapseSeconds);
-            controlPitch = Mathf.Clamp(controlPitch - lookDelta.y, -89f, 89f);
-            controlYaw += lookDelta.x;
-            ControlRotation = Quaternion.Euler(controlPitch, controlYaw, 0f);
-            controlledPawn?.ApplyingControlRotation(ControlRotation);
-            controlledPawn?.SubmitControlIntent(inputSource.ReadControlIntent());
-            if (PlayerCamera is IPlayerCameraRuntime cameraRuntime)
-            {
-                cameraRuntime.UpdatePresentation(controlledPawn, ControlRotation);
-            }
-            if (inputSource.FirePressed)
-            {
-                equipmentActionTarget?.Fire();
-            }
-
-            if (inputSource.ReloadPressed)
-            {
-                equipmentActionTarget?.Reload();
-            }
-
-            if (inputSource.MeleePressed)
-            {
-                equipmentActionTarget?.Melee();
-            }
-
-            int requestedQuickBarSlot = inputSource.RequestedQuickBarSlot;
-            if (requestedQuickBarSlot >= 0)
-            {
-                QuickBar?.SelectSlot(requestedQuickBarSlot);
-            }
+            Vector2 lookDelta = inputSource.ReadLookDelta(elapsedSeconds);
+            ControlPitch = Mathf.Clamp(ControlPitch - lookDelta.y, -89f, 89f);
+            ControlYaw += lookDelta.x;
+            ControlRotation = Quaternion.Euler(ControlPitch, ControlYaw, 0f);
+            PossessedPawn?.ApplyingControlRotation(ControlRotation);
+            PossessedPawn?.SubmitControlIntent(inputSource.ReadControlIntent());
+            if (inputSource.FirePressed) equipmentActionTarget?.Fire();
+            if (inputSource.ReloadPressed) equipmentActionTarget?.Reload();
+            if (inputSource.MeleePressed) equipmentActionTarget?.Melee();
+            int requestedSlot = inputSource.RequestedQuickBarSlot;
+            if (requestedSlot >= 0) QuickBar?.SelectSlot(requestedSlot);
         }
 
         public PawnBindingReceipt BindEquipmentActionTarget(IEquipmentActionTarget target)
         {
-            if (target == null)
-            {
-                throw new ArgumentNullException(nameof(target));
-            }
-
-            if (equipmentActionTarget != null)
-            {
-                throw new InvalidOperationException("Controller already has an equipment action target.");
-            }
-
+            if (target == null) throw new ArgumentNullException(nameof(target));
+            IEquipmentActionTarget previousTarget = equipmentActionTarget;
             equipmentActionTarget = target;
             return new PawnBindingReceipt(() =>
             {
                 if (ReferenceEquals(equipmentActionTarget, target))
                 {
-                    equipmentActionTarget = null;
+                    equipmentActionTarget = previousTarget;
                 }
             });
         }
 
-        private void Tick(float deltaTime)
+        protected override void OnInitialize()
         {
-            if (!IsActive)
+            PlayerState = new PlayerState(
+                pawnDefinition.ResolveBaseAbilitySets(),
+                pawnDefinition);
+            Inventory = componentFactory.CreateInventory()
+                ?? throw new InvalidOperationException("Inventory factory returned null.");
+            QuickBar = componentFactory.CreateQuickBar(Inventory)
+                ?? throw new InvalidOperationException("QuickBar factory returned null.");
+            if (initialInventorySet != null)
             {
-                return;
+                IReadOnlyList<ItemInstanceHandle> handles = Inventory.Initialize(initialInventorySet);
+                QuickBar.Initialize(handles, initialInventorySet.SelectedSlot);
             }
 
+            AddTickTask("PlayerController", TickGroup.TG_Gameplay, Tick);
+        }
+
+        protected override void OnBeginPlay()
+        {
+            IsActive = true;
+        }
+
+        protected override void OnEndPlay()
+        {
+            IsActive = false;
+            Unpossess();
+        }
+
+        protected override void OnShutdown()
+        {
+            IsActive = false;
+            Unpossess();
+            equipmentActionTarget = null;
+            QuickBar?.Dispose();
+            QuickBar = null;
+            Inventory?.Dispose();
+            Inventory = null;
+            PlayerState?.Dispose();
+            PlayerState = null;
+        }
+
+        protected override void OnPossessedActorUnregistered(Actor actor)
+        {
+            if (actor is Pawn pawn)
+            {
+                pawn.ClearingControlIntent();
+                pawn.ClearingController(this);
+                PlayerState?.ClearAvatar(pawn);
+            }
+        }
+
+        private void Tick(float deltaTime)
+        {
             TickCount++;
             LastTickDeltaTime = deltaTime;
             UpdatingController(deltaTime);

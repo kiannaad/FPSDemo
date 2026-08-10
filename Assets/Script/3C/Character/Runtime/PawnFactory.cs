@@ -1,91 +1,70 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace CGame
 {
     public class PawnFactory
     {
-        public virtual PawnAssembly CreateCandidate(
-            PawnData pawnData,
+        public virtual async Task<Pawn> CreateAsync(
+            PawnDefinition definition,
             Vector3 position,
-            Quaternion rotation)
+            Quaternion rotation,
+            CancellationToken cancellationToken = default)
         {
-            if (pawnData == null)
+            if (definition == null)
             {
-                throw new ArgumentNullException(nameof(pawnData));
+                throw new ArgumentNullException(nameof(definition));
             }
 
-            if (pawnData.PawnPrefab == null)
+            if (definition.PawnPrefab == null)
             {
-                throw new InvalidOperationException("PawnData must specify exactly one PawnPrefab.");
+                throw new InvalidOperationException("PawnDefinition must specify exactly one PawnPrefab.");
             }
+
+            await PrepareResourcesAsync(definition, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
             GameObject root = null;
             try
             {
-                root = UnityEngine.Object.Instantiate(pawnData.PawnPrefab, position, rotation);
-                root.name = $"PawnCandidate:{pawnData.name}";
+                root = UnityEngine.Object.Instantiate(definition.PawnPrefab, position, rotation);
+                root.name = $"Pawn:{definition.name}";
                 root.SetActive(false);
-                PawnHost host = root.GetComponent<PawnHost>() ?? root.AddComponent<PawnHost>();
-                host.Animator = root.GetComponentInChildren<Animator>(true);
-                host.MeshRoot = host.Animator != null ? host.Animator.transform : root.transform;
-                configureFirstPersonVisual(root, pawnData);
-                var pawn = new Pawn();
-                host.BindingPawn(pawn);
-                var extension = new PawnExtensionComponent(pawn, pawnData);
-                CharacterPhysicsMotor motor = null;
-                if (World.Current?.CharacterMotorSimulation is ICharacterPhysicsWorld)
-                {
-                    motor = root.GetComponent<CharacterPhysicsMotor>()
-                        ?? root.AddComponent<CharacterPhysicsMotor>();
-                }
+                ConfigureFirstPersonVisual(root, definition);
 
-                var movement = motor == null
-                    ? new PawnMovementComponent(pawn)
-                    : new PawnMovementComponent(pawn, motor);
-                var animation = host.Animator != null
-                    && motor != null
-                    && pawnData.AnimationConfig != null
-                        ? new PawnAnimationComponent(
-                            pawn,
-                            host.Animator,
-                            motor,
-                            pawnData.AnimationConfig)
-                        : new PawnAnimationComponent();
-                var equipment = new EquipmentManagerComponent();
-                extension.RegisterParticipant(movement);
-                extension.RegisterParticipant(animation);
-                extension.RegisterParticipant(equipment);
-                return new PawnAssembly(
-                    root,
-                    pawn,
-                    host,
-                    extension,
-                    movement,
-                    animation,
-                    equipment);
+                CharacterPhysicsMotor motor = root.GetComponent<CharacterPhysicsMotor>();
+                Animator animator = root.GetComponentInChildren<Animator>(true);
+                Camera camera = root.GetComponentInChildren<Camera>(true);
+                var components = new List<ActorComponent>
+                {
+                    new PawnMovementComponent(motor),
+                    new PawnAnimationComponent(animator, motor, definition.AnimationConfig),
+                    new EquipmentManagerComponent(),
+                    new PawnCameraComponent(camera, definition.RequireCamera)
+                };
+                return new Pawn(root, components);
             }
             catch
             {
-                if (root != null)
-                {
-                    if (Application.isPlaying)
-                    {
-                        UnityEngine.Object.Destroy(root);
-                    }
-                    else
-                    {
-                        UnityEngine.Object.DestroyImmediate(root);
-                    }
-                }
-
+                DestroyRoot(root);
                 throw;
             }
         }
 
-        private static void configureFirstPersonVisual(GameObject root, PawnData pawnData)
+        protected virtual Task PrepareResourcesAsync(
+            PawnDefinition definition,
+            CancellationToken cancellationToken)
         {
-            if (pawnData.FirstPersonMesh == null || pawnData.FirstPersonMaterial == null)
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+
+        private static void ConfigureFirstPersonVisual(GameObject root, PawnDefinition definition)
+        {
+            if (definition.FirstPersonMesh == null || definition.FirstPersonMaterial == null)
             {
                 return;
             }
@@ -94,11 +73,28 @@ namespace CGame
             if (renderer == null)
             {
                 throw new InvalidOperationException(
-                    "PawnData specifies a first-person mesh, but the PawnPrefab has no SkinnedMeshRenderer.");
+                    "PawnDefinition specifies a first-person mesh, but the PawnPrefab has no SkinnedMeshRenderer.");
             }
 
-            renderer.sharedMesh = pawnData.FirstPersonMesh;
-            renderer.sharedMaterials = new[] { pawnData.FirstPersonMaterial };
+            renderer.sharedMesh = definition.FirstPersonMesh;
+            renderer.sharedMaterials = new[] { definition.FirstPersonMaterial };
+        }
+
+        private static void DestroyRoot(GameObject root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            if (Application.isPlaying)
+            {
+                UnityEngine.Object.Destroy(root);
+            }
+            else
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
         }
     }
 }
