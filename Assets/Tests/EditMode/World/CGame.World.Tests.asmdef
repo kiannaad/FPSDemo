@@ -2,8 +2,7 @@
   "name": "CGame.World.Tests",
   "rootNamespace": "CGame.World.Tests",
   "references": [
-    "CGame.World",
-    "CGame.Launcher"
+    "CGame.World"
   ],
   "includePlatforms": [
     "Editor"

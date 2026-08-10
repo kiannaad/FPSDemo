@@ -1,8 +1,6 @@
 {
   "name": "CGame.World",
   "rootNamespace": "CGame",
-  "references": [
-    "CGame.Launcher"
-  ],
+  "references": [],
   "autoReferenced": true
 }

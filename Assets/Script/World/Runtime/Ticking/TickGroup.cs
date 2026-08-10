@@ -5,7 +5,7 @@ namespace CGame
     public enum TickGroup
     {
         TG_PrePhysics = 0,
-        TG_CharacterMotorSimulation = 1,
+        TG_PhysicsMovement = 1,
         TG_Input = 100,
         TG_PostPhysics = 101,
         TG_GameMode = 102,
@@ -14,6 +14,7 @@ namespace CGame
         TG_PreAnimation = 105,
         TG_PostAnimation = 200,
         TG_CharacterPresentation = 201,
+        TG_Camera = TG_CharacterPresentation,
         TG_LatePresentation = 202
     }
 
