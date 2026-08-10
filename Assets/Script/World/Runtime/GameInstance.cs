@@ -45,7 +45,10 @@ namespace CGame
             initializationCancellation = null;
             if (RuntimeWorld != null)
             {
-                _ = ObserveInitializationAndShutdownAsync(InitializationTask, RuntimeWorld);
+                World world = RuntimeWorld;
+                RuntimeWorld = null;
+                _ = world.ShutdownAsync();
+                _ = ObserveInitializationAsync(InitializationTask);
             }
         }
 
@@ -56,7 +59,7 @@ namespace CGame
             RuntimeWorld.StartPlay();
         }
 
-        private static async Task ObserveInitializationAndShutdownAsync(Task initializationTask, World world)
+        private static async Task ObserveInitializationAsync(Task initializationTask)
         {
             try
             {
@@ -71,10 +74,6 @@ namespace CGame
             catch (Exception exception)
             {
                 Debug.LogException(exception);
-            }
-            finally
-            {
-                await world.ShutdownAsync();
             }
         }
     }

@@ -57,7 +57,16 @@ namespace CGame
         {
             if (Current != null)
             {
-                throw new InvalidOperationException("Only one active World is allowed.");
+                if (Current.State == WorldState.ShuttingDown ||
+                    Current.State == WorldState.Destroyed ||
+                    Current.State == WorldState.Faulted)
+                {
+                    Current = null;
+                }
+                else
+                {
+                    throw new InvalidOperationException("Only one active World is allowed.");
+                }
             }
 
             var world = new World(subSystems, configuration);
@@ -207,6 +216,11 @@ namespace CGame
         private async Task ShutdownInternalAsync()
         {
             State = WorldState.ShuttingDown;
+            if (ReferenceEquals(Current, this))
+            {
+                Current = null;
+            }
+
             DisposeAllActors();
             GameMode = null;
             if (LocalPlayer != null)
@@ -218,10 +232,6 @@ namespace CGame
             await ShutdownInitializedSubSystemsAsync();
             TickTaskManager.OwnerFaulted -= OnTickOwnerFaulted;
             State = WorldState.Destroyed;
-            if (ReferenceEquals(Current, this))
-            {
-                Current = null;
-            }
         }
 
         private void AddSubSystems(IEnumerable<WorldSubSystem> subSystems)

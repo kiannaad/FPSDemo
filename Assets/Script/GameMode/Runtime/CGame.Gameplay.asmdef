@@ -1,7 +1,8 @@
 {
   "name": "CGame.Gameplay",
   "rootNamespace": "CGame",
-  "references": [
+    "references": [
+    "CGame.GameplayTags",
     "CGame.World",
     "CGame.World.CoreServices",
     "CGame.PlayerController",

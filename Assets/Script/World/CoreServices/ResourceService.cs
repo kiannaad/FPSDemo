@@ -18,6 +18,13 @@ namespace CGame
             YooAssets.Initialize();
             defaultPackage = YooAssets.TryGetPackage(packageName) ?? YooAssets.CreatePackage(packageName);
             YooAssets.SetDefaultPackage(defaultPackage);
+#if UNITY_EDITOR
+            if (defaultPackage.InitializeStatus == EOperationStatus.Succeed)
+            {
+                IsReady = true;
+                return;
+            }
+#endif
             InitializeParameters parameters;
 #if UNITY_EDITOR
             PackageInvokeBuildResult buildResult = EditorSimulateModeHelper.SimulateBuild(packageName);
@@ -72,6 +79,12 @@ namespace CGame
         public async Task ShutdownAsync()
         {
             IsReady = false;
+#if UNITY_EDITOR
+            // PlayMode tests and scene reloads share YooAsset's editor simulation package.
+            // Destroying it here is asynchronous and can race the next GameInstance startup.
+            await Task.CompletedTask;
+            return;
+#else
             ResourcePackage package = defaultPackage;
             defaultPackage = null;
             if (package == null || !YooAssets.Initialized)
@@ -87,6 +100,7 @@ namespace CGame
             }
 
             YooAssets.RemovePackage(package);
+#endif
         }
 
         public async Task PreloadAssetsAsync(IEnumerable<string> locations)

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CGame.GameplayTags;
 using UnityEngine;
 
 namespace CGame
@@ -11,12 +12,14 @@ namespace CGame
         [SerializeField] private bool initializeInput = true;
         [SerializeField] private CharacterPhysicsSettings characterPhysicsSettings;
         [SerializeField] private GameModeDefinition gameModeDefinition;
+        [SerializeField] private GameplayTagSource[] gameplayTagSources;
 
         public override IReadOnlyList<WorldSubSystem> CreateWorldSubSystems()
         {
             var subSystems = new List<WorldSubSystem>
             {
-                new CharacterPhysicsSubSystem(characterPhysicsSettings)
+                new CharacterPhysicsSubSystem(characterPhysicsSettings),
+                new GameplayTagWorldCoreService(gameplayTagSources)
             };
             if (initializeResources)
             {
