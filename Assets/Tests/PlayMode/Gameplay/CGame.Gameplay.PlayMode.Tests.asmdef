@@ -1,0 +1,20 @@
+{
+  "name": "CGame.Gameplay.PlayMode.Tests",
+  "rootNamespace": "CGame.Gameplay.PlayMode.Tests",
+  "references": [
+    "CGame.World",
+    "CGame.Launcher",
+    "CGame.Gameplay",
+    "CGame.PlayerController",
+    "CGame.PlayerState",
+    "CGame.Ability",
+    "CGame.GameplayTags",
+    "CGame.CharacterRuntime",
+    "CGame.Inventory"
+  ],
+  "includePlatforms": [],
+  "autoReferenced": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

@@ -6,7 +6,6 @@ namespace CGame.Animation
 {
     internal sealed class AnimationNotifyPlaybackState
     {
-        private const int MaxDispatchesPerUpdate = 64;
         private const double TimeEpsilon = 0.000001d;
 
         private enum BoundaryKind
@@ -43,28 +42,41 @@ namespace CGame.Animation
         private readonly double length;
         private readonly bool looping;
         private readonly float speed;
+        private readonly AnimationNotifyDispatchQueue dispatchQueue;
+        private readonly bool ownsDispatchQueue;
+        private AnimationNotifyGeneration generation;
         private readonly List<ActiveDuration> activeDurations = new List<ActiveDuration>();
         private readonly List<Boundary> boundaries = new List<Boundary>();
         private bool hasBaseline;
         private double lastTime;
         private bool isReplaced;
-        private bool isDispatching;
+        private bool isCollecting;
 
         public AnimationNotifyPlaybackState(
             Pawn pawn,
             AnimationNotifyRuntimeEntry[] entries,
             double length,
             bool looping,
-            float speed)
+            float speed,
+            AnimationNotifyDispatchQueue dispatchQueue = null,
+            AnimationNotifyGeneration generation = null)
         {
             this.pawn = pawn;
             this.entries = entries ?? Array.Empty<AnimationNotifyRuntimeEntry>();
             this.length = Math.Max(0d, length);
             this.looping = looping;
             this.speed = speed;
+            ownsDispatchQueue = dispatchQueue == null;
+            this.dispatchQueue = dispatchQueue ?? new AnimationNotifyDispatchQueue();
+            this.generation = generation ?? new AnimationNotifyGeneration();
         }
 
         public int ActiveDurationCount => activeDurations.Count;
+
+        public void ReplaceGeneration(AnimationNotifyGeneration replacement)
+        {
+            generation = replacement ?? throw new ArgumentNullException(nameof(replacement));
+        }
 
         public void MarkReplaced()
         {
@@ -81,6 +93,8 @@ namespace CGame.Animation
                     End(activeDurations[i], AnimationNotifyEndReason.Interrupted);
                 }
             }
+
+            DispatchIfOwned();
         }
 
         public void Restore(double currentTime, float weight)
@@ -91,6 +105,7 @@ namespace CGame.Animation
             hasBaseline = true;
             ActivateDurationsAt(currentTime, weight);
             TickActive(weight);
+            DispatchIfOwned();
         }
 
         public void ResetTime(double currentTime)
@@ -98,17 +113,18 @@ namespace CGame.Animation
             EndAll(AnimationNotifyEndReason.StateStopped);
             lastTime = currentTime;
             hasBaseline = true;
+            DispatchIfOwned();
         }
 
         public void Update(double currentTime, float weight)
         {
-            if (isDispatching)
+            if (isCollecting)
             {
-                Debug.LogError("Synchronous Animation Notify playback-state reentry is not allowed.");
+                Debug.LogError("Synchronous Animation Notify collection reentry is not allowed.");
                 return;
             }
 
-            isDispatching = true;
+            isCollecting = true;
             try
             {
                 EndBelowWeight(weight);
@@ -122,19 +138,12 @@ namespace CGame.Animation
                 }
 
                 BuildBoundaries(lastTime, currentTime);
-                int dispatchCount = 0;
                 for (int i = 0; i < boundaries.Count; i++)
                 {
                     Boundary boundary = boundaries[i];
                     if (!CanDispatch(boundary.Entry, weight, boundary.Kind == BoundaryKind.End))
                     {
                         continue;
-                    }
-
-                    if (dispatchCount >= MaxDispatchesPerUpdate)
-                    {
-                        Debug.LogError($"Animation Notify dispatch exceeded {MaxDispatchesPerUpdate} callbacks in one update.");
-                        break;
                     }
 
                     switch (boundary.Kind)
@@ -150,7 +159,6 @@ namespace CGame.Animation
                             break;
                     }
 
-                    dispatchCount++;
                 }
 
                 lastTime = currentTime;
@@ -159,7 +167,8 @@ namespace CGame.Animation
             finally
             {
                 boundaries.Clear();
-                isDispatching = false;
+                isCollecting = false;
+                DispatchIfOwned();
             }
         }
 
@@ -169,6 +178,8 @@ namespace CGame.Animation
             {
                 End(activeDurations[i], reason);
             }
+
+            DispatchIfOwned();
         }
 
         private void TriggerStartingPosition(double currentTime, float weight)
@@ -367,28 +378,21 @@ namespace CGame.Animation
                     continue;
                 }
 
-                try
-                {
-                    ((AnimationDurationNotify)active.Entry.Notify).OnTick(pawn);
-                }
-                catch (Exception exception)
-                {
-                    Debug.LogException(exception);
-                    End(active, AnimationNotifyEndReason.Interrupted);
-                }
+                ActiveDuration captured = active;
+                dispatchQueue.Enqueue(
+                    generation,
+                    false,
+                    () => ((AnimationDurationNotify)captured.Entry.Notify).OnTick(pawn),
+                    exception => End(captured, AnimationNotifyEndReason.Interrupted));
             }
         }
 
         private void InvokeInstant(AnimationNotifyRuntimeEntry entry)
         {
-            try
-            {
-                ((AnimationInstantNotify)entry.Notify).OnNotify(pawn);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception);
-            }
+            dispatchQueue.Enqueue(
+                generation,
+                false,
+                () => ((AnimationInstantNotify)entry.Notify).OnNotify(pawn));
         }
 
         private void Begin(AnimationNotifyRuntimeEntry entry, long cycle)
@@ -398,15 +402,13 @@ namespace CGame.Animation
                 return;
             }
 
-            try
-            {
-                ((AnimationDurationNotify)entry.Notify).OnBegin(pawn);
-                activeDurations.Add(new ActiveDuration { Entry = entry, Cycle = cycle });
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception);
-            }
+            ActiveDuration active = new ActiveDuration { Entry = entry, Cycle = cycle };
+            activeDurations.Add(active);
+            dispatchQueue.Enqueue(
+                generation,
+                false,
+                () => ((AnimationDurationNotify)entry.Notify).OnBegin(pawn),
+                exception => activeDurations.Remove(active));
         }
 
         private void End(ActiveDuration active, AnimationNotifyEndReason reason)
@@ -416,14 +418,10 @@ namespace CGame.Animation
                 return;
             }
 
-            try
-            {
-                ((AnimationDurationNotify)active.Entry.Notify).OnEnd(pawn, reason);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception);
-            }
+            dispatchQueue.Enqueue(
+                generation,
+                true,
+                () => ((AnimationDurationNotify)active.Entry.Notify).OnEnd(pawn, reason));
         }
 
         private ActiveDuration FindActive(AnimationNotifyRuntimeEntry entry, long cycle)
@@ -464,6 +462,14 @@ namespace CGame.Animation
         private static bool Approximately(double left, double right)
         {
             return Math.Abs(left - right) <= TimeEpsilon;
+        }
+
+        private void DispatchIfOwned()
+        {
+            if (ownsDispatchQueue && !isCollecting && !dispatchQueue.IsDispatching)
+            {
+                dispatchQueue.Dispatch();
+            }
         }
     }
 }

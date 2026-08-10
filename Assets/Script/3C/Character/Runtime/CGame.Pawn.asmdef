@@ -1,0 +1,16 @@
+{
+  "name": "CGame.Pawn",
+  "rootNamespace": "CGame",
+  "references": [
+    "CGame.World",
+    "CGame.PlayerController",
+    "CGame.PlayerState",
+    "CGame.CharacterRuntime",
+    "CGame.Ability",
+    "CGame.Inventory",
+    "CGame.InventoryEquipment"
+    ,"CGame.CharacterPhysics",
+    "CGame.Animation"
+  ],
+  "autoReferenced": true
+}

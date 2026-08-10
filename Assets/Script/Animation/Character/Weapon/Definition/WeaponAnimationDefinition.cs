@@ -34,11 +34,6 @@ namespace CGame.Animation
         public AnimationClipAsset WeaponModelReload => weaponModelReload;
         public bool SupportsMeleeAttack => supportsMeleeAttack;
         public AnimationClipAsset MeleeAttack => meleeAttack;
-        public WeaponRuntimeCapabilities Capabilities =>
-            new WeaponRuntimeCapabilities(
-                supportsFire,
-                supportsReload,
-                supportsMeleeAttack);
         public bool IsValid =>
             Validate() == WeaponAnimationDefinitionError.None;
 

@@ -7,19 +7,19 @@ namespace CGame
 {
     public sealed class CharacterAnimationComponent :
         IComponent,
-        IWeaponSwitchPresentation
+        IAbilityAnimationPlayer
     {
         private readonly Animator animator;
         private readonly CharacterPhysicsMotor motor;
         private readonly CharacterAnimationConfig animationConfig;
         private CharacterAnimInstance animInstance;
-        private AnimationPlaybackHandle initialWeaponPoseHandle;
+        private TickFunctionHandle preAnimationTick;
+        private TickFunctionHandle postAnimationTick;
 
         public CharacterAnimationComponent(
             Animator animator,
             CharacterPhysicsMotor motor,
-            CharacterAnimationConfig animationConfig,
-            WeaponAnimationDefinition initialWeaponDefinition)
+            CharacterAnimationConfig animationConfig)
         {
             this.animator =
                 animator
@@ -31,11 +31,6 @@ namespace CGame
                 animationConfig
                 ?? throw new System.ArgumentNullException(
                     nameof(animationConfig));
-            if (initialWeaponDefinition == null)
-            {
-                throw new System.ArgumentNullException(
-                    nameof(initialWeaponDefinition));
-            }
         }
 
         public int Priority => 10;
@@ -49,12 +44,26 @@ namespace CGame
                 new AnimationCharacterSource(motor),
                 animator,
                 animationConfig.UpperBodyMask);
+            TickScheduler scheduler = World.Current?.TickScheduler;
+            if (scheduler != null)
+            {
+                preAnimationTick = scheduler.Register(
+                    $"CharacterAnimation.Pre:{animator.GetInstanceID()}",
+                    TickGroup.TG_PreAnimation,
+                    UpdatePreAnimation);
+                postAnimationTick = scheduler.Register(
+                    $"CharacterAnimation.Post:{animator.GetInstanceID()}",
+                    TickGroup.TG_PostAnimation,
+                    DispatchPostAnimation);
+            }
         }
 
         public void UpdatingComponent(float elapseSeconds)
         {
-            animInstance?.UpdateAnimation(elapseSeconds);
-            Updated?.Invoke();
+            if (preAnimationTick == null)
+            {
+                UpdatePreAnimation(elapseSeconds);
+            }
         }
 
         public void FixedUpdatingComponent(float elapseSeconds)
@@ -63,14 +72,32 @@ namespace CGame
 
         public void LateUpdatingComponent(float elapseSeconds)
         {
+            if (postAnimationTick == null)
+            {
+                DispatchPostAnimation(elapseSeconds);
+            }
         }
 
         public void ShuttingDownComponent()
         {
+            postAnimationTick?.Dispose();
+            postAnimationTick = null;
+            preAnimationTick?.Dispose();
+            preAnimationTick = null;
             animInstance?.Dispose();
             animInstance = null;
-            initialWeaponPoseHandle = null;
             Updated = null;
+        }
+
+        private void UpdatePreAnimation(float deltaTime)
+        {
+            animInstance?.UpdateAnimation(deltaTime);
+            Updated?.Invoke();
+        }
+
+        private void DispatchPostAnimation(float deltaTime)
+        {
+            animInstance?.DispatchAnimationNotifies();
         }
 
         public IAbilityAnimationPlayback PlayAnimation(
@@ -88,47 +115,6 @@ namespace CGame
                 && adapter.Handle != null
                 && animInstance != null
                 && animInstance.StopAbilityAnimation(adapter.Handle);
-        }
-
-        public IAbilityAnimationPlayback PlayPose(
-            AnimationClipAsset asset,
-            long requestId)
-        {
-            AnimationPlaybackHandle handle =
-                animInstance?.PrepareInitialPose(asset, requestId);
-            return new AbilityPlayback(handle);
-        }
-
-        public IWeaponSwitchPresentationReplacement PrepareReplacement(
-            WeaponAnimationDefinition definition,
-            uint generation)
-        {
-            CharacterWeaponPresentationReplacement replacement =
-                animInstance?.PrepareWeaponPresentationReplacement(
-                    definition,
-                    generation);
-            return replacement == null
-                ? null
-                : new SwitchPresentationReplacement(replacement);
-        }
-
-        public void PromotePose(IAbilityAnimationPlayback playback)
-        {
-            if (!(playback is AbilityPlayback adapter)
-                || adapter.Handle == null
-                || adapter.IsTerminal)
-            {
-                return;
-            }
-
-            if (initialWeaponPoseHandle != null
-                && !ReferenceEquals(initialWeaponPoseHandle, adapter.Handle)
-                && !initialWeaponPoseHandle.IsTerminal)
-            {
-                animInstance?.StopAbilityAnimation(initialWeaponPoseHandle);
-            }
-
-            initialWeaponPoseHandle = adapter.Handle;
         }
 
         private sealed class AbilityPlayback : IAbilityAnimationPlayback
@@ -165,63 +151,6 @@ namespace CGame
                         return AbilityAnimationPlaybackState.Playing;
                 }
             }
-        }
-
-        private sealed class SwitchPresentationReplacement :
-            IWeaponSwitchPresentationReplacement
-        {
-            private CharacterWeaponPresentationReplacement replacement;
-
-            public SwitchPresentationReplacement(
-                CharacterWeaponPresentationReplacement replacement)
-            {
-                this.replacement = replacement;
-            }
-
-            public bool IsValid => replacement != null && replacement.IsValid;
-
-            public void Commit()
-            {
-                CharacterWeaponPresentationReplacement current = replacement;
-                if (current == null)
-                {
-                    throw new InvalidOperationException(
-                        "The weapon presentation replacement has already ended.");
-                }
-
-                current.Commit();
-                replacement = null;
-            }
-
-            public void Dispose()
-            {
-                CharacterWeaponPresentationReplacement current = replacement;
-                replacement = null;
-                current?.Dispose();
-            }
-        }
-
-        public AnimationPlaybackHandle PrepareInitialWeaponPose(
-            AnimationClipAsset overlayPose,
-            long requestId = 0)
-        {
-            initialWeaponPoseHandle =
-                animInstance?.PrepareInitialPose(
-                    overlayPose,
-                    requestId);
-            return initialWeaponPoseHandle;
-        }
-
-        internal bool ConfigureWeaponPresentation(
-            WeaponAnimationDefinition definition,
-            WeaponRuntime runtime,
-            uint generation)
-        {
-            return animInstance != null
-                && animInstance.ConfigureWeaponPresentation(
-                    definition,
-                    runtime,
-                    generation);
         }
 
         private sealed class AnimationCharacterSource : IAnimationCharacterSource

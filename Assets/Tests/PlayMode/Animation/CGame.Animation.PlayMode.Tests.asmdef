@@ -7,7 +7,6 @@
         "CGame.Ability",
         "CGame.CharacterRuntime",
         "CGame.Weapon",
-        "CGame.Weapon.Equipment",
         "CGame.GameplayTags"
     ],
     "includePlatforms": [],

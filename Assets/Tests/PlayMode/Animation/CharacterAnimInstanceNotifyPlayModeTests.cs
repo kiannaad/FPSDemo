@@ -46,6 +46,7 @@ namespace CGame.Animation.PlayMode.Tests
                 new CharacterSource(ownerObject.transform),
                 animator);
             animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+            animInstance.DispatchAnimationNotifies();
             Assert.That(animInstance.PlayablesController.IsValid(), Is.True);
         }
 
@@ -66,6 +67,22 @@ namespace CGame.Animation.PlayMode.Tests
             }
 
             yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator PreAnimationCollectsAndPostAnimationDispatchesAfterPoseFrame()
+        {
+            AnimationClipAsset asset = CreateAsset("TwoPhase", 1f, 0.4f);
+            asset.AddNotifyTrack().AddEvent(new RecordingNotify("post-pose"), 0);
+            animInstance.PlayablesController.PlayAnimation(asset);
+
+            animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+
+            Assert.That(Trace, Is.Empty);
+            yield return null;
+            animInstance.DispatchAnimationNotifies();
+            Assert.That(Trace, Is.EqualTo(new[] { "post-pose" }));
+            UnityEngine.Object.Destroy(asset);
         }
 
         [UnityTest]
@@ -103,6 +120,7 @@ namespace CGame.Animation.PlayMode.Tests
 
             animInstance.PlayablesController.PlayPoseImmediate(overlay);
             animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+            animInstance.DispatchAnimationNotifies();
 
             Assert.That(Trace, Is.EqualTo(new[] { "overlay" }));
             Trace.Clear();
@@ -113,6 +131,7 @@ namespace CGame.Animation.PlayMode.Tests
             AnimationPlaybackHandle handle =
                 animInstance.PlayablesController.PlayAnimation(action);
             animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+            animInstance.DispatchAnimationNotifies();
 
             Assert.That(Trace, Is.EqualTo(new[] { "duration:begin", "duration:tick" }));
             Trace.Clear();
@@ -135,12 +154,14 @@ namespace CGame.Animation.PlayMode.Tests
             AnimationPlaybackHandle handle =
                 animInstance.PlayablesController.PlayAnimation(asset);
             animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+            animInstance.DispatchAnimationNotifies();
             Trace.Clear();
 
             Assert.That(
                 animInstance.PlayablesController.TrySetPlaybackTime(handle, 0.3d),
                 Is.True);
             animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+            animInstance.DispatchAnimationNotifies();
 
             Assert.That(Trace, Is.EqualTo(new[] { "duration:end:StateStopped" }));
             Trace.Clear();
@@ -152,6 +173,7 @@ namespace CGame.Animation.PlayMode.Tests
                 8);
             animInstance.PlayablesController.PlayAnimation(active);
             animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+            animInstance.DispatchAnimationNotifies();
             Trace.Clear();
 
             AnimatorController replacement = CreateController(
@@ -159,6 +181,7 @@ namespace CGame.Animation.PlayMode.Tests
             animator.runtimeAnimatorController = replacement;
             yield return null;
             animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+            animInstance.DispatchAnimationNotifies();
 
             Assert.That(Trace, Is.EqualTo(new[] { "rebuild:end:OwnerDisabled" }));
             Assert.That(animInstance.PlayablesController.IsValid(), Is.True);
@@ -178,6 +201,7 @@ namespace CGame.Animation.PlayMode.Tests
                 8);
             animInstance.PlayablesController.PlayAnimation(asset);
             animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
+            animInstance.DispatchAnimationNotifies();
             Trace.Clear();
 
             animInstance.Dispose();
@@ -315,100 +339,13 @@ namespace CGame.Animation.PlayMode.Tests
             }
         }
 
-        [UnityTest]
-        public IEnumerator WeaponActionAbility_RealGraphNotifyCommitsAndCompletesMelee()
-        {
-            GameplayTagSource tagSource = ScriptableObject.CreateInstance<GameplayTagSource>();
-            tagSource.SetDefinition("WeaponActionGraph", new[]
-            {
-                new GameplayTagSourceNode("Ability", false, children: new[]
-                {
-                    new GameplayTagSourceNode("Weapon", false, children: new[]
-                    {
-                        new GameplayTagSourceNode("Melee", true)
-                    })
-                }),
-                new GameplayTagSourceNode("Event", false, children: new[]
-                {
-                    new GameplayTagSourceNode("Weapon", false, children: new[]
-                    {
-                        new GameplayTagSourceNode("Melee", true)
-                    })
-                }),
-                new GameplayTagSourceNode("State", false, children: new[]
-                {
-                    new GameplayTagSourceNode("Weapon", false, children: new[]
-                    {
-                        new GameplayTagSourceNode("Action", true)
-                    })
-                })
-            });
-            GameplayTagRegistryBuildResult tags = GameplayTagManager.Instance.Initialize(new[] { tagSource });
-            Assert.That(tags.Succeeded, Is.True, string.Join(Environment.NewLine, tags.Errors));
-            GameplayTag eventTag = GameplayTagManager.Instance.RequestTag("Event.Weapon.Melee");
-            AnimationClipAsset actionAsset = CreateAsset("MeleeAbilityAction", 1f, 0.4f);
-            actionAsset.AddNotifyTrack().AddEvent(
-                new global::CGame.Ability.Animation.AnimationGameEventNotify { EventTag = eventTag },
-                2);
-            WeaponAnimationDefinition definition = ScriptableObject.CreateInstance<WeaponAnimationDefinition>();
-            var serialized = new SerializedObject(definition);
-            serialized.FindProperty("weaponId").stringValue = "knife";
-            serialized.FindProperty("supportsMeleeAttack").boolValue = true;
-            serialized.FindProperty("meleeAttack").objectReferenceValue = actionAsset;
-            serialized.ApplyModifiedPropertiesWithoutUndo();
-            var controller = new Controller();
-            controller.PossessingPawn(pawn);
-            Assert.That(controller.InitializeWeapon(
-                new WeaponId("knife"),
-                definition.Capabilities), Is.True);
-            var abilitySystem = new AbilitySystemComponent(pawn);
-            pawn.BindingAbilitySystem(abilitySystem);
-            var player = new GraphAnimationPlayer(animInstance.PlayablesController);
-            var slot = new EquipmentSlot(abilitySystem, controller.WeaponRuntime, player);
-            Assert.That(slot.TryEquip(
-                new TestDefinitionLease(definition),
-                new[] { WeaponActionAbilitySetFactory.Create(definition) },
-                out _), Is.EqualTo(EquipmentEquipResult.Equipped));
-
-            try
-            {
-                Assert.That(controller.RequestPrimaryWeaponAction(out WeaponActionFact action), Is.True);
-                Assert.That(action.Kind, Is.EqualTo(WeaponActionKind.MeleeAttack));
-                for (int frame = 0;
-                     frame < 300 && controller.WeaponRuntime.ActiveAction.IsValid;
-                     frame++)
-                {
-                    animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
-                    player.Tick();
-                    yield return null;
-                }
-
-                Assert.That(controller.WeaponRuntime.ActiveAction.IsValid, Is.False);
-                AbilitySpec spec = abilitySystem.TryGetSpec(
-                    slot.Current.GrantReceipts[0].SpecHandles[0],
-                    out AbilitySpec resolved) ? resolved : null;
-                Assert.That(spec, Is.Not.Null);
-                Assert.That(spec.PrimaryInstance.LastEndReason, Is.EqualTo(AbilityEndReason.Completed));
-                Assert.That(spec.PrimaryInstance.HasCommitted, Is.True);
-            }
-            finally
-            {
-                slot.Dispose();
-                pawn.ClearingAbilitySystem(abilitySystem);
-                abilitySystem.Dispose();
-                GameplayTagManager.Instance.Shutdown();
-                UnityEngine.Object.Destroy(definition);
-                UnityEngine.Object.Destroy(actionAsset);
-                UnityEngine.Object.Destroy(tagSource);
-            }
-        }
-
         private IEnumerator PumpUntil(Func<bool> condition, int maximumFrames = 30)
         {
             for (int frame = 0; frame < maximumFrames && !condition(); frame++)
             {
                 animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
                 yield return null;
+                animInstance.DispatchAnimationNotifies();
             }
 
             Assert.That(condition(), Is.True, "Expected Notify was not dispatched by the real Animator graph.");
@@ -420,6 +357,7 @@ namespace CGame.Animation.PlayMode.Tests
             {
                 animInstance.UpdateAnimation(Mathf.Max(Time.deltaTime, 0.001f));
                 yield return null;
+                animInstance.DispatchAnimationNotifies();
             }
         }
 
@@ -480,82 +418,6 @@ namespace CGame.Animation.PlayMode.Tests
             public Transform Transform { get; }
             public Vector3 Velocity => Vector3.zero;
             public bool IsGrounded => true;
-        }
-
-        private sealed class TestDefinitionLease : IEquipmentDefinitionLease
-        {
-            public TestDefinitionLease(WeaponAnimationDefinition definition)
-            {
-                Definition = definition;
-            }
-
-            public WeaponAnimationDefinition Definition { get; private set; }
-            public WeaponId WeaponId => Definition == null ? default : Definition.WeaponId;
-            public bool IsValid => !IsDisposed && Definition != null;
-            public bool IsDisposed { get; private set; }
-
-            public void Dispose()
-            {
-                IsDisposed = true;
-                Definition = null;
-            }
-        }
-
-        private sealed class GraphAnimationPlayer : IAbilityAnimationPlayer
-        {
-            private readonly CharacterPlayablesController controller;
-
-            public GraphAnimationPlayer(CharacterPlayablesController controller)
-            {
-                this.controller = controller;
-            }
-
-            public event Action Updated;
-
-            public IAbilityAnimationPlayback PlayAnimation(AnimationClipAsset asset, long requestId)
-            {
-                return new GraphPlayback(controller.PlayAnimation(asset, requestId));
-            }
-
-            public bool StopAnimation(IAbilityAnimationPlayback playback)
-            {
-                return playback is GraphPlayback graphPlayback
-                    && controller.Stop(graphPlayback.Handle);
-            }
-
-            public void Tick()
-            {
-                Updated?.Invoke();
-            }
-
-            private sealed class GraphPlayback : IAbilityAnimationPlayback
-            {
-                public GraphPlayback(AnimationPlaybackHandle handle)
-                {
-                    Handle = handle;
-                }
-
-                public AnimationPlaybackHandle Handle { get; }
-                public bool IsTerminal => Handle == null || Handle.IsTerminal;
-                public AbilityAnimationPlaybackState State
-                {
-                    get
-                    {
-                        if (Handle == null || Handle.State == AnimationPlaybackState.Failed)
-                            return AbilityAnimationPlaybackState.Failed;
-                        if (Handle.State == AnimationPlaybackState.Completed)
-                            return AbilityAnimationPlaybackState.Completed;
-                        if (Handle.State == AnimationPlaybackState.Interrupted)
-                            return AbilityAnimationPlaybackState.Interrupted;
-                        if (Handle.State == AnimationPlaybackState.Cancelled)
-                            return AbilityAnimationPlaybackState.Cancelled;
-                        if (Handle.State == AnimationPlaybackState.Pending
-                            || Handle.State == AnimationPlaybackState.BlendingIn)
-                            return AbilityAnimationPlaybackState.Pending;
-                        return AbilityAnimationPlaybackState.Playing;
-                    }
-                }
-            }
         }
 
         private sealed class EventEndingAbilityDefinition : AbilityDefinition

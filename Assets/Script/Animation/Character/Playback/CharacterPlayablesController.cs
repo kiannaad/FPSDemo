@@ -31,6 +31,7 @@ namespace CGame.Animation
         private readonly AvatarMask upperBodyMask;
         private readonly List<SynchronizedOverride> synchronizedOverrides =
             new List<SynchronizedOverride>();
+        private readonly AnimationNotifyDispatchQueue notifyQueue = new AnimationNotifyDispatchQueue();
         private PlayableGraph graph;
         private Playable nativeControllerSource;
         private RuntimeAnimatorController runtimeController;
@@ -128,17 +129,20 @@ namespace CGame.Animation
                     graph,
                     0,
                     Playable.Null,
-                    pawn);
+                    pawn,
+                    notifyQueue);
                 slotMixer = new CharacterAnimationChannelMixer(
                     graph,
                     1,
                     overlayMixer.Mixer,
-                    pawn);
+                    pawn,
+                    notifyQueue);
                 overrideMixer = new CharacterAnimationChannelMixer(
                     graph,
                     1,
                     slotMixer.Mixer,
-                    pawn);
+                    pawn,
+                    notifyQueue);
                 masterMixer = AnimationLayerMixerPlayable.Create(graph, 2);
                 masterMixer.ConnectInput(0, source, 0, 1f);
                 masterMixer.ConnectInput(1, overrideMixer.Mixer, 0, 0f);
@@ -316,6 +320,14 @@ namespace CGame.Animation
             masterMixer.SetInputWeight(1, hasUpperBodyOutput ? 1f : 0f);
         }
 
+        public void DispatchNotifies()
+        {
+            if (!isDisposed)
+            {
+                notifyQueue.Dispatch();
+            }
+        }
+
         public void Dispose()
         {
             if (isDisposed)
@@ -324,6 +336,7 @@ namespace CGame.Animation
             }
 
             ReleaseOwnedResources();
+            notifyQueue.Dispatch();
             isDisposed = true;
         }
 

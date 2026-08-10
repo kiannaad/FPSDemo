@@ -7,14 +7,15 @@ namespace CGame
     public class Pawn : ICharacterIntentSink, ICharacterMovementCommandSource
     {
         private readonly List<IComponent> components = new List<IComponent>();
-        private Controller controller;
+        private IController controller;
         private Vector3 movementInput;
         private Vector3 pendingForce;
         private Vector3 pendingImpulse;
         private bool pendingJump;
         private bool sprintRequested;
 
-        public Controller Controller => controller;
+        public Controller Controller => controller as Controller;
+        public IController OwningController => controller;
         public AbilitySystemComponent AbilitySystem { get; private set; }
         public PawnHost Host { get; private set; }
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
@@ -41,7 +42,7 @@ namespace CGame
         /// <summary>
         /// 设置当前控制器。
         /// </summary>
-        public virtual void SettingController(Controller controller)
+        public virtual void SettingController(IController controller)
         {
             this.controller = controller;
         }
@@ -49,7 +50,7 @@ namespace CGame
         /// <summary>
         /// 清理当前控制器。
         /// </summary>
-        public virtual void ClearingController(Controller controller)
+        public virtual void ClearingController(IController controller)
         {
             if (this.controller == controller)
             {

@@ -1,5 +1,4 @@
 using UnityEngine;
-using CGame.Ability;
 
 namespace CGame
 {
@@ -8,7 +7,6 @@ namespace CGame
         private Pawn controlledPawn;
         private Vector2 rotationInput;
         private readonly GameplayRecoilState gameplayRecoilState = new GameplayRecoilState();
-        private readonly WeaponRuntime weaponRuntime = new WeaponRuntime();
 
         public Pawn ControlledPawn => controlledPawn;
         public float ControlYaw { get; private set; }
@@ -16,104 +14,6 @@ namespace CGame
         public float MinPitch { get; private set; } = -89f;
         public float MaxPitch { get; private set; } = 89f;
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
-        public WeaponRuntime WeaponRuntime => weaponRuntime;
-
-        public bool InitializeWeapon(
-            WeaponId weaponId,
-            WeaponRuntimeCapabilities capabilities)
-        {
-            return weaponRuntime.Initialize(weaponId, capabilities);
-        }
-
-        public bool RequestEquipWeapon(WeaponId weaponId)
-        {
-            return weaponRuntime.RequestEquip(weaponId);
-        }
-
-        public bool RequestUnequipWeapon()
-        {
-            return weaponRuntime.RequestUnequip();
-        }
-
-        public WeaponSwitchRequestResult RequestSwitchWeapon(
-            WeaponId weaponId,
-            out WeaponSwitchFact weaponSwitch)
-        {
-            WeaponSwitchRequestResult request = weaponRuntime.RequestSwitchWeapon(
-                weaponId,
-                out weaponSwitch);
-            if (request != WeaponSwitchRequestResult.Started
-                || controlledPawn?.AbilitySystem == null)
-            {
-                return request;
-            }
-
-            AbilityActivationResult activation = controlledPawn.AbilitySystem
-                .TryActivateAbilityByTag(WeaponSwitchGameplayTags.SwitchAbility);
-            if (activation.Succeeded)
-            {
-                return request;
-            }
-
-            weaponRuntime.FailSwitch(
-                weaponSwitch.SwitchId,
-                WeaponSwitchEndReason.AbilityActivationFailed);
-            weaponSwitch = default;
-            return WeaponSwitchRequestResult.AbilityActivationFailed;
-        }
-
-        public bool RequestFireWeapon(out WeaponActionFact action)
-        {
-            if (controlledPawn?.AbilitySystem == null)
-            {
-                return weaponRuntime.RequestFire(out action);
-            }
-
-            AbilityActivationResult result = controlledPawn.AbilitySystem
-                .TryActivateAbilityByTag(WeaponActionGameplayTags.FireAbility);
-            action = result.Succeeded ? weaponRuntime.ActiveAction : default;
-            return result.Succeeded && action.IsValid;
-        }
-
-        public bool RequestPrimaryWeaponAction(out WeaponActionFact action)
-        {
-            if (controlledPawn?.AbilitySystem == null)
-            {
-                return weaponRuntime.RequestPrimaryAction(out action);
-            }
-
-            var tag = weaponRuntime.Capabilities.SupportsFire
-                ? WeaponActionGameplayTags.FireAbility
-                : WeaponActionGameplayTags.MeleeAbility;
-            AbilityActivationResult result = controlledPawn.AbilitySystem
-                .TryActivateAbilityByTag(tag);
-            action = result.Succeeded ? weaponRuntime.ActiveAction : default;
-            return result.Succeeded && action.IsValid;
-        }
-
-        public bool RequestReloadWeapon(out WeaponActionFact action)
-        {
-            if (controlledPawn?.AbilitySystem == null)
-            {
-                return weaponRuntime.RequestReload(out action);
-            }
-
-            AbilityActivationResult result = controlledPawn.AbilitySystem
-                .TryActivateAbilityByTag(WeaponActionGameplayTags.ReloadAbility);
-            action = result.Succeeded ? weaponRuntime.ActiveAction : default;
-            return result.Succeeded && action.IsValid;
-        }
-
-        public bool CompleteWeaponAction(ulong actionId)
-        {
-            return weaponRuntime.CompleteAction(actionId);
-        }
-
-        public bool CancelWeaponAction(ulong actionId, WeaponActionEndReason reason = WeaponActionEndReason.Cancelled)
-        {
-            return weaponRuntime.CancelAction(actionId, reason);
-        }
-
         /// <summary>
         /// 更新控制器逻辑，并把控制旋转同步给当前 Pawn。
         /// </summary>

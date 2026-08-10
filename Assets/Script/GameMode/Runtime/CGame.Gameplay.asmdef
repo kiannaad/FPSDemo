@@ -1,0 +1,13 @@
+{
+  "name": "CGame.Gameplay",
+  "rootNamespace": "CGame",
+  "references": [
+    "CGame.World",
+    "CGame.Launcher",
+    "CGame.PlayerController",
+    "CGame.Pawn",
+    "CGame.CharacterRuntime"
+    ,"CGame.Inventory"
+  ],
+  "autoReferenced": true
+}

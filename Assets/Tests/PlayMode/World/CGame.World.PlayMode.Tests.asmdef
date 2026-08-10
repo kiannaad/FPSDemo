@@ -1,0 +1,13 @@
+{
+  "name": "CGame.World.PlayMode.Tests",
+  "rootNamespace": "CGame.World.PlayMode.Tests",
+  "references": [
+    "CGame.World",
+    "CGame.Launcher"
+  ],
+  "includePlatforms": [],
+  "autoReferenced": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "CGame.InventoryEquipment",
+  "rootNamespace": "CGame.InventoryEquipment",
+  "references": [
+    "CGame.Inventory",
+    "CGame.Ability"
+  ],
+  "autoReferenced": true
+}

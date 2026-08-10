@@ -1,0 +1,15 @@
+{
+  "name": "CGame.World.Tests",
+  "rootNamespace": "CGame.World.Tests",
+  "references": [
+    "CGame.World",
+    "CGame.Launcher"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

@@ -117,7 +117,7 @@ namespace CGame.Animation.Tests
         }
 
         [Test]
-        public void ReentrantPlay_IsRejectedWithoutBreakingMixerUpdate()
+        public void PostAnimationNotify_CanPlayWithoutReenteringMixerUpdate()
         {
             PlayableGraph graph = PlayableGraph.Create("NotifyReentryTest");
             CharacterAnimationChannelMixer mixer = null;
@@ -130,12 +130,39 @@ namespace CGame.Animation.Tests
                 AnimationPlaybackHandle reentrantResult = null;
                 ReentrantInstantNotify.Action = () =>
                     reentrantResult = mixer.Play(asset, 2, 2, false, false, true);
-                LogAssert.Expect(LogType.Error, "Synchronous Play during CharacterAnimationChannelMixer.Update is not allowed.");
-
                 mixer.Update();
 
                 Assert.That(reentrantResult, Is.Not.Null);
-                Assert.That(reentrantResult.State, Is.EqualTo(AnimationPlaybackState.Failed));
+                Assert.That(reentrantResult.State, Is.EqualTo(AnimationPlaybackState.Playing));
+                Assert.That(mixer.ActiveSlotCount, Is.EqualTo(2));
+            }
+            finally
+            {
+                mixer?.Dispose();
+                if (graph.IsValid())
+                {
+                    graph.Destroy();
+                }
+            }
+        }
+
+        [Test]
+        public void PostAnimationNotify_CanStopWithoutReenteringMixerUpdate()
+        {
+            PlayableGraph graph = PlayableGraph.Create("NotifyStopReentryTest");
+            CharacterAnimationChannelMixer mixer = null;
+            try
+            {
+                AnimationClipAsset asset = CreateAsset(1f);
+                asset.AddNotifyTrack().AddEvent(new ReentrantInstantNotify(), 0);
+                mixer = new CharacterAnimationChannelMixer(graph, 0, Playable.Null, new Pawn());
+                AnimationPlaybackHandle handle = mixer.Play(asset, 1, 1, false, false, true);
+                bool stopped = true;
+                ReentrantInstantNotify.Action = () => stopped = mixer.Stop(handle);
+                mixer.Update();
+
+                Assert.That(stopped, Is.True);
+                Assert.That(handle.IsTerminal, Is.False);
                 Assert.That(mixer.ActiveSlotCount, Is.EqualTo(1));
             }
             finally
@@ -149,25 +176,70 @@ namespace CGame.Animation.Tests
         }
 
         [Test]
-        public void ReentrantStop_IsRejectedWithoutBreakingMixerUpdate()
+        public void SharedQueue_CollectsInPreAnimationAndDispatchesOnlyWhenRequested()
         {
-            PlayableGraph graph = PlayableGraph.Create("NotifyStopReentryTest");
+            PlayableGraph graph = PlayableGraph.Create("NotifyTwoPhaseTest");
             CharacterAnimationChannelMixer mixer = null;
             try
             {
                 AnimationClipAsset asset = CreateAsset(1f);
-                asset.AddNotifyTrack().AddEvent(new ReentrantInstantNotify(), 0);
-                mixer = new CharacterAnimationChannelMixer(graph, 0, Playable.Null, new Pawn());
-                AnimationPlaybackHandle handle = mixer.Play(asset, 1, 1, false, false, true);
-                bool stopped = true;
-                ReentrantInstantNotify.Action = () => stopped = mixer.Stop(handle);
-                LogAssert.Expect(LogType.Error, "Synchronous Stop during CharacterAnimationChannelMixer.Update is not allowed.");
+                asset.AddNotifyTrack().AddEvent(new RecordingInstantNotify("instant"), 0);
+                AnimationNotifyDispatchQueue queue = new AnimationNotifyDispatchQueue();
+                mixer = new CharacterAnimationChannelMixer(
+                    graph,
+                    0,
+                    Playable.Null,
+                    new Pawn(),
+                    queue);
+                mixer.Play(asset, 1, 1, false, false, true);
 
                 mixer.Update();
 
-                Assert.That(stopped, Is.False);
-                Assert.That(handle.IsTerminal, Is.False);
-                Assert.That(mixer.ActiveSlotCount, Is.EqualTo(1));
+                Assert.That(Trace, Is.Empty);
+                Assert.That(queue.PendingCount, Is.GreaterThan(0));
+                queue.Dispatch();
+                Assert.That(Trace, Is.EqualTo(new[] { "instant" }));
+            }
+            finally
+            {
+                mixer?.Dispose();
+                if (graph.IsValid())
+                {
+                    graph.Destroy();
+                }
+            }
+        }
+
+        [Test]
+        public void StopDuringPostAnimation_SkipsOldGenerationAndAppendsDurationEndOnce()
+        {
+            PlayableGraph graph = PlayableGraph.Create("NotifyGenerationFilterTest");
+            CharacterAnimationChannelMixer mixer = null;
+            try
+            {
+                AnimationClipAsset asset = CreateAsset(1f);
+                AnimationNotifyTrack track = asset.AddNotifyTrack();
+                AnimationPlaybackHandle handle = null;
+                track.AddEvent(new ActionInstantNotify("stop", () => mixer.Stop(handle)), 0);
+                track.AddEvent(new RecordingDurationNotify("duration"), 0, 20);
+                track.AddEvent(new RecordingInstantNotify("stale"), 0);
+                AnimationNotifyDispatchQueue queue = new AnimationNotifyDispatchQueue();
+                mixer = new CharacterAnimationChannelMixer(
+                    graph,
+                    0,
+                    Playable.Null,
+                    new Pawn(),
+                    queue);
+                handle = mixer.Play(asset, 1, 1, false, false, true);
+
+                mixer.Update();
+                queue.Dispatch();
+
+                Assert.That(Trace, Is.EqualTo(new[]
+                {
+                    "stop",
+                    "duration:end:StateStopped"
+                }));
             }
             finally
             {
@@ -380,6 +452,25 @@ namespace CGame.Animation.Tests
             public override void OnNotify(Pawn pawn)
             {
                 Action?.Invoke();
+            }
+        }
+
+        [Serializable]
+        private sealed class ActionInstantNotify : AnimationInstantNotify
+        {
+            private readonly string name;
+            private readonly Action action;
+
+            public ActionInstantNotify(string name, Action action)
+            {
+                this.name = name;
+                this.action = action;
+            }
+
+            public override void OnNotify(Pawn pawn)
+            {
+                Trace.Add(name);
+                action?.Invoke();
             }
         }
     }

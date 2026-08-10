@@ -9,7 +9,6 @@ namespace CGame.Animation
         private readonly CharacterAnimatorController animatorController;
         private readonly CharacterPlayablesController playablesController;
         private readonly CharacterBoneController boneController;
-        private CharacterWeaponPresentationController weaponPresentationController;
         private bool isDisposed;
 
         public CharacterAnimInstance(
@@ -60,10 +59,17 @@ namespace CGame.Animation
             }
 
             playablesController.Update(deltaTime);
-            weaponPresentationController?.Update(deltaTime);
             if (boneController.IsValid())
             {
                 boneController.Update(deltaTime);
+            }
+        }
+
+        public void DispatchAnimationNotifies()
+        {
+            if (!isDisposed)
+            {
+                playablesController.DispatchNotifies();
             }
         }
 
@@ -84,34 +90,6 @@ namespace CGame.Animation
         public bool StopAbilityAnimation(AnimationPlaybackHandle handle)
         {
             return !isDisposed && playablesController.Stop(handle);
-        }
-
-        public bool ConfigureWeaponPresentation(
-            WeaponAnimationDefinition definition,
-            WeaponRuntime runtime,
-            uint generation)
-        {
-            if (isDisposed || definition == null || runtime == null)
-            {
-                return false;
-            }
-
-            weaponPresentationController ??=
-                new CharacterWeaponPresentationController(animatorController.Animator);
-            weaponPresentationController.BindRuntime(runtime);
-            return weaponPresentationController.TryEquip(definition, generation);
-        }
-
-        public CharacterWeaponPresentationReplacement
-            PrepareWeaponPresentationReplacement(
-                WeaponAnimationDefinition definition,
-                uint generation)
-        {
-            return isDisposed
-                ? null
-                : weaponPresentationController?.PrepareReplacement(
-                    definition,
-                    generation);
         }
 
         public AnimationPlaybackHandle PrepareInitialPose(
@@ -136,8 +114,6 @@ namespace CGame.Animation
             }
 
             boneController.Dispose();
-            weaponPresentationController?.Dispose();
-            weaponPresentationController = null;
             playablesController.Dispose();
             updateContext.Reset();
             isDisposed = true;

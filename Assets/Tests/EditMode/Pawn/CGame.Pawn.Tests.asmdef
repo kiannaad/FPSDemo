@@ -1,0 +1,25 @@
+{
+  "name": "CGame.Pawn.Tests",
+  "rootNamespace": "CGame.PawnRuntime.Tests",
+  "references": [
+    "CGame.World",
+    "CGame.Launcher",
+    "CGame.Gameplay",
+    "CGame.PlayerController",
+    "CGame.PlayerState",
+    "CGame.Pawn",
+    "CGame.CharacterRuntime",
+    "CGame.Ability",
+    "CGame.GameplayTags",
+    "CGame.Inventory",
+    "CGame.InventoryEquipment",
+    "CGame.CharacterPhysics"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

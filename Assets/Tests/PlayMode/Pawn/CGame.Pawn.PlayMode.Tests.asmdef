@@ -1,0 +1,27 @@
+{
+  "name": "CGame.Pawn.PlayMode.Tests",
+  "rootNamespace": "CGame.PawnRuntime.PlayMode.Tests",
+  "references": [
+    "CGame.World",
+    "CGame.Launcher",
+    "CGame.Gameplay",
+    "CGame.PlayerController",
+    "CGame.PlayerState",
+    "CGame.Pawn",
+    "CGame.CharacterRuntime",
+    "CGame.Ability",
+    "CGame.GameplayTags",
+    "CGame.Inventory",
+    "CGame.InventoryEquipment",
+    "CGame.CharacterPhysics",
+    "CGame.World.CoreServices",
+    "YooAsset",
+    "CGame.Animation",
+    "Unity.InputSystem"
+  ],
+  "includePlatforms": [],
+  "autoReferenced": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

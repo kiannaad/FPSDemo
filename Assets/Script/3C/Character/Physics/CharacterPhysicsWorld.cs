@@ -4,18 +4,37 @@ using UnityEngine;
 
 namespace CGame
 {
-    internal sealed class CharacterPhysicsWorld : ICharacterPhysicsWorld, IDisposable
+    public sealed class CharacterPhysicsWorld :
+        ICharacterPhysicsWorld,
+        ICharacterMotorSimulation,
+        ICharacterPhysicsEventSink
     {
+        private readonly struct DiscreteCollisionEvent
+        {
+            public DiscreteCollisionEvent(ICharacterPhysicsController controller, Collider collider)
+            {
+                Controller = controller;
+                Collider = collider;
+            }
+
+            public ICharacterPhysicsController Controller { get; }
+
+            public Collider Collider { get; }
+        }
+
         private readonly List<CharacterPhysicsMotor> motors;
         private readonly List<CharacterPhysicsMover> movers;
         private readonly CharacterPhysicsSettings settings;
+        private readonly bool ownsSettings;
+        private readonly Queue<DiscreteCollisionEvent> collisionEvents = new Queue<DiscreteCollisionEvent>();
         private float interpolationStartTime = -1f;
         private float interpolationDeltaTime = -1f;
         private bool isDisposed;
 
-        public CharacterPhysicsWorld(CharacterPhysicsSettings settings)
+        public CharacterPhysicsWorld(CharacterPhysicsSettings settings, bool ownsSettings = false)
         {
             this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            this.ownsSettings = ownsSettings;
             motors = new List<CharacterPhysicsMotor>(settings.MotorsListInitialCapacity);
             movers = new List<CharacterPhysicsMover>(settings.MoversListInitialCapacity);
         }
@@ -24,7 +43,11 @@ namespace CGame
         {
             if (motor == null) throw new ArgumentNullException(nameof(motor));
             if (!motors.Contains(motor)) motors.Add(motor);
-            return new Registration<CharacterPhysicsMotor>(motors, motor);
+            motor.SetPhysicsEventSink(this);
+            return new Registration<CharacterPhysicsMotor>(
+                motors,
+                motor,
+                registeredMotor => registeredMotor.SetPhysicsEventSink(null));
         }
 
         public IPhysicsRegistration Register(CharacterPhysicsMover mover)
@@ -32,7 +55,7 @@ namespace CGame
             if (mover == null) throw new ArgumentNullException(nameof(mover));
             if (!movers.Contains(mover)) movers.Add(mover);
             mover.Rigidbody.interpolation = RigidbodyInterpolation.None;
-            return new Registration<CharacterPhysicsMover>(movers, mover);
+            return new Registration<CharacterPhysicsMover>(movers, mover, null);
         }
 
         public void Step(float deltaTime, float currentTime)
@@ -55,6 +78,41 @@ namespace CGame
                 motor.Transform.SetPositionAndRotation(motor.TransientPosition, motor.TransientRotation);
             }
             if (settings.Interpolate) CompleteInterpolation(deltaTime, currentTime);
+        }
+
+        public void Step(float deltaTime)
+        {
+            Step(deltaTime, Time.time);
+        }
+
+        public void ConsumePostPhysicsEvents(float deltaTime)
+        {
+            int eventCount = collisionEvents.Count;
+            for (int index = 0; index < eventCount; index++)
+            {
+                DiscreteCollisionEvent collisionEvent = collisionEvents.Dequeue();
+                if (collisionEvent.Controller == null || collisionEvent.Collider == null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    collisionEvent.Controller.OnDiscreteCollisionDetected(collisionEvent.Collider);
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception);
+                }
+            }
+        }
+
+        public void Enqueue(ICharacterPhysicsController controller, Collider collider)
+        {
+            if (!isDisposed && controller != null && collider != null)
+            {
+                collisionEvents.Enqueue(new DiscreteCollisionEvent(controller, collider));
+            }
         }
 
         public void Present(float currentTime)
@@ -83,8 +141,19 @@ namespace CGame
         {
             if (isDisposed) return;
             isDisposed = true;
+            for (int index = 0; index < motors.Count; index++)
+            {
+                motors[index]?.SetPhysicsEventSink(null);
+            }
+
             motors.Clear();
             movers.Clear();
+            collisionEvents.Clear();
+            if (!ownsSettings)
+            {
+                return;
+            }
+
             if (Application.isPlaying)
             {
                 UnityEngine.Object.Destroy(settings);
@@ -141,10 +210,23 @@ namespace CGame
         private sealed class Registration<T> : IPhysicsRegistration where T : class
         {
             private readonly List<T> members;
+            private readonly Action<T> onDispose;
             private T member;
-            public Registration(List<T> members, T member) { this.members = members; this.member = member; }
+            public Registration(List<T> members, T member, Action<T> onDispose)
+            {
+                this.members = members;
+                this.member = member;
+                this.onDispose = onDispose;
+            }
             public bool IsActive => member != null;
-            public void Dispose() { if (member == null) return; members.Remove(member); member = null; }
+            public void Dispose()
+            {
+                if (member == null) return;
+                T removed = member;
+                members.Remove(removed);
+                member = null;
+                onDispose?.Invoke(removed);
+            }
         }
     }
 }

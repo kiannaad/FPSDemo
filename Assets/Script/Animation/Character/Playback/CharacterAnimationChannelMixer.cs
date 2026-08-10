@@ -21,12 +21,15 @@ namespace CGame.Animation
             public AnimationPlaybackState BlendOutTerminalState;
             public bool StartsAtFullWeight;
             public AnimationNotifyPlaybackState NotifyState;
+            public AnimationNotifyGeneration NotifyGeneration;
         }
 
         private readonly PlayableGraph graph;
         private readonly Pawn pawn;
         private readonly int firstUserInput;
         private readonly List<Slot> slots = new List<Slot>(SlotCount);
+        private readonly AnimationNotifyDispatchQueue notifyQueue;
+        private readonly bool ownsNotifyQueue;
         private AnimationLayerMixerPlayable mixer;
         private Slot activeSlot;
         private bool isDisposed;
@@ -36,7 +39,8 @@ namespace CGame.Animation
             PlayableGraph graph,
             int baseInputCount,
             Playable baseInput,
-            Pawn pawn = null)
+            Pawn pawn = null,
+            AnimationNotifyDispatchQueue notifyQueue = null)
         {
             if (!graph.IsValid())
             {
@@ -45,6 +49,8 @@ namespace CGame.Animation
 
             this.graph = graph;
             this.pawn = pawn;
+            ownsNotifyQueue = notifyQueue == null;
+            this.notifyQueue = notifyQueue ?? new AnimationNotifyDispatchQueue();
             firstUserInput = baseInputCount;
             mixer = AnimationLayerMixerPlayable.Create(graph, baseInputCount + SlotCount);
             if (baseInputCount > 0)
@@ -117,6 +123,7 @@ namespace CGame.Animation
 
             if (slots.Count == SlotCount)
             {
+                slots[0].NotifyGeneration?.Invalidate();
                 ReleaseSlot(
                     slots[0],
                     AnimationPlaybackState.Interrupted,
@@ -129,22 +136,29 @@ namespace CGame.Animation
             }
 
             int inputIndex = FindUnusedInputIndex();
+            AnimationNotifyGeneration notifyGeneration = new AnimationNotifyGeneration();
             var slot = new Slot
             {
                 InputIndex = inputIndex,
                 Animation = animation,
                 StartsAtFullWeight = startAtFullWeight,
+                NotifyGeneration = notifyGeneration,
                 NotifyState = dispatchNotifies
                     ? new AnimationNotifyPlaybackState(
                         pawn,
                         animation.NotifyEntries,
                         animation.Length,
                         animation.Handle.Clip.isLooping,
-                        animation.Speed)
+                        animation.Speed,
+                        this.notifyQueue,
+                        notifyGeneration)
                     : null,
             };
             for (int i = 0; i < slots.Count; i++)
             {
+                slots[i].NotifyGeneration?.Invalidate();
+                slots[i].NotifyGeneration = new AnimationNotifyGeneration();
+                slots[i].NotifyState?.ReplaceGeneration(slots[i].NotifyGeneration);
                 slots[i].NotifyState?.MarkReplaced();
             }
 
@@ -237,6 +251,10 @@ namespace CGame.Animation
             finally
             {
                 isUpdating = false;
+                if (ownsNotifyQueue)
+                {
+                    notifyQueue.Dispatch();
+                }
             }
         }
 
@@ -254,9 +272,13 @@ namespace CGame.Animation
                 return false;
             }
 
+            slot.NotifyGeneration?.Invalidate();
+            slot.NotifyState?.EndAll(AnimationNotifyEndReason.StateStopped);
+
             if (slot != activeSlot)
             {
                 ReleaseSlot(slot, AnimationPlaybackState.Cancelled, AnimationNotifyEndReason.StateStopped);
+                DispatchIfOwned();
                 return true;
             }
 
@@ -265,6 +287,7 @@ namespace CGame.Animation
                 slot.Animation.LocalTime,
                 slot.Animation.BlendOutTime,
                 AnimationPlaybackState.Cancelled);
+            DispatchIfOwned();
             return true;
         }
 
@@ -299,6 +322,7 @@ namespace CGame.Animation
 
             slot.Animation.Playable.SetTime(time);
             slot.NotifyState?.ResetTime(time);
+            DispatchIfOwned();
             return true;
         }
 
@@ -321,7 +345,13 @@ namespace CGame.Animation
 
             mixer = AnimationLayerMixerPlayable.Null;
             activeSlot = null;
+            notifyQueue.Dispatch();
             isDisposed = true;
+        }
+
+        public void DispatchNotifies()
+        {
+            notifyQueue.Dispatch();
         }
 
         private float CalculateBlendInWeight(CharacterAnimationPlayable animation)
@@ -447,6 +477,14 @@ namespace CGame.Animation
             }
 
             slot.NotifyState?.EndAll(notifyEndReason);
+            if (notifyEndReason == AnimationNotifyEndReason.NaturalEnd)
+            {
+                notifyQueue.RetireAfterCurrentDispatch(slot.NotifyGeneration);
+            }
+            else
+            {
+                slot.NotifyGeneration?.Invalidate();
+            }
             slot.Animation.Handle.State = terminalState;
             slot.Animation.Dispose();
             slots.Remove(slot);
@@ -459,6 +497,14 @@ namespace CGame.Animation
                         activeSlot.Animation.LocalTime,
                         mixer.GetInputWeight(activeSlot.InputIndex));
                 }
+            }
+        }
+
+        private void DispatchIfOwned()
+        {
+            if (ownsNotifyQueue && !notifyQueue.IsDispatching)
+            {
+                notifyQueue.Dispatch();
             }
         }
     }
