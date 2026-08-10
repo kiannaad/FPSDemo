@@ -19,11 +19,13 @@ namespace CGame.InventoryEquipment
         public EquipmentCreateContext(
             InventoryLease inventoryLease,
             AbilitySystemComponent abilitySystem,
-            IDisposable presentationReceipt = null)
+            IDisposable presentationReceipt = null,
+            IReadOnlyList<AbilityGrantReceipt> replacedAbilityReceipts = null)
         {
             InventoryLease = inventoryLease ?? throw new ArgumentNullException(nameof(inventoryLease));
             AbilitySystem = abilitySystem ?? throw new ArgumentNullException(nameof(abilitySystem));
             PresentationReceipt = presentationReceipt;
+            ReplacedAbilityReceipts = replacedAbilityReceipts;
         }
 
         public InventoryLease InventoryLease { get; }
@@ -31,5 +33,6 @@ namespace CGame.InventoryEquipment
         public AbilitySystemComponent AbilitySystem { get; }
 
         public IDisposable PresentationReceipt { get; }
+        public IReadOnlyList<AbilityGrantReceipt> ReplacedAbilityReceipts { get; }
     }
 }

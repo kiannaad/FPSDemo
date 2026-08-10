@@ -7,6 +7,7 @@ namespace CGame
     {
         private PlayerController controller;
         private PawnBindingReceipt actionBinding;
+        private PawnBindingReceipt quickBarBinding;
         private PendingEquipmentRequest pendingRequest;
 
         public EquipmentInstance CurrentEquipment { get; private set; }
@@ -31,6 +32,7 @@ namespace CGame
 
             controller = playerController;
             controller.QuickBar.EquipmentRequested += OnEquipmentRequested;
+            quickBarBinding = controller.QuickBar.BindPawn(pawn);
             actionBinding = controller.BindEquipmentActionTarget(this);
         }
 
@@ -110,7 +112,10 @@ namespace CGame
             try
             {
                 candidate = request.Definition.CreateInstance(
-                    new EquipmentCreateContext(lease, controller.PlayerState.AbilitySystem));
+                    new EquipmentCreateContext(
+                        lease,
+                        controller.PlayerState.AbilitySystem,
+                        replacedAbilityReceipts: CurrentEquipment?.AbilityReceipts));
                 if (candidate == null)
                 {
                     throw new InvalidOperationException("EquipmentDefinition returned null.");
@@ -155,6 +160,8 @@ namespace CGame
 
             actionBinding?.Dispose();
             actionBinding = null;
+            quickBarBinding?.Dispose();
+            quickBarBinding = null;
             controller = null;
         }
 

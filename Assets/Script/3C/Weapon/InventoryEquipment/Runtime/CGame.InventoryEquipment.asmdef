@@ -3,7 +3,8 @@
   "rootNamespace": "CGame.InventoryEquipment",
   "references": [
     "CGame.Inventory",
-    "CGame.Ability"
+    "CGame.Ability",
+    "CGame.GameplayTags"
   ],
   "autoReferenced": true
 }

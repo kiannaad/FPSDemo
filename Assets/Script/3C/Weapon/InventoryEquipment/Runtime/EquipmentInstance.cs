@@ -40,7 +40,7 @@ namespace CGame.InventoryEquipment
 
                     if (uniqueSets.Add(abilitySet))
                     {
-                        abilityReceipts.Add(AbilitySystem.GiveAbilitySet(abilitySet, this));
+                        abilityReceipts.Add(AbilitySystem.GiveAbilitySet(abilitySet, this, context.ReplacedAbilityReceipts));
                     }
                 }
             }
