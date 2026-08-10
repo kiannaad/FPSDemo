@@ -17,30 +17,19 @@ namespace CGame.PawnRuntime.PlayMode.Tests
         [UnitySetUp]
         public IEnumerator SetUp()
         {
-            keyboard = InputSystem.AddDevice<Keyboard>("SampleSceneTestKeyboard");
-            mouse = InputSystem.AddDevice<Mouse>("SampleSceneTestMouse");
-            yield return null;
+            keyboard = InputSystem.AddDevice<Keyboard>();
+            mouse = InputSystem.AddDevice<Mouse>();
+            yield return SceneManager.LoadSceneAsync("Assets/Scenes/SampleScene.unity", LoadSceneMode.Single);
+
+            GameInstance gameInstance = Object.FindObjectOfType<GameInstance>();
+            Assert.That(gameInstance, Is.Not.Null, "SampleScene must use the production GameInstance entry point.");
+            yield return Await(gameInstance.InitializationTask);
+            Assert.That(gameInstance.RuntimeWorld.State, Is.EqualTo(WorldState.Playing));
         }
 
         [UnityTearDown]
         public IEnumerator TearDown()
         {
-            WorldBehaviour behaviour = Object.FindObjectOfType<WorldBehaviour>();
-            if (behaviour != null)
-            {
-                Object.Destroy(behaviour.gameObject);
-                yield return null;
-            }
-
-            if (World.Current != null)
-            {
-                Task shutdown = World.Current.ShutdownAsync();
-                while (!shutdown.IsCompleted)
-                {
-                    yield return null;
-                }
-            }
-
             if (keyboard != null && keyboard.added)
             {
                 InputSystem.RemoveDevice(keyboard);
@@ -51,177 +40,122 @@ namespace CGame.PawnRuntime.PlayMode.Tests
                 InputSystem.RemoveDevice(mouse);
             }
 
-            keyboard = null;
-            mouse = null;
+            if (World.Current != null)
+            {
+                yield return Await(World.Current.ShutdownAsync());
+            }
+
+            yield return null;
         }
 
         [UnityTest]
-        public IEnumerator SampleScene_KeyboardMovesVisibleAnimatedPawnAndMouseTurnsCamera()
+        public IEnumerator KeyboardAndMouse_ReachPawnMotorAnimatorAndCameraThroughProductionScene()
         {
-            AsyncOperation loadOperation = SceneManager.LoadSceneAsync(
-                "SampleScene",
-                LoadSceneMode.Single);
-            while (!loadOperation.isDone)
+            World world = World.Current;
+            var gameMode = (DefaultGameMode)world.GameMode;
+            Pawn pawn = gameMode.DefaultPawn;
+            var controller = (PlayerController)world.LocalPlayer.Controller;
+            PawnMovementComponent movement = pawn.GetComponent<PawnMovementComponent>();
+            PawnAnimationComponent animation = pawn.GetComponent<PawnAnimationComponent>();
+            PawnCameraComponent camera = pawn.GetComponent<PawnCameraComponent>();
+            InputSubSystem input = world.LocalPlayer.GetSubSystem<InputSubSystem>();
+
+            Assert.That(pawn.Root.scene.path, Is.EqualTo("Assets/Scenes/SampleScene.unity"));
+            Assert.That(movement.Motor, Is.Not.Null);
+            Assert.That(animation.Animator, Is.Not.Null);
+            Assert.That(animation.AnimInstance, Is.Not.Null);
+            Assert.That(camera.Camera, Is.Not.Null);
+            Assert.That(camera.Camera.enabled, Is.True);
+            Assert.That(camera.Camera.nearClipPlane, Is.LessThanOrEqualTo(0.05f));
+            QueueKeyboard(Key.W);
+            for (int frame = 0;
+                 frame < 20 && input.ReadControlIntent().MovementInput.z <= 0.9f;
+                 frame++)
             {
                 yield return null;
             }
 
-            WorldBehaviour behaviour = Object.FindObjectOfType<WorldBehaviour>();
-            Assert.That(behaviour, Is.Not.Null);
-            while (!behaviour.InitializationTask.IsCompleted)
-            {
-                yield return null;
-            }
+            Assert.That(input.ReadControlIntent().MovementInput.z, Is.GreaterThan(0.9f));
+            Vector3 initialPosition = pawn.Transform.position;
+            yield return FixedFrames(35);
+            Assert.That(pawn.Transform.position.z, Is.GreaterThan(initialPosition.z + 0.5f));
+            Assert.That(
+                animation.Animator.GetBool("Moving"),
+                Is.True,
+                "CharacterAnimInstance must drive the arms controller's Moving parameter.");
+            Assert.That(
+                animation.Animator.GetCurrentAnimatorStateInfo(0).IsName("Standing"),
+                Is.True,
+                "The FPS arms locomotion layer must evaluate its Standing blend tree.");
+            Assert.That(animation.Animator.GetCurrentAnimatorStateInfo(0).normalizedTime, Is.GreaterThan(0f));
 
-            Assert.That(behaviour.InitializationTask.Result.Succeeded, Is.True,
-                behaviour.InitializationTask.Result.Error);
-            GameMode gameMode = ((GameManager)behaviour.RuntimeWorld.CurrentGameSession)
-                .CurrentGameMode;
-            PawnAssembly pawn = gameMode.CurrentPawnAssembly;
-            driveWorldFrame(behaviour.RuntimeWorld);
+            yield return FixedFrames(170);
+            float wallStoppedZ = pawn.Transform.position.z;
+            Assert.That(wallStoppedZ, Is.InRange(2.8f, 3.4f), "Motor must stop at the wall collider.");
+            yield return FixedFrames(20);
+            Assert.That(pawn.Transform.position.z, Is.EqualTo(wallStoppedZ).Within(0.03f));
+
+            QueueKeyboard(Key.S);
+            yield return FixedFrames(35);
+            Assert.That(pawn.Transform.position.z, Is.LessThan(wallStoppedZ - 0.4f));
+            float beforeStrafe = pawn.Transform.position.x;
+            QueueKeyboard(Key.A);
+            yield return FixedFrames(30);
+            Assert.That(pawn.Transform.position.x, Is.LessThan(beforeStrafe - 0.25f));
+            float afterLeft = pawn.Transform.position.x;
+            QueueKeyboard(Key.D);
+            yield return FixedFrames(45);
+            Assert.That(pawn.Transform.position.x, Is.GreaterThan(afterLeft + 0.4f));
+
+            QueueKeyboard();
+            yield return FixedFrames(12);
+            Quaternion cameraBeforeLook = camera.Camera.transform.rotation;
+            InputSystem.QueueStateEvent(mouse, new MouseState { delta = new Vector2(24f, 12f) });
             yield return null;
-            Assert.That(pawn, Is.Not.Null);
-            SkinnedMeshRenderer firstPersonRenderer =
-                pawn.Root.GetComponentInChildren<SkinnedMeshRenderer>(true);
-            Assert.That(firstPersonRenderer, Is.Not.Null);
-            Assert.That(firstPersonRenderer.sharedMesh.subMeshCount, Is.EqualTo(1),
-                "The first-person Pawn must not render the body or legs submeshes.");
-            Assert.That(firstPersonRenderer.sharedMaterials, Has.Length.EqualTo(1));
-            Assert.That(firstPersonRenderer.sharedMaterial.name, Is.EqualTo("M_Armature_Arms"));
-            Assert.That(Vector3.Distance(
-                behaviour.PlayerCamera.transform.position,
-                pawn.Root.transform.position + Vector3.up * 1.6f), Is.LessThan(0.02f),
-                "The Player camera left the character capsule center line.");
-            Assert.That(pawn.Animation.Animator, Is.Not.Null);
-            Assert.That(pawn.Animation.Animator.runtimeAnimatorController?.name,
-                Is.EqualTo("FPSAnimator_Generic"));
-            Assert.That(pawn.Animation.Animator.playableGraph.IsValid(), Is.True,
-                "The Animator PlayableGraph was not created after the Pawn became active.");
-            Assert.That(pawn.Animation.AnimInstance, Is.Not.Null);
-
-            Vector3 initialPosition = pawn.Root.transform.position;
-            Quaternion initialCameraRotation = behaviour.PlayerCamera.transform.rotation;
-            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W));
-            InputWorldCoreService inputService = behaviour.RuntimeWorld
-                .GetCoreService<InputWorldCoreService>();
-            int inputTickCount = inputService.TickCount;
-            driveWorldFrame(behaviour.RuntimeWorld);
-            Assert.That(Keyboard.current, Is.SameAs(keyboard));
-            Assert.That(keyboard.wKey.isPressed, Is.True,
-                "The queued test keyboard state was not retained by the normal Input PlayerLoop.");
-            Assert.That(inputService.TickCount, Is.GreaterThan(inputTickCount),
-                "The World did not tick its Input core service. Faults: "
-                + formatFaults(behaviour.RuntimeWorld));
-            Assert.That(inputService.ReadControlIntent().MovementInput.z, Is.GreaterThan(0.5f),
-                "The Input core service did not capture the held W key.");
-            Assert.That(pawn.Pawn.PeekingMovementInput().z, Is.GreaterThan(0.5f),
-                "The real Player input path did not reach the possessed Pawn.");
-            for (int frame = 0; frame < 30; frame++)
-            {
-                driveWorldFrame(behaviour.RuntimeWorld);
-                yield return null;
-            }
-
-            Assert.That(pawn.Movement.Motor.Velocity.z, Is.GreaterThan(0.01f),
-                "The Pawn intent reached gameplay but did not reach the character motor.");
-            Assert.That(pawn.Root.transform.position.z,
-                Is.GreaterThan(initialPosition.z + 0.05f));
-            Assert.That(pawn.Animation.Animator.GetBool("Moving"), Is.True,
-                "The locomotion Animator did not enter its moving state.");
-            Assert.That(pawn.Animation.Animator.GetFloat("MoveY"), Is.GreaterThan(0.1f));
-
-            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
-            InputSystem.QueueDeltaStateEvent(mouse.delta, new Vector2(90f, 10f));
-            driveWorldFrame(behaviour.RuntimeWorld);
-            Assert.That(Quaternion.Angle(
-                Quaternion.identity,
-                gameMode.LocalPlayerController.ControlRotation), Is.GreaterThan(0.1f),
-                "The mouse delta did not reach the PlayerController control rotation.");
-            Vector3 cameraForward = gameMode.LocalPlayerController.ControlRotation * Vector3.forward;
-            Assert.That(cameraForward.x, Is.GreaterThan(0.9f),
-                "Moving the mouse right did not turn the controller to the right.");
-            Assert.That(cameraForward.y, Is.GreaterThan(0.1f),
-                "Moving the mouse up did not pitch the controller upward.");
             yield return null;
-            Assert.That(Quaternion.Angle(
-                initialCameraRotation,
-                behaviour.PlayerCamera.transform.rotation), Is.GreaterThan(0.1f));
+            Assert.That(controller.ControlYaw, Is.GreaterThan(0f));
+            Assert.That(controller.ControlPitch, Is.LessThan(0f));
+            Assert.That(Quaternion.Angle(cameraBeforeLook, camera.Camera.transform.rotation), Is.GreaterThan(1f));
+            Assert.That(camera.Camera.transform.parent.name, Is.EqualTo("Head"));
+            Assert.That(camera.Camera.transform.IsChildOf(animation.Animator.transform), Is.True);
+            Assert.That(
+                Vector3.Distance(
+                    camera.Camera.transform.position,
+                    camera.Camera.transform.parent.position),
+                Is.EqualTo(0.14f).Within(0.02f));
 
-            Vector3 positionBeforeCameraRelativeMove = pawn.Root.transform.position;
-            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W));
-            for (int frame = 0; frame < 30; frame++)
-            {
-                driveWorldFrame(behaviour.RuntimeWorld);
-                yield return null;
-            }
-
-            Vector3 cameraRelativeDisplacement =
-                pawn.Root.transform.position - positionBeforeCameraRelativeMove;
-            Assert.That(cameraRelativeDisplacement.x,
-                Is.GreaterThan(Mathf.Abs(cameraRelativeDisplacement.z)),
-                "W did not move primarily along the camera's turned forward direction.");
+            GameObject root = pawn.Root;
+            yield return Await(gameMode.SpawnDefaultPawn(controller));
+            yield return null;
+            Assert.That(root == null, Is.True, "Pawn-owned Unity Camera must be released with the Pawn root.");
+            Assert.That(controller.PossessedPawn, Is.SameAs(gameMode.DefaultPawn));
+            Assert.That(gameMode.DefaultPawn.GetComponent<PawnCameraComponent>().Camera.enabled, Is.True);
         }
 
-        [UnityTest]
-        public IEnumerator SampleScene_ObstacleStopsPawnAndCameraUsesFirstPersonNearClip()
+        private void QueueKeyboard(params Key[] keys)
         {
-            AsyncOperation loadOperation = SceneManager.LoadSceneAsync(
-                "SampleScene",
-                LoadSceneMode.Single);
-            while (!loadOperation.isDone)
-            {
-                yield return null;
-            }
-
-            WorldBehaviour behaviour = Object.FindObjectOfType<WorldBehaviour>();
-            Assert.That(behaviour, Is.Not.Null);
-            while (!behaviour.InitializationTask.IsCompleted)
-            {
-                yield return null;
-            }
-
-            Assert.That(behaviour.InitializationTask.Result.Succeeded, Is.True,
-                behaviour.InitializationTask.Result.Error);
-            GameMode gameMode = ((GameManager)behaviour.RuntimeWorld.CurrentGameSession)
-                .CurrentGameMode;
-            PawnAssembly pawn = gameMode.CurrentPawnAssembly;
-            Collider obstacle = GameObject.Find("ForwardMarker")?.GetComponent<Collider>();
-            Assert.That(obstacle, Is.Not.Null);
-            Assert.That(obstacle.enabled, Is.True,
-                "The visible forward obstacle must participate in collision.");
-            Assert.That(behaviour.PlayerCamera.nearClipPlane, Is.LessThanOrEqualTo(0.03f),
-                "The first-person camera near plane is large enough to cut through nearby walls.");
-
-            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W));
-            for (int frame = 0; frame < 240; frame++)
-            {
-                driveWorldFrame(behaviour.RuntimeWorld);
-                yield return null;
-            }
-
-            Assert.That(pawn.Root.transform.position.z, Is.LessThan(obstacle.bounds.min.z),
-                "The character motor crossed through the forward obstacle.");
-            Assert.That(pawn.Movement.Motor.Capsule.bounds.Intersects(obstacle.bounds), Is.False,
-                "The character capsule remained embedded in the forward obstacle.");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys));
         }
 
-        private static string formatFaults(World world)
+        private static IEnumerator FixedFrames(int count)
         {
-            var lines = new System.Collections.Generic.List<string>();
-            foreach (TickFault fault in world.TickScheduler.Faults)
+            for (int index = 0; index < count; index++)
             {
-                lines.Add($"{fault.Handle.Name}: {fault.Exception}");
+                yield return new WaitForFixedUpdate();
             }
-
-            return string.Join(" | ", lines);
         }
 
-        private static void driveWorldFrame(World world)
+        private static IEnumerator Await(Task task)
         {
-            InputSystem.Update();
-            world.UpdateTick(1f / 60f);
-            world.FixedTick(1f / 50f);
-            world.LateTick(1f / 60f, Time.time);
+            while (task != null && !task.IsCompleted)
+            {
+                yield return null;
+            }
+
+            if (task != null && task.IsFaulted)
+            {
+                throw task.Exception.InnerException;
+            }
         }
     }
 }

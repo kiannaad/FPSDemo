@@ -18,243 +18,285 @@ namespace CGame.WorldRuntime.Tests
         }
 
         [Test]
-        public void StartAsync_InitializesServicesAndPublishesRequest()
+        public void InitializeStartPlayAndShutdown_UseDependencyAndReverseOrder()
         {
-            List<string> trace = new List<string>();
-            World world = CreateWorld(
-                new IWorldCoreService[]
-                {
-                    new ProbeService("Input", trace),
-                    new ProbeService("Resource", trace)
-                });
+            var trace = new List<string>();
+            World world = World.Create(new WorldSubSystem[]
+            {
+                new DependentSubSystem(trace),
+                new FoundationSubSystem(trace)
+            });
 
-            WorldStartResult result = world.StartAsync().GetAwaiter().GetResult();
+            world.InitializeAsync().GetAwaiter().GetResult();
+            Assert.That(world.State, Is.EqualTo(WorldState.Initialized));
+            world.UpdateTick(0.25f);
+            CollectionAssert.DoesNotContain(trace, "dependent.tick");
 
-            Assert.That(result.Succeeded, Is.True);
-            Assert.That(world.State, Is.EqualTo(WorldState.Launching));
-            Assert.That(world.PendingGameStartRequest.HasValue, Is.True);
-            Assert.That(trace, Is.EqualTo(new[] { "init:Input", "init:Resource" }));
-        }
+            world.StartPlay();
+            world.UpdateTick(0.25f);
+            Task firstShutdown = world.ShutdownAsync();
+            Task secondShutdown = world.ShutdownAsync();
+            Assert.That(secondShutdown, Is.SameAs(firstShutdown));
+            firstShutdown.GetAwaiter().GetResult();
 
-        [Test]
-        public void Create_RejectsASecondActiveWorld()
-        {
-            _ = CreateWorld(Array.Empty<IWorldCoreService>());
-
-            Assert.Throws<InvalidOperationException>(() => CreateWorld(Array.Empty<IWorldCoreService>()));
-        }
-
-        [Test]
-        public void CoreServiceFailure_RollsBackInitializedServicesInReverse()
-        {
-            List<string> trace = new List<string>();
-            World world = CreateWorld(
-                new IWorldCoreService[]
-                {
-                    new ProbeService("First", trace),
-                    new ProbeService("Second", trace, failInitialization: true),
-                    new ProbeService("Never", trace)
-                });
-
-            WorldStartResult result = world.StartAsync().GetAwaiter().GetResult();
-
-            Assert.That(result.Succeeded, Is.False);
-            Assert.That(world.State, Is.EqualTo(WorldState.InitializationFailed));
             Assert.That(trace, Is.EqualTo(new[]
             {
-                "init:First",
-                "init:Second",
-                "shutdown:First"
+                "foundation.initialize",
+                "dependent.initialize",
+                "foundation.begin",
+                "dependent.begin",
+                "dependent.tick",
+                "dependent.end",
+                "foundation.end",
+                "dependent.shutdown",
+                "foundation.shutdown"
             }));
-        }
-
-        [Test]
-        public void LaunchFailure_IsTerminalAndDoesNotRetry()
-        {
-            int executions = 0;
-            GameLauncher launcher = new GameLauncher(new Func<ILaunchStep>[]
-            {
-                () => new DelegateStep(() =>
-                {
-                    executions++;
-                    return LaunchStepResult.Fail("expected");
-                })
-            });
-            World world = World.Create(Array.Empty<IWorldCoreService>(), launcher);
-
-            WorldStartResult result = world.StartAsync().GetAwaiter().GetResult();
-
-            Assert.That(result.Succeeded, Is.False);
-            Assert.That(world.State, Is.EqualTo(WorldState.LaunchFailed));
-            Assert.That(executions, Is.EqualTo(1));
-            bool rejected = false;
-            try
-            {
-                world.StartAsync().GetAwaiter().GetResult();
-            }
-            catch (InvalidOperationException)
-            {
-                rejected = true;
-            }
-
-            Assert.That(rejected, Is.True);
-            Assert.That(executions, Is.EqualTo(1));
-        }
-
-        [Test]
-        public void ReturnToLogin_CreatesANewNormalAttempt()
-        {
-            World world = CreateWorld(Array.Empty<IWorldCoreService>());
-            WorldStartResult first = world.StartAsync().GetAwaiter().GetResult();
-
-            WorldStartResult second = world.ReturnToLoginAsync().GetAwaiter().GetResult();
-
-            Assert.That(second.Succeeded, Is.True);
-            Assert.That(second.Request.LaunchAttemptId.Value,
-                Is.GreaterThan(first.Request.LaunchAttemptId.Value));
-            Assert.That(world.State, Is.EqualTo(WorldState.Launching));
-        }
-
-        [Test]
-        public void ShutdownAsync_CleansInReverseClearsCurrentAndIsIdempotent()
-        {
-            List<string> trace = new List<string>();
-            World world = CreateWorld(
-                new IWorldCoreService[]
-                {
-                    new ProbeService("First", trace),
-                    new ProbeService("Second", trace)
-                });
-            world.StartAsync().GetAwaiter().GetResult();
-
-            world.ShutdownAsync().GetAwaiter().GetResult();
-            world.ShutdownAsync().GetAwaiter().GetResult();
-
             Assert.That(world.State, Is.EqualTo(WorldState.Destroyed));
             Assert.That(World.Current, Is.Null);
-            Assert.That(trace, Is.EqualTo(new[]
+        }
+
+        [Test]
+        public void Create_RejectsDuplicateMissingAndCyclicSubSystems()
+        {
+            Assert.Throws<InvalidOperationException>(() => World.Create(new WorldSubSystem[]
             {
-                "init:First",
-                "init:Second",
-                "shutdown:Second",
-                "shutdown:First"
+                new FoundationSubSystem(new List<string>()),
+                new FoundationSubSystem(new List<string>())
+            }));
+            Assert.Throws<InvalidOperationException>(() => World.Create(new WorldSubSystem[]
+            {
+                new DependentSubSystem(new List<string>())
+            }));
+            Assert.Throws<InvalidOperationException>(() => World.Create(new WorldSubSystem[]
+            {
+                new CycleASubSystem(),
+                new CycleBSubSystem()
             }));
         }
 
         [Test]
-        public void TickDomains_PlaceMotorStepEventsAndPresentationAtWorldBoundaries()
+        public void InitializeFailure_RollsBackEarlierSubSystemsAndKeepsFaultedUntilShutdown()
         {
-            List<string> trace = new List<string>();
-            ProbeMotorSimulation simulation = new ProbeMotorSimulation(trace);
-            TickScheduler scheduler = new TickScheduler();
-            scheduler.Register("PrePhysics", TickGroup.TG_PrePhysics, ignored => trace.Add("pre"));
-            scheduler.Register("Input", TickGroup.TG_Input, ignored => trace.Add("input"));
-            scheduler.Register("Gameplay", TickGroup.TG_Gameplay, ignored => trace.Add("gameplay"));
-            scheduler.Register("PostAnimation", TickGroup.TG_PostAnimation, ignored => trace.Add("post-animation"));
-            scheduler.Register("Camera", TickGroup.TG_LatePresentation, ignored => trace.Add("camera"));
-            World world = World.Create(
-                Array.Empty<IWorldCoreService>(),
-                new GameLauncher(Array.Empty<Func<ILaunchStep>>()),
-                scheduler,
-                simulation);
-            world.StartAsync().GetAwaiter().GetResult();
+            var trace = new List<string>();
+            World world = World.Create(new WorldSubSystem[]
+            {
+                new FoundationSubSystem(trace),
+                new FailingSubSystem(trace)
+            });
 
-            world.FixedTick(0.02f);
-            world.UpdateTick(0.03f);
-            world.LateTick(0.04f, 12f);
+            InvalidOperationException failure = null;
+            try
+            {
+                world.InitializeAsync().GetAwaiter().GetResult();
+            }
+            catch (InvalidOperationException exception)
+            {
+                failure = exception;
+            }
 
+            Assert.That(failure, Is.Not.Null);
+
+            Assert.That(world.State, Is.EqualTo(WorldState.Faulted));
             Assert.That(trace, Is.EqualTo(new[]
             {
-                "pre",
-                "motor:0.02",
-                "input",
-                "events:0.03",
-                "gameplay",
-                "post-animation",
-                "present:12",
-                "camera"
+                "foundation.initialize",
+                "failing.initialize",
+                "foundation.shutdown"
             }));
+            world.ShutdownAsync().GetAwaiter().GetResult();
+            world.ShutdownAsync().GetAwaiter().GetResult();
+            Assert.That(World.Current, Is.Null);
         }
 
-        private static World CreateWorld(IEnumerable<IWorldCoreService> services)
+        [Test]
+        public void CriticalSubSystemTickFault_EndsPlayAfterDomainAndStopsLaterTicks()
         {
-            return World.Create(
-                services,
-                new GameLauncher(new Func<ILaunchStep>[] { () => new DelegateStep(LaunchStepResult.Success) }));
+            var trace = new List<string>();
+            World world = World.Create(new[] { new FaultingSubSystem(trace) });
+            world.InitializeAsync().GetAwaiter().GetResult();
+            world.StartPlay();
+
+            world.UpdateTick(1f);
+            world.UpdateTick(1f);
+
+            Assert.That(world.State, Is.EqualTo(WorldState.Faulted));
+            Assert.That(trace, Is.EqualTo(new[] { "begin", "tick", "end" }));
+            Assert.That(world.Failure, Is.EqualTo("expected"));
         }
 
-        private sealed class ProbeService : IWorldCoreService
+        [Test]
+        public void StartPlayFailure_EndsOnlyBegunSubSystemsInReverseAndLeavesWorldFaulted()
         {
-            private readonly List<string> trace;
-            private readonly bool failInitialization;
-
-            public ProbeService(string name, List<string> trace, bool failInitialization = false)
+            var trace = new List<string>();
+            World world = World.Create(new WorldSubSystem[]
             {
-                Name = name;
-                this.trace = trace;
-                this.failInitialization = failInitialization;
+                new FoundationSubSystem(trace),
+                new BeginFailingSubSystem(trace)
+            });
+            world.InitializeAsync().GetAwaiter().GetResult();
+
+            Assert.Throws<InvalidOperationException>(() => world.StartPlay());
+
+            Assert.That(world.State, Is.EqualTo(WorldState.Faulted));
+            Assert.That(trace, Does.Contain("foundation.end"));
+            CollectionAssert.DoesNotContain(trace, "failing.end");
+        }
+
+        [Test]
+        public void InitializeCancellation_RollsBackAndSecondWorldIsRejectedUntilShutdown()
+        {
+            var trace = new List<string>();
+            var cancellation = new CancellationTokenSource();
+            World world = World.Create(new WorldSubSystem[]
+            {
+                new FoundationSubSystem(trace),
+                new CancelingSubSystem(cancellation, trace)
+            });
+            Assert.Throws<InvalidOperationException>(() => World.Create());
+
+            OperationCanceledException canceled = null;
+            try
+            {
+                world.InitializeAsync(cancellation.Token).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException exception)
+            {
+                canceled = exception;
             }
 
-            public string Name { get; }
+            Assert.That(canceled, Is.Not.Null);
+            Assert.That(world.State, Is.EqualTo(WorldState.Faulted));
+            Assert.That(trace, Does.Contain("foundation.shutdown"));
+        }
 
-            public Task InitializeAsync(CancellationToken cancellationToken)
+        private sealed class FoundationSubSystem : WorldSubSystem
+        {
+            private readonly List<string> trace;
+
+            public FoundationSubSystem(List<string> trace) => this.trace = trace;
+
+            protected override Task OnInitializeAsync(CancellationToken cancellationToken)
             {
-                trace.Add($"init:{Name}");
-                if (failInitialization)
+                trace.Add("foundation.initialize");
+                return Task.CompletedTask;
+            }
+
+            protected override void OnBeginPlay() => trace.Add("foundation.begin");
+            protected override void OnEndPlay() => trace.Add("foundation.end");
+            protected override Task OnShutdownAsync()
+            {
+                trace.Add("foundation.shutdown");
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class DependentSubSystem : WorldSubSystem
+        {
+            private readonly List<string> trace;
+
+            public DependentSubSystem(List<string> trace)
+            {
+                this.trace = trace;
+                AddDependency<FoundationSubSystem>();
+            }
+
+            protected override Task OnInitializeAsync(CancellationToken cancellationToken)
+            {
+                trace.Add("dependent.initialize");
+                AddTickTask("Dependent", TickGroup.TG_Gameplay, ignored => trace.Add("dependent.tick"));
+                return Task.CompletedTask;
+            }
+
+            protected override void OnBeginPlay() => trace.Add("dependent.begin");
+            protected override void OnEndPlay() => trace.Add("dependent.end");
+            protected override Task OnShutdownAsync()
+            {
+                trace.Add("dependent.shutdown");
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class FailingSubSystem : WorldSubSystem
+        {
+            private readonly List<string> trace;
+
+            public FailingSubSystem(List<string> trace) => this.trace = trace;
+
+            protected override Task OnInitializeAsync(CancellationToken cancellationToken)
+            {
+                trace.Add("failing.initialize");
+                throw new InvalidOperationException("expected");
+            }
+        }
+
+        private sealed class FaultingSubSystem : WorldSubSystem
+        {
+            private readonly List<string> trace;
+
+            public FaultingSubSystem(List<string> trace) => this.trace = trace;
+
+            protected override Task OnInitializeAsync(CancellationToken cancellationToken)
+            {
+                AddTickTask("Fault", TickGroup.TG_Gameplay, ignored =>
                 {
+                    trace.Add("tick");
                     throw new InvalidOperationException("expected");
-                }
-
+                });
                 return Task.CompletedTask;
             }
 
-            public Task ShutdownAsync()
-            {
-                trace.Add($"shutdown:{Name}");
-                return Task.CompletedTask;
-            }
+            protected override void OnBeginPlay() => trace.Add("begin");
+            protected override void OnEndPlay() => trace.Add("end");
         }
 
-        private sealed class DelegateStep : ILaunchStep
-        {
-            private readonly Func<LaunchStepResult> execute;
-
-            public DelegateStep(Func<LaunchStepResult> execute)
-            {
-                this.execute = execute;
-            }
-
-            public string Name => "Test";
-
-            public Task<LaunchStepResult> ExecuteAsync(LaunchContext context, CancellationToken cancellationToken)
-            {
-                return Task.FromResult(execute());
-            }
-
-            public Task ExitAsync(LaunchContext context)
-            {
-                return Task.CompletedTask;
-            }
-        }
-
-        private sealed class ProbeMotorSimulation : ICharacterMotorSimulation
+        private sealed class BeginFailingSubSystem : WorldSubSystem
         {
             private readonly List<string> trace;
 
-            public ProbeMotorSimulation(List<string> trace)
+            public BeginFailingSubSystem(List<string> trace)
             {
                 this.trace = trace;
+                AddDependency<FoundationSubSystem>();
             }
 
-            public void Step(float deltaTime) => trace.Add($"motor:{deltaTime}");
-
-            public void ConsumePostPhysicsEvents(float deltaTime) => trace.Add($"events:{deltaTime}");
-
-            public void Present(float currentTime) => trace.Add($"present:{currentTime}");
-
-            public void Dispose()
+            protected override void OnBeginPlay()
             {
+                trace.Add("failing.begin");
+                throw new InvalidOperationException("expected");
             }
+
+            protected override void OnEndPlay() => trace.Add("failing.end");
+        }
+
+        private sealed class CancelingSubSystem : WorldSubSystem
+        {
+            private readonly CancellationTokenSource cancellation;
+            private readonly List<string> trace;
+
+            public CancelingSubSystem(CancellationTokenSource cancellation, List<string> trace)
+            {
+                this.cancellation = cancellation;
+                this.trace = trace;
+                AddDependency<FoundationSubSystem>();
+            }
+
+            protected override Task OnInitializeAsync(CancellationToken cancellationToken)
+            {
+                trace.Add("canceling.initialize");
+                cancellation.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class CycleASubSystem : WorldSubSystem
+        {
+            public CycleASubSystem() => AddDependency<CycleBSubSystem>();
+        }
+
+        private sealed class CycleBSubSystem : WorldSubSystem
+        {
+            public CycleBSubSystem() => AddDependency<CycleASubSystem>();
         }
     }
 }

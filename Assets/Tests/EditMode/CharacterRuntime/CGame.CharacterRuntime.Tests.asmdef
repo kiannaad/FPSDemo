@@ -2,7 +2,8 @@
     "name": "CGame.CharacterRuntime.Tests",
     "rootNamespace": "CGame.CharacterRuntime.Tests",
     "references": [
-        "CGame.CharacterRuntime"
+        "CGame.CharacterRuntime",
+        "CGame.World"
     ],
     "includePlatforms": [
         "Editor"

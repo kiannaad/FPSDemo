@@ -3,6 +3,7 @@
     "rootNamespace": "CGame.Animation.Tests",
     "references": [
         "CGame.Animation",
+        "CGame.World",
         "CGame.CharacterRuntime"
     ],
     "includePlatforms": [

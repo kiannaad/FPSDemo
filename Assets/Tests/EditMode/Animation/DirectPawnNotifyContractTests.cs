@@ -1,15 +1,17 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
-using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 
 namespace CGame.Animation.Tests
 {
     public sealed class DirectPawnNotifyContractTests
     {
-        private const string TempAssetPath = "Assets/Tests/EditMode/Animation/TempNotifyContract.asset";
+        private static readonly string TempSerializedPath = Path.GetFullPath(
+            Path.Combine(Application.dataPath, "../Temp/TempNotifyContract.asset"));
 
         [SetUp]
         public void SetUp()
@@ -21,7 +23,10 @@ namespace CGame.Animation.Tests
         [TearDown]
         public void TearDown()
         {
-            AssetDatabase.DeleteAsset(TempAssetPath);
+            if (File.Exists(TempSerializedPath))
+            {
+                File.Delete(TempSerializedPath);
+            }
         }
 
         [Test]
@@ -67,22 +72,33 @@ namespace CGame.Animation.Tests
             };
             track.AddEvent(notify, 3, 4).MinTriggerWeight = 0.25f;
 
-            AssetDatabase.CreateAsset(asset, TempAssetPath);
-            AssetDatabase.AddObjectToAsset(asset.AnimationClip, asset);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.ImportAsset(TempAssetPath, ImportAssetOptions.ForceUpdate);
+            InternalEditorUtility.SaveToSerializedFileAndForget(
+                new UnityEngine.Object[] { asset, asset.AnimationClip },
+                TempSerializedPath,
+                true);
 
-            AnimationClipAsset reloaded = AssetDatabase.LoadAssetAtPath<AnimationClipAsset>(TempAssetPath);
-            AnimationNotifyEvent reloadedEvent = reloaded.NotifyTracks[0].Events[0];
-            AnimationDurationNotify reloadedNotify = reloadedEvent.Notify as AnimationDurationNotify;
+            UnityEngine.Object[] reloadedObjects = InternalEditorUtility.LoadSerializedFileAndForget(TempSerializedPath);
+            try
+            {
+                AnimationClipAsset reloaded = reloadedObjects.OfType<AnimationClipAsset>().Single();
+                AnimationNotifyEvent reloadedEvent = reloaded.NotifyTracks[0].Events[0];
+                AnimationDurationNotify reloadedNotify = reloadedEvent.Notify as AnimationDurationNotify;
 
-            Assert.That(reloadedNotify, Is.Not.Null);
-            Assert.That(reloadedNotify.DisplayName, Is.EqualTo("ReloadWindow"));
-            Assert.That(reloadedNotify.FadeOutPolicy, Is.EqualTo(AnimationNotifyFadeOutPolicy.FinishActiveDuration));
-            Assert.That(reloadedEvent.StartFrame, Is.EqualTo(3));
-            Assert.That(reloadedEvent.DurationFrames, Is.EqualTo(4));
-            Assert.That(reloadedEvent.MinTriggerWeight, Is.EqualTo(0.25f));
-            Assert.That(RecordingDurationNotify.Trace, Is.Empty, "Editor serialization must not execute runtime callbacks.");
+                Assert.That(reloadedNotify, Is.Not.Null);
+                Assert.That(reloadedNotify.DisplayName, Is.EqualTo("ReloadWindow"));
+                Assert.That(reloadedNotify.FadeOutPolicy, Is.EqualTo(AnimationNotifyFadeOutPolicy.FinishActiveDuration));
+                Assert.That(reloadedEvent.StartFrame, Is.EqualTo(3));
+                Assert.That(reloadedEvent.DurationFrames, Is.EqualTo(4));
+                Assert.That(reloadedEvent.MinTriggerWeight, Is.EqualTo(0.25f));
+                Assert.That(RecordingDurationNotify.Trace, Is.Empty, "Editor serialization must not execute runtime callbacks.");
+            }
+            finally
+            {
+                for (int objectIndex = 0; objectIndex < reloadedObjects.Length; objectIndex++)
+                {
+                    UnityEngine.Object.DestroyImmediate(reloadedObjects[objectIndex]);
+                }
+            }
         }
 
         [Test]

@@ -3,6 +3,7 @@
     "rootNamespace": "CGame.Animation.PlayMode.Tests",
     "references": [
         "CGame.Animation",
+        "CGame.World",
         "CGame.Ability.Animation",
         "CGame.Ability",
         "CGame.CharacterRuntime",

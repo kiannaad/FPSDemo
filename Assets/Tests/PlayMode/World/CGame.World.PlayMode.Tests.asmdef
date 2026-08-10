@@ -3,7 +3,7 @@
   "rootNamespace": "CGame.World.PlayMode.Tests",
   "references": [
     "CGame.World",
-    "CGame.Launcher"
+    "CGame.World.CoreServices"
   ],
   "includePlatforms": [],
   "autoReferenced": false,

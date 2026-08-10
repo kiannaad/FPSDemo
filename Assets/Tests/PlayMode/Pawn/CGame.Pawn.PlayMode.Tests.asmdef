@@ -3,7 +3,6 @@
   "rootNamespace": "CGame.PawnRuntime.PlayMode.Tests",
   "references": [
     "CGame.World",
-    "CGame.Launcher",
     "CGame.Gameplay",
     "CGame.PlayerController",
     "CGame.PlayerState",
