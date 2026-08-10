@@ -30,14 +30,6 @@ MonoBehaviour:
       AssetTags:
       ActiveRuleName: EnableGroup
       Collectors:
-      - CollectPath: Assets/Resources/CharacterDefinition.asset
-        CollectorGUID: a5ee80a94ea73824298726dec63166aa
-        CollectorType: 0
-        AddressRuleName: AddressByFileName
-        PackRuleName: PackSeparately
-        FilterRuleName: CollectAll
-        AssetTags:
-        UserData:
       - CollectPath: Assets/Resources/KnifeWeaponAnimationDefinition.asset
         CollectorGUID: f608bde65d7fe334bb07733b338eef9e
         CollectorType: 0
