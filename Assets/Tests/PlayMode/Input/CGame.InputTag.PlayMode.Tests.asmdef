@@ -1,0 +1,8 @@
+{
+  "name": "CGame.InputTag.PlayMode.Tests",
+  "rootNamespace": "CGame.InputTag.PlayMode.Tests",
+  "references": ["CGame.World", "CGame.PlayerController", "CGame.CharacterRuntime", "CGame.Pawn", "CGame.Character.Definition", "CGame.Ability", "CGame.Input", "CGame.GameplayTags", "CGame.Inventory", "CGame.InventoryEquipment", "CGame.PlayerState", "Unity.InputSystem"],
+  "includePlatforms": [], "excludePlatforms": [], "allowUnsafeCode": false, "overrideReferences": true,
+  "precompiledReferences": [], "autoReferenced": false, "defineConstraints": [], "versionDefines": [], "noEngineReferences": false,
+  "optionalUnityReferences": ["TestAssemblies"]
+}
