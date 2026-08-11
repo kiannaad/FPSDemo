@@ -1,4 +1,5 @@
 using System;
+using CGame.Animation.Rig;
 using UnityEngine;
 
 namespace CGame.Animation
@@ -15,11 +16,13 @@ namespace CGame.Animation
             Pawn pawn,
             IAnimationCharacterSource source,
             Animator animator,
+            KRigComponent rigComponent,
             AvatarMask upperBodyMask = null)
         {
             if (pawn == null) throw new ArgumentNullException(nameof(pawn));
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (animator == null) throw new ArgumentNullException(nameof(animator));
+            if (rigComponent == null) throw new ArgumentNullException(nameof(rigComponent));
 
             updateContext = new AnimationUpdateContext(source);
             animatorController = new CharacterAnimatorController(animator, updateContext);
@@ -27,7 +30,7 @@ namespace CGame.Animation
                 pawn,
                 animator,
                 upperBodyMask);
-            boneController = new CharacterBoneController(animator);
+            boneController = new CharacterBoneController(animator, rigComponent);
         }
 
         public AnimationUpdateContext UpdateContext => updateContext;
@@ -53,9 +56,18 @@ namespace CGame.Animation
             }
 
             animatorController.UpdateParameters(deltaTime);
-            if (!playablesController.IsValid() && !playablesController.TryRebuild())
+            if (!playablesController.IsValid())
             {
-                return;
+                boneController.ReleaseOutput();
+                if (!playablesController.TryRebuild())
+                {
+                    return;
+                }
+            }
+
+            if (!boneController.IsValid())
+            {
+                boneController.TryRebuild(playablesController.Graph, playablesController.ProjectOutput);
             }
 
             playablesController.Update(deltaTime);

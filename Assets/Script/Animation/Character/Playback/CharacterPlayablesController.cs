@@ -54,6 +54,8 @@ namespace CGame.Animation
 
         internal Playable NativeControllerSource => nativeControllerSource;
         internal AnimationLayerMixerPlayable MasterMixer => masterMixer;
+        internal PlayableGraph Graph => graph;
+        internal PlayableOutput ProjectOutput => projectOutput;
         internal AnimationLayerMixerPlayable OverlayMixer => overlayMixer?.Mixer
             ?? AnimationLayerMixerPlayable.Null;
         internal AnimationLayerMixerPlayable SlotMixer => slotMixer?.Mixer
@@ -70,7 +72,7 @@ namespace CGame.Animation
                 || animator == null
                 || !animator.enabled
                 || !graph.IsValid()
-                || graph.GetOutputCount() != 2
+                || (graph.GetOutputCount() != 2 && graph.GetOutputCount() != 3)
                 || !nativeControllerSource.IsValid()
                 || !masterMixer.IsValid()
                 || overlayMixer == null
