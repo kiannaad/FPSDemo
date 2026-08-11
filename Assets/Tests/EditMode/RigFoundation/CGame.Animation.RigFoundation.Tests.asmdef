@@ -1,0 +1,21 @@
+{
+    "name": "CGame.Animation.RigFoundation.Tests",
+    "rootNamespace": "CGame.Animation.RigFoundation.Tests",
+    "references": [
+        "CGame.Animation"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

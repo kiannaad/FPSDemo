@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using CGame.Ability;
 using CGame.Animation;
+using CGame.Animation.Rig;
 using UnityEngine;
 
 namespace CGame
@@ -12,6 +13,7 @@ namespace CGame
         [SerializeField] private AbilityDefinition[] baseAbilities = Array.Empty<AbilityDefinition>();
         [SerializeField] private GameObject pawnPrefab;
         [SerializeField] private CharacterAnimationConfig animationConfig;
+        [SerializeField] private KRig rig;
         [SerializeField] private Mesh firstPersonMesh;
         [SerializeField] private Material firstPersonMaterial;
         [SerializeField] private bool requireCamera;
@@ -26,6 +28,8 @@ namespace CGame
         public GameObject PawnPrefab => pawnPrefab;
 
         public CharacterAnimationConfig AnimationConfig => animationConfig;
+
+        public KRig Rig => rig;
 
         public Mesh FirstPersonMesh => firstPersonMesh;
 

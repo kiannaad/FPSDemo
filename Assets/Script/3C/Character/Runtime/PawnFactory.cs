@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using CGame.Animation.Rig;
 using UnityEngine;
 
 namespace CGame
@@ -31,17 +32,19 @@ namespace CGame
             try
             {
                 root = UnityEngine.Object.Instantiate(definition.PawnPrefab, position, rotation);
-                root.name = $"Pawn:{definition.name}";
+                root.name = definition.PawnPrefab.name;
                 root.SetActive(false);
                 ConfigureFirstPersonVisual(root, definition);
 
                 CharacterPhysicsMotor motor = root.GetComponent<CharacterPhysicsMotor>();
-                Animator animator = root.GetComponentInChildren<Animator>(true);
+                Animator animator = ResolveAnimator(root);
+                KRigComponent rigComponent = ResolveRigComponent(animator, definition.Rig);
                 Camera camera = root.GetComponentInChildren<Camera>(true);
+                root.name = $"Pawn:{definition.name}";
                 var components = new List<ActorComponent>
                 {
                     new PawnMovementComponent(motor),
-                    new PawnAnimationComponent(animator, motor, definition.AnimationConfig),
+                    new PawnAnimationComponent(animator, motor, definition.AnimationConfig, rigComponent),
                     new EquipmentManagerComponent(),
                     new PawnHeroComponent(definition.InputProfile),
                     new PawnCameraComponent(camera, definition.RequireCamera)
@@ -79,6 +82,36 @@ namespace CGame
 
             renderer.sharedMesh = definition.FirstPersonMesh;
             renderer.sharedMaterials = new[] { definition.FirstPersonMaterial };
+        }
+
+        private static Animator ResolveAnimator(GameObject root)
+        {
+            Animator[] animators = root.GetComponentsInChildren<Animator>(true);
+            if (animators.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    "PawnPrefab must contain exactly one Animator in its hierarchy.");
+            }
+
+            return animators[0];
+        }
+
+        private static KRigComponent ResolveRigComponent(Animator animator, KRig rig)
+        {
+            if (rig == null)
+            {
+                throw new InvalidOperationException("PawnDefinition must specify a KRig.");
+            }
+
+            KRigComponent[] rigComponents = animator.GetComponentsInChildren<KRigComponent>(true);
+            if (rigComponents.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    "Pawn Animator hierarchy must contain exactly one KRigComponent.");
+            }
+
+            rigComponents[0].Initialize(rig);
+            return rigComponents[0];
         }
 
         private static void DestroyRoot(GameObject root)

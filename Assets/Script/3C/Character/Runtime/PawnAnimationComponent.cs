@@ -1,5 +1,6 @@
 using System;
 using CGame.Animation;
+using CGame.Animation.Rig;
 using UnityEngine;
 
 namespace CGame
@@ -9,22 +10,27 @@ namespace CGame
         private readonly Animator animator;
         private readonly CharacterPhysicsMotor motor;
         private readonly CharacterAnimationConfig animationConfig;
+        private readonly KRigComponent rigComponent;
         private CharacterAnimInstance animInstance;
 
         public PawnAnimationComponent(
             Animator animator,
             CharacterPhysicsMotor motor,
-            CharacterAnimationConfig animationConfig)
+            CharacterAnimationConfig animationConfig,
+            KRigComponent rigComponent)
         {
             this.animator = animator;
             this.motor = motor;
             this.animationConfig = animationConfig;
+            this.rigComponent = rigComponent;
             AddDependency<PawnMovementComponent>();
         }
 
         public Animator Animator => animator;
 
         public CharacterAnimInstance AnimInstance => animInstance;
+
+        public KRigComponent RigComponent => rigComponent;
 
         public int PreAnimationTickCount { get; private set; }
 
@@ -37,12 +43,13 @@ namespace CGame
                 throw new InvalidOperationException("PawnAnimationComponent requires a Pawn owner.");
             }
 
-            if (animator != null && motor != null && animationConfig != null)
+            if (animator != null && motor != null && animationConfig != null && rigComponent != null)
             {
                 animInstance = new CharacterAnimInstance(
                     pawn,
                     new AnimationCharacterSource(motor),
                     animator,
+                    rigComponent,
                     animationConfig.UpperBodyMask);
             }
 
