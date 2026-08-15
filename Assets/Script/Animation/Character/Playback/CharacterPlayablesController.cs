@@ -34,12 +34,17 @@ namespace CGame.Animation
         private readonly AnimationNotifyDispatchQueue notifyQueue = new AnimationNotifyDispatchQueue();
         private PlayableGraph graph;
         private Playable nativeControllerSource;
+        private AnimatorControllerPlayable animatorControllerSource;
         private RuntimeAnimatorController runtimeController;
         private CharacterAnimationChannelMixer overlayMixer;
         private CharacterAnimationChannelMixer slotMixer;
         private CharacterAnimationChannelMixer overrideMixer;
         private AnimationLayerMixerPlayable masterMixer;
         private PlayableOutput projectOutput;
+        private AnimationClipAsset persistentPoseAsset;
+        private AnimationPlaybackHandle persistentPoseReceipt;
+        private AnimationPlaybackHandle currentPersistentPoseHandle;
+        private long persistentPoseRequestId;
         private bool isDisposed;
 
         public CharacterPlayablesController(
@@ -66,14 +71,15 @@ namespace CGame.Animation
         internal int SlotActiveSlotCount => slotMixer?.ActiveSlotCount ?? 0;
         internal int OverrideActiveSlotCount => overrideMixer?.ActiveSlotCount ?? 0;
 
-        public bool IsValid()
+public bool IsValid()
         {
             if (isDisposed
                 || animator == null
                 || !animator.enabled
                 || !graph.IsValid()
-                || (graph.GetOutputCount() != 2 && graph.GetOutputCount() != 3)
+                || graph.GetOutputCount() < 2
                 || !nativeControllerSource.IsValid()
+                || !animatorControllerSource.IsValid()
                 || !masterMixer.IsValid()
                 || overlayMixer == null
                 || !overlayMixer.Mixer.IsValid()
@@ -87,19 +93,19 @@ namespace CGame.Animation
                 return false;
             }
 
-            PlayableOutput currentNativeOutput = graph.GetOutput(0);
-            return currentNativeOutput.IsOutputValid()
-                && currentNativeOutput.GetSourcePlayable().Equals(nativeControllerSource)
-                && masterMixer.GetInput(0).Equals(nativeControllerSource)
+            PlayableOutput nativeOutput = graph.GetOutput(0);
+            return nativeOutput.IsOutputValid()
+                && nativeOutput.GetSourcePlayable().Equals(nativeControllerSource)
+                && masterMixer.GetInput(0).Equals(animatorControllerSource)
                 && masterMixer.GetInput(1).Equals(overrideMixer.Mixer)
                 && slotMixer.Mixer.GetInput(0).Equals(overlayMixer.Mixer)
                 && overrideMixer.Mixer.GetInput(0).Equals(slotMixer.Mixer)
-                && Mathf.Approximately(currentNativeOutput.GetWeight(), 0f)
+                && Mathf.Approximately(nativeOutput.GetWeight(), 0f)
                 && Mathf.Approximately(projectOutput.GetWeight(), 1f)
-                && graph.GetOutput(1).Equals(projectOutput);
+                && ContainsOutput(projectOutput);
         }
 
-        public bool TryRebuild()
+public bool TryRebuild()
         {
             ReleaseOwnedResources();
             if (isDisposed
@@ -127,6 +133,7 @@ namespace CGame.Animation
 
             try
             {
+                animatorControllerSource = AnimatorControllerPlayable.Create(graph, controller);
                 overlayMixer = new CharacterAnimationChannelMixer(
                     graph,
                     0,
@@ -146,7 +153,7 @@ namespace CGame.Animation
                     pawn,
                     notifyQueue);
                 masterMixer = AnimationLayerMixerPlayable.Create(graph, 2);
-                masterMixer.ConnectInput(0, source, 0, 1f);
+                masterMixer.ConnectInput(0, animatorControllerSource, 0, 1f);
                 masterMixer.ConnectInput(1, overrideMixer.Mixer, 0, 0f);
                 if (upperBodyMask != null)
                 {
@@ -155,7 +162,7 @@ namespace CGame.Animation
 
                 PlayableOutput output = AnimationPlayableOutput.Create(
                     graph,
-                    "CharacterUpperBody",
+                    "CharacterPlayback",
                     animator);
                 output.SetSourcePlayable(masterMixer);
                 output.SetWeight(1f);
@@ -164,6 +171,8 @@ namespace CGame.Animation
                 runtimeController = controller;
                 projectOutput = output;
                 graph.Play();
+                SynchronizeAnimatorControllerParameters();
+                RestorePersistentPose();
                 return IsValid();
             }
             catch (Exception exception)
@@ -192,7 +201,7 @@ namespace CGame.Animation
                 false);
         }
 
-        public AnimationPlaybackHandle PlayPoseImmediate(
+public AnimationPlaybackHandle PlayPoseImmediate(
             AnimationClipAsset asset,
             long requestId = 0)
         {
@@ -211,7 +220,15 @@ namespace CGame.Animation
                 true);
             if (handle.State != AnimationPlaybackState.Failed)
             {
-                masterMixer.SetInputWeight(1, 1f);
+                if (upperBodyMask != null)
+                {
+                    masterMixer.SetInputWeight(1, 1f);
+                }
+
+                persistentPoseAsset = asset;
+                persistentPoseReceipt = handle;
+                currentPersistentPoseHandle = handle;
+                persistentPoseRequestId = resolvedRequestId;
             }
 
             return handle;
@@ -267,9 +284,19 @@ namespace CGame.Animation
                 return false;
             }
 
-            bool stopped = overlayMixer != null && overlayMixer.Stop(handle);
+            AnimationPlaybackHandle resolvedHandle = ReferenceEquals(handle, persistentPoseReceipt)
+                ? currentPersistentPoseHandle
+                : handle;
+            bool stopped = overlayMixer != null && overlayMixer.Stop(resolvedHandle);
             stopped = (slotMixer != null && slotMixer.Stop(handle)) || stopped;
             stopped = (overrideMixer != null && overrideMixer.Stop(handle)) || stopped;
+            if (ReferenceEquals(handle, persistentPoseReceipt))
+            {
+                persistentPoseAsset = null;
+                persistentPoseReceipt = null;
+                currentPersistentPoseHandle = null;
+                persistentPoseRequestId = 0;
+            }
             for (int i = synchronizedOverrides.Count - 1; i >= 0; i--)
             {
                 SynchronizedOverride pair = synchronizedOverrides[i];
@@ -290,13 +317,14 @@ namespace CGame.Animation
             return slotMixer != null ? slotMixer.GetCurveValue(curveName) : 0f;
         }
 
-        public void Update(float deltaTime)
+public void Update(float deltaTime)
         {
             if (!IsValid() || deltaTime <= 0f)
             {
                 return;
             }
 
+            SynchronizeAnimatorControllerParameters();
             overlayMixer.Update();
             slotMixer.Update();
             overrideMixer.Update();
@@ -316,9 +344,10 @@ namespace CGame.Animation
                 synchronizedOverrides.RemoveAt(i);
             }
 
-            bool hasUpperBodyOutput = overlayMixer.HasActivePlayback
-                || slotMixer.HasActivePlayback
-                || overrideMixer.HasActivePlayback;
+            bool hasUpperBodyOutput = upperBodyMask != null
+                && (overlayMixer.HasActivePlayback
+                    || slotMixer.HasActivePlayback
+                    || overrideMixer.HasActivePlayback);
             masterMixer.SetInputWeight(1, hasUpperBodyOutput ? 1f : 0f);
         }
 
@@ -338,6 +367,10 @@ namespace CGame.Animation
             }
 
             ReleaseOwnedResources();
+            persistentPoseAsset = null;
+            persistentPoseReceipt = null;
+            currentPersistentPoseHandle = null;
+            persistentPoseRequestId = 0;
             notifyQueue.Dispatch();
             isDisposed = true;
         }
@@ -362,6 +395,19 @@ namespace CGame.Animation
         private bool EnsureReady()
         {
             return IsValid() || TryRebuild();
+        }
+
+        private bool ContainsOutput(PlayableOutput expectedOutput)
+        {
+            for (int index = 1; index < graph.GetOutputCount(); index++)
+            {
+                if (graph.GetOutput(index).Equals(expectedOutput))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private AnimationPlaybackHandle CreateFailedHandle(
@@ -407,17 +453,63 @@ namespace CGame.Animation
                 graph.DestroyPlayable(masterMixer);
             }
 
+            if (graph.IsValid() && animatorControllerSource.IsValid())
+            {
+                graph.DestroyPlayable(animatorControllerSource);
+            }
+
             overrideMixer?.Dispose();
             slotMixer?.Dispose();
             overlayMixer?.Dispose();
             synchronizedOverrides.Clear();
             nativeControllerSource = Playable.Null;
+            animatorControllerSource = AnimatorControllerPlayable.Null;
             runtimeController = null;
             masterMixer = AnimationLayerMixerPlayable.Null;
             projectOutput = PlayableOutput.Null;
             overrideMixer = null;
             slotMixer = null;
             overlayMixer = null;
+        }
+
+        private void RestorePersistentPose()
+        {
+            if (persistentPoseAsset == null || persistentPoseReceipt == null)
+            {
+                return;
+            }
+
+            currentPersistentPoseHandle = overlayMixer.Play(
+                persistentPoseAsset,
+                NextPlaybackId(),
+                persistentPoseRequestId,
+                false,
+                false,
+                true);
+            if (currentPersistentPoseHandle.State == AnimationPlaybackState.Failed)
+            {
+                throw new InvalidOperationException("Unable to restore the persistent weapon pose after graph rebuild.");
+            }
+
+            if (upperBodyMask != null)
+            {
+                masterMixer.SetInputWeight(1, 1f);
+            }
+        }
+
+        private void SynchronizeAnimatorControllerParameters()
+        {
+            if (!animatorControllerSource.IsValid())
+            {
+                return;
+            }
+
+            animatorControllerSource.SetFloat("MoveX", animator.GetFloat("MoveX"));
+            animatorControllerSource.SetFloat("MoveY", animator.GetFloat("MoveY"));
+            animatorControllerSource.SetFloat("Velocity", animator.GetFloat("Velocity"));
+            animatorControllerSource.SetBool("Moving", animator.GetBool("Moving"));
+            animatorControllerSource.SetBool("InAir", animator.GetBool("InAir"));
+            animatorControllerSource.SetFloat("Sprinting", animator.GetFloat("Sprinting"));
         }
     }
 }

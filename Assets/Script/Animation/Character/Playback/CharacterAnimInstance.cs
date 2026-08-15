@@ -30,10 +30,14 @@ namespace CGame.Animation
                 pawn,
                 animator,
                 upperBodyMask);
-            boneController = new CharacterBoneController(animator, rigComponent);
+            boneController = new CharacterBoneController(
+                animator,
+                rigComponent,
+                updateContext);
         }
 
         public AnimationUpdateContext UpdateContext => updateContext;
+        public CharacterBoneController BoneController => boneController;
         internal CharacterAnimatorController AnimatorController => animatorController;
         internal CharacterPlayablesController PlayablesController => playablesController;
         public void UpdateAnimation(float deltaTime)
@@ -51,6 +55,7 @@ namespace CGame.Animation
 
             if (!animatorController.IsValid())
             {
+                boneController.ReleaseOutput();
                 playablesController.RestoreNativeOutput();
                 return;
             }
@@ -65,22 +70,20 @@ namespace CGame.Animation
                 }
             }
 
-            if (!boneController.IsValid())
+            playablesController.Update(deltaTime);
+            if (!boneController.IsValid() && !boneController.TryRebuild())
             {
-                boneController.TryRebuild(playablesController.Graph, playablesController.ProjectOutput);
+                return;
             }
 
-            playablesController.Update(deltaTime);
-            if (boneController.IsValid())
-            {
-                boneController.Update(deltaTime);
-            }
+            boneController.Update(deltaTime);
         }
 
         public void DispatchAnimationNotifies()
         {
             if (!isDisposed)
             {
+                boneController.PostAnimationUpdate();
                 playablesController.DispatchNotifies();
             }
         }
@@ -88,6 +91,18 @@ namespace CGame.Animation
         public void MarkDiscontinuity()
         {
             updateContext.MarkDiscontinuity();
+        }
+
+        public bool TryRebuildGraph()
+        {
+            if (isDisposed)
+            {
+                return false;
+            }
+
+            boneController.ReleaseOutput();
+            return playablesController.TryRebuild()
+                && boneController.TryRebuild();
         }
 
         public AnimationPlaybackHandle PlayAbilityAnimation(
