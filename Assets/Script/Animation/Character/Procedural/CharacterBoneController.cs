@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using CGame.Animation.Rig;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Animations;
+using UnityEngine.Experimental.Animations;
 using UnityEngine.Playables;
 
 namespace CGame.Animation
@@ -10,50 +13,65 @@ namespace CGame.Animation
     {
         private readonly Animator animator;
         private readonly KRigComponent rigComponent;
+        private readonly AnimationUpdateContext updateContext;
+        private NativeArray<VirtualElementHandle> virtualElementHandles;
+        private NativeArray<TransformStreamPose> blendingPoses;
+        private NativeArray<int> cacheCompletionMarker;
         private PlayableGraph graph;
         private AnimationPlayableOutput output;
-        private AnimationMixerPlayable passthroughMixer;
-        private Playable previousSource;
-        private CharacterProceduralAnimationProfile profile;
+        private AnimationScriptPlayable virtualElementPlayable;
+        private AnimationScriptPlayable blendingPlayable;
+        private ProfileRuntime activeRuntime;
+        private BoneProfile activeProfile;
+        private BoneProfile nextProfile;
+        private bool shouldLinkProfile;
         private bool isDisposed;
 
-        public CharacterBoneController(Animator animator, KRigComponent rigComponent)
+        public CharacterBoneController(
+            Animator animator,
+            KRigComponent rigComponent,
+            AnimationUpdateContext updateContext)
         {
             this.animator = animator ?? throw new ArgumentNullException(nameof(animator));
             this.rigComponent = rigComponent ?? throw new ArgumentNullException(nameof(rigComponent));
+            this.updateContext = updateContext ?? throw new ArgumentNullException(nameof(updateContext));
         }
+
+        public BoneProfile ActiveProfile => activeProfile;
 
         public bool IsValid()
         {
-            return !isDisposed
-                && animator != null
-                && graph.IsValid()
-                && output.IsOutputValid()
-                && passthroughMixer.IsValid();
+            return !isDisposed && output.IsOutputValid();
         }
 
-        public bool TryRebuild(PlayableGraph targetGraph, PlayableOutput previousOutput)
+        public bool TryRebuild()
         {
+            ThrowIfDisposed();
+            if (IsValid())
+            {
+                return true;
+            }
+
+            PlayableGraph targetGraph = animator.playableGraph;
+            if (!targetGraph.IsValid())
+            {
+                return false;
+            }
+
             ReleaseOutput();
-            if (isDisposed || !targetGraph.IsValid() || !previousOutput.IsOutputValid())
-            {
-                return false;
-            }
-
-            Playable source = previousOutput.GetSourcePlayable();
-            if (!source.IsValid())
-            {
-                return false;
-            }
-
             try
             {
-                passthroughMixer = AnimationMixerPlayable.Create(targetGraph, 1);
-                passthroughMixer.ConnectInput(0, source, 0, 1f);
-                previousOutput.SetSourcePlayable(passthroughMixer);
-                output = (AnimationPlayableOutput)previousOutput;
-                previousSource = source;
                 graph = targetGraph;
+                CreateBasePipeline();
+                output = AnimationPlayableOutput.Create(graph, nameof(CharacterBoneController), animator);
+                output.SetAnimationStreamSource(AnimationStreamSource.PreviousInputs);
+                output.SetSourcePlayable(blendingPlayable);
+
+                if (shouldLinkProfile)
+                {
+                    RebuildRequestedProfileWithoutBlend();
+                }
+
                 return IsValid();
             }
             catch
@@ -63,57 +81,447 @@ namespace CGame.Animation
             }
         }
 
-        public CharacterProceduralAnimationProfile Profile => profile;
-
-        public void RequestProfile(CharacterProceduralAnimationProfile requestedProfile)
+        public void LinkProfile(BoneProfile profile)
         {
-            if (requestedProfile != null && requestedProfile.Rig != rigComponent.Rig)
+            ThrowIfDisposed();
+            if (profile == null)
             {
-                throw new InvalidOperationException("Procedural animation profile must reference the Pawn KRig.");
+                throw new ArgumentNullException(nameof(profile));
             }
+            profile.Validate(rigComponent.Rig);
+            nextProfile = profile;
+            shouldLinkProfile = true;
+            if (IsValid())
+            {
+                RequestPoseCache();
+            }
+        }
 
-            profile = requestedProfile;
+        public void UnlinkProfile()
+        {
+            ThrowIfDisposed();
+            nextProfile = null;
+            shouldLinkProfile = activeProfile != null;
+            if (shouldLinkProfile && IsValid())
+            {
+                RequestPoseCache();
+            }
         }
 
         public void Update(float deltaTime)
         {
-            if (IsValid())
+            if (!IsValid())
             {
-                KVirtualElement[] virtualElements = rigComponent.GetComponentsInChildren<KVirtualElement>(true);
-                foreach (KVirtualElement virtualElement in virtualElements)
-                {
-                    if (virtualElement.TargetBone != null)
-                    {
-                        virtualElement.transform.SetPositionAndRotation(
-                            virtualElement.TargetBone.position,
-                            virtualElement.TargetBone.rotation);
-                    }
-                }
+                return;
+            }
+
+            UpdateRuntime(activeRuntime);
+        }
+
+        public void PostAnimationUpdate()
+        {
+            if (isDisposed || !IsValid())
+            {
+                return;
+            }
+
+            activeRuntime?.PostUpdate();
+            if (shouldLinkProfile && cacheCompletionMarker[0] != 0)
+            {
+                ApplyProfileRequest();
             }
         }
 
         public void ReleaseOutput()
         {
-            if (graph.IsValid() && output.IsOutputValid() && previousSource.IsValid())
+            BoneProfile preservedProfile = shouldLinkProfile ? nextProfile : activeProfile;
+            bool preserveRequest = shouldLinkProfile || activeProfile != null;
+
+            if (graph.IsValid() && output.IsOutputValid())
             {
-                output.SetSourcePlayable(previousSource);
+                graph.DestroyOutput(output);
             }
 
-            if (graph.IsValid() && passthroughMixer.IsValid())
-            {
-                graph.DestroyPlayable(passthroughMixer);
-            }
+            DisposeRuntime(activeRuntime);
+            activeRuntime = null;
+
+            DestroyPlayable(blendingPlayable);
+            DestroyPlayable(virtualElementPlayable);
+
+            DisposeNativeArrays();
+            activeProfile = null;
+            nextProfile = preservedProfile;
+            shouldLinkProfile = preserveRequest;
 
             output = AnimationPlayableOutput.Null;
-            passthroughMixer = AnimationMixerPlayable.Null;
-            previousSource = Playable.Null;
+            virtualElementPlayable = AnimationScriptPlayable.Null;
+            blendingPlayable = AnimationScriptPlayable.Null;
             graph = default;
         }
 
         public void Dispose()
         {
+            if (isDisposed)
+            {
+                return;
+            }
+
             ReleaseOutput();
+            activeProfile = null;
+            nextProfile = null;
+            shouldLinkProfile = false;
             isDisposed = true;
+        }
+
+        private void CreateBasePipeline()
+        {
+            virtualElementHandles = CreateVirtualElementHandles();
+            virtualElementPlayable = AnimationScriptPlayable.Create(
+                graph,
+                new VirtualElementJob { Handles = virtualElementHandles },
+                0);
+
+            blendingPoses = CreateBlendingPoses();
+            cacheCompletionMarker = new NativeArray<int>(1, Allocator.Persistent);
+            blendingPlayable = AnimationScriptPlayable.Create(
+                graph,
+                new AnimationBlendingJob
+                {
+                    Poses = blendingPoses,
+                    CacheCompletionMarker = cacheCompletionMarker,
+                    EaseMode = EaseMode.Linear
+                },
+                1);
+            blendingPlayable.ConnectInput(0, virtualElementPlayable, 0, 1f);
+        }
+
+        private NativeArray<VirtualElementHandle> CreateVirtualElementHandles()
+        {
+            HashSet<Transform> rigTransforms = new HashSet<Transform>();
+            for (int index = 0; index < rigComponent.Rig.Hierarchy.Count; index++)
+            {
+                rigTransforms.Add(rigComponent.GetRigTransform(index));
+            }
+
+            KVirtualElement[] virtualElements = rigComponent.GetComponentsInChildren<KVirtualElement>(true);
+            HashSet<Transform> uniqueVirtualTransforms = new HashSet<Transform>();
+            NativeArray<VirtualElementHandle> handles =
+                new NativeArray<VirtualElementHandle>(virtualElements.Length, Allocator.Persistent);
+            try
+            {
+                for (int index = 0; index < virtualElements.Length; index++)
+                {
+                    KVirtualElement virtualElement = virtualElements[index];
+                    Transform virtualTransform = virtualElement.transform;
+                    Transform targetTransform = virtualElement.TargetBone;
+                    if (!uniqueVirtualTransforms.Add(virtualTransform))
+                    {
+                        throw new InvalidOperationException("KRig contains a duplicate virtual element Transform.");
+                    }
+
+                    if (targetTransform == null)
+                    {
+                        throw new InvalidOperationException($"Virtual element '{virtualElement.name}' has no target bone.");
+                    }
+
+                    if (targetTransform == virtualTransform)
+                    {
+                        throw new InvalidOperationException($"Virtual element '{virtualElement.name}' cannot target itself.");
+                    }
+
+                    if (!rigTransforms.Contains(virtualTransform) || !rigTransforms.Contains(targetTransform))
+                    {
+                        throw new InvalidOperationException(
+                            $"Virtual element '{virtualElement.name}' references a Transform outside its KRig hierarchy.");
+                    }
+
+                    handles[index] = new VirtualElementHandle
+                    {
+                        TargetHandle = animator.BindStreamTransform(targetTransform),
+                        VirtualHandle = animator.BindStreamTransform(virtualTransform)
+                    };
+                }
+
+                return handles;
+            }
+            catch
+            {
+                handles.Dispose();
+                throw;
+            }
+        }
+
+        private NativeArray<TransformStreamPose> CreateBlendingPoses()
+        {
+            int count = rigComponent.Rig.Hierarchy.Count;
+            NativeArray<TransformStreamPose> poses =
+                new NativeArray<TransformStreamPose>(count, Allocator.Persistent);
+            for (int index = 0; index < count; index++)
+            {
+                poses[index] = new TransformStreamPose
+                {
+                    Handle = animator.BindStreamTransform(rigComponent.GetRigTransform(index)),
+                    LocalPosition = Vector3.zero,
+                    LocalRotation = Quaternion.identity
+                };
+            }
+
+            return poses;
+        }
+
+        private ProfileRuntime BuildRuntime(BoneProfile profile)
+        {
+            profile.Validate(rigComponent.Rig);
+            ProfileRuntime runtime = new ProfileRuntime();
+            Playable previousLayerPlayable = Playable.Null;
+            try
+            {
+                LayerJobData jobData = new LayerJobData(
+                    animator,
+                    rigComponent,
+                    animator.BindStreamTransform(rigComponent.transform),
+                    updateContext);
+                foreach (AnimationLayerSettings layerSettings in profile.Layers)
+                {
+                    IAnimationLayerJob job = layerSettings.CreateAnimationJob();
+                    if (job == null)
+                    {
+                        throw new InvalidOperationException($"{layerSettings.name} did not create an animation layer job.");
+                    }
+
+                    AnimationScriptPlayable playable = AnimationScriptPlayable.Null;
+                    try
+                    {
+                        job.Initialize(jobData, layerSettings);
+                        playable = job.CreatePlayable(graph);
+                        if (!playable.IsValid())
+                        {
+                            throw new InvalidOperationException($"{layerSettings.name} did not create a valid animation playable.");
+                        }
+
+                        if (previousLayerPlayable.IsValid())
+                        {
+                            playable.ConnectInput(0, previousLayerPlayable, 0, 1f);
+                        }
+
+                        runtime.Add(new AnimationLayer(graph, layerSettings, job, playable));
+                        previousLayerPlayable = playable;
+                    }
+                    catch
+                    {
+                        if (graph.IsValid() && playable.IsValid())
+                        {
+                            graph.DestroyPlayable(playable);
+                        }
+
+                        job.Dispose();
+                        throw;
+                    }
+                }
+
+                return runtime;
+            }
+            catch
+            {
+                runtime.Dispose();
+                throw;
+            }
+        }
+
+        private void ApplyProfileRequest()
+        {
+            BoneProfile requestedProfile = nextProfile;
+            ProfileRuntime requestedRuntime = requestedProfile != null
+                ? BuildRuntime(requestedProfile)
+                : null;
+            ProfileRuntime previousRuntime = activeRuntime;
+            BoneProfile previousProfile = activeProfile;
+
+            previousRuntime?.DisconnectSource();
+            if (blendingPlayable.GetInput(0).IsValid())
+            {
+                blendingPlayable.DisconnectInput(0);
+            }
+            requestedRuntime?.ConnectSource(virtualElementPlayable);
+            ConnectBlendingSource(
+                requestedRuntime?.ResolveFinalPlayable(virtualElementPlayable)
+                ?? virtualElementPlayable);
+
+            float blendDuration = requestedProfile != null
+                ? requestedProfile.BlendIn
+                : previousProfile?.BlendOut ?? 0f;
+            EaseMode easeMode = requestedProfile != null
+                ? requestedProfile.EaseMode
+                : previousProfile?.EaseMode ?? EaseMode.Linear;
+            ConfigureBlend(blendDuration, easeMode);
+
+            activeRuntime = requestedRuntime;
+            activeProfile = requestedProfile;
+            shouldLinkProfile = false;
+            DisposeRuntime(previousRuntime);
+        }
+
+        private void RebuildRequestedProfileWithoutBlend()
+        {
+            BoneProfile requestedProfile = nextProfile;
+            ProfileRuntime requestedRuntime = requestedProfile != null
+                ? BuildRuntime(requestedProfile)
+                : null;
+            if (blendingPlayable.GetInput(0).IsValid())
+            {
+                blendingPlayable.DisconnectInput(0);
+            }
+
+            requestedRuntime?.ConnectSource(virtualElementPlayable);
+            ConnectBlendingSource(
+                requestedRuntime?.ResolveFinalPlayable(virtualElementPlayable)
+                ?? virtualElementPlayable);
+            ConfigureBlend(0f, requestedProfile?.EaseMode ?? EaseMode.Linear);
+            activeRuntime = requestedRuntime;
+            activeProfile = requestedProfile;
+            shouldLinkProfile = false;
+        }
+
+        private void RequestPoseCache()
+        {
+            cacheCompletionMarker[0] = 0;
+            AnimationBlendingJob job = blendingPlayable.GetJobData<AnimationBlendingJob>();
+            job.CacheRequested = true;
+            job.IsBlending = false;
+            blendingPlayable.SetJobData(job);
+        }
+
+        private void ConfigureBlend(float duration, EaseMode easeMode)
+        {
+            AnimationBlendingJob job = blendingPlayable.GetJobData<AnimationBlendingJob>();
+            job.CacheRequested = false;
+            job.BlendDuration = duration;
+            job.EaseMode = easeMode;
+            job.Playback = 0f;
+            job.IsBlending = duration > 0f;
+            blendingPlayable.SetJobData(job);
+        }
+
+        private void ConnectBlendingSource(Playable source)
+        {
+            if (blendingPlayable.GetInput(0).IsValid())
+            {
+                blendingPlayable.DisconnectInput(0);
+            }
+
+            blendingPlayable.ConnectInput(0, source, 0, 1f);
+        }
+
+        private void UpdateRuntime(ProfileRuntime runtime)
+        {
+            if (runtime == null)
+            {
+                return;
+            }
+
+            runtime.Update(animator);
+        }
+
+        private void DestroyPlayable(AnimationScriptPlayable playable)
+        {
+            if (graph.IsValid() && playable.IsValid())
+            {
+                graph.DestroyPlayable(playable);
+            }
+        }
+
+        private void DisposeNativeArrays()
+        {
+            if (cacheCompletionMarker.IsCreated) cacheCompletionMarker.Dispose();
+            if (blendingPoses.IsCreated) blendingPoses.Dispose();
+            if (virtualElementHandles.IsCreated) virtualElementHandles.Dispose();
+        }
+
+        private static void DisposeRuntime(ProfileRuntime runtime)
+        {
+            runtime?.Dispose();
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (isDisposed)
+            {
+                throw new ObjectDisposedException(nameof(CharacterBoneController));
+            }
+        }
+
+        private sealed class ProfileRuntime : IDisposable
+        {
+            private readonly List<AnimationLayer> layers = new List<AnimationLayer>();
+            private bool isDisposed;
+
+            public void Add(AnimationLayer layer)
+            {
+                layers.Add(layer ?? throw new ArgumentNullException(nameof(layer)));
+            }
+
+            public Playable ResolveFinalPlayable(Playable emptySource)
+            {
+                return layers.Count == 0 ? emptySource : layers[layers.Count - 1].Playable;
+            }
+
+            public void ConnectSource(Playable source)
+            {
+                if (layers.Count == 0)
+                {
+                    return;
+                }
+
+                AnimationScriptPlayable firstPlayable = layers[0].Playable;
+                if (firstPlayable.GetInput(0).IsValid())
+                {
+                    firstPlayable.DisconnectInput(0);
+                }
+
+                firstPlayable.ConnectInput(0, source, 0, 1f);
+            }
+
+            public void DisconnectSource()
+            {
+                if (layers.Count > 0 && layers[0].Playable.GetInput(0).IsValid())
+                {
+                    layers[0].Playable.DisconnectInput(0);
+                }
+            }
+
+            public void Update(Animator runtimeAnimator)
+            {
+                for (int index = 0; index < layers.Count; index++)
+                {
+                    AnimationLayer layer = layers[index];
+                    layer.Update(layer.Settings.EvaluateWeight(runtimeAnimator));
+                }
+            }
+
+            public void PostUpdate()
+            {
+                for (int index = 0; index < layers.Count; index++)
+                {
+                    layers[index].PostUpdate();
+                }
+            }
+
+            public void Dispose()
+            {
+                if (isDisposed)
+                {
+                    return;
+                }
+
+                DisconnectSource();
+                for (int index = layers.Count - 1; index >= 0; index--)
+                {
+                    layers[index].Dispose();
+                }
+
+                layers.Clear();
+                isDisposed = true;
+            }
         }
     }
 }

@@ -1,0 +1,23 @@
+{
+  "name": "CGame.Animation.Procedural.Tests",
+  "rootNamespace": "CGame.Animation.Tests",
+  "references": [
+    "CGame.Animation",
+    "CGame.Animation.Editor",
+    "CGame.KinemationLegacyWeaponRuntime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}
