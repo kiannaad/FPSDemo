@@ -9,30 +9,39 @@ namespace CGame.Animation
         Mask
     }
 
+    public enum AnimationCurveBlendSource
+    {
+        Animator,
+        Playables,
+        Context
+    }
+
     [Serializable]
     public sealed class AnimationCurveBlend
     {
         [SerializeField] private string curveName;
         [SerializeField] private AnimationCurveBlendMode mode;
         [SerializeField, Range(0f, 1f)] private float clampMinimum;
+        [SerializeField] private AnimationCurveBlendSource source;
 
         public string CurveName => curveName;
         public AnimationCurveBlendMode Mode => mode;
         public float ClampMinimum => clampMinimum;
+        public AnimationCurveBlendSource Source => source;
 
-        public float Evaluate(Animator animator)
+        public float Evaluate(CharacterAnimInstance owner)
         {
             if (string.IsNullOrEmpty(curveName) || curveName == "None")
             {
                 return 1f;
             }
 
-            if (animator == null)
+            if (owner == null)
             {
-                throw new ArgumentNullException(nameof(animator));
+                throw new ArgumentNullException(nameof(owner));
             }
 
-            return Evaluate(animator.GetFloat(curveName));
+            return Evaluate(owner.GetCurveValue(curveName, source));
         }
 
         public float Evaluate(float curveValue)

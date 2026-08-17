@@ -30,13 +30,15 @@ namespace CGame.Animation
         public CharacterBoneController(
             Animator animator,
             KRigComponent rigComponent,
-            AnimationUpdateContext updateContext)
+            CharacterAnimInstance owner)
         {
             this.animator = animator ?? throw new ArgumentNullException(nameof(animator));
             this.rigComponent = rigComponent ?? throw new ArgumentNullException(nameof(rigComponent));
-            this.updateContext = updateContext ?? throw new ArgumentNullException(nameof(updateContext));
+            Owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            updateContext = owner.UpdateContext;
         }
 
+        public CharacterAnimInstance Owner { get; }
         public BoneProfile ActiveProfile => activeProfile;
 
         public bool IsValid()
@@ -115,7 +117,7 @@ namespace CGame.Animation
                 return;
             }
 
-            UpdateRuntime(activeRuntime);
+            UpdateRuntime(activeRuntime, deltaTime);
         }
 
         public void PostAnimationUpdate()
@@ -280,7 +282,7 @@ namespace CGame.Animation
                     animator,
                     rigComponent,
                     animator.BindStreamTransform(rigComponent.transform),
-                    updateContext);
+                    Owner);
                 foreach (AnimationLayerSettings layerSettings in profile.Layers)
                 {
                     IAnimationLayerJob job = layerSettings.CreateAnimationJob();
@@ -412,14 +414,14 @@ namespace CGame.Animation
             blendingPlayable.ConnectInput(0, source, 0, 1f);
         }
 
-        private void UpdateRuntime(ProfileRuntime runtime)
+        private void UpdateRuntime(ProfileRuntime runtime, float deltaTime)
         {
             if (runtime == null)
             {
                 return;
             }
 
-            runtime.Update(animator);
+            runtime.Update(Owner, deltaTime);
         }
 
         private void DestroyPlayable(AnimationScriptPlayable playable)
@@ -489,12 +491,23 @@ namespace CGame.Animation
                 }
             }
 
-            public void Update(Animator runtimeAnimator)
+            public void Update(CharacterAnimInstance owner, float deltaTime)
             {
+                float[] weights = new float[layers.Count];
+                for (int index = 0; index < layers.Count; index++)
+                {
+                    weights[index] = layers[index].Settings.EvaluateWeight(owner);
+                }
+
+                for (int index = 0; index < layers.Count; index++)
+                {
+                    layers[index].PreUpdate(deltaTime, weights[index]);
+                }
+
                 for (int index = 0; index < layers.Count; index++)
                 {
                     AnimationLayer layer = layers[index];
-                    layer.Update(layer.Settings.EvaluateWeight(runtimeAnimator));
+                    layer.UpdatePlayableJobData(weights[index]);
                 }
             }
 

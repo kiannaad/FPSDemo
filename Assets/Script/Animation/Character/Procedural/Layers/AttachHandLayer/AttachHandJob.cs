@@ -12,15 +12,33 @@ namespace CGame.Animation
 
     public struct AttachHandJob : IAnimationJob
     {
+        public TransformStreamHandle Hand;
+        public TransformStreamHandle Weapon;
         public TransformStreamHandle IkHand;
         public TransformStreamHandle IkWeapon;
         public KTransform RelativeHandPose;
         public KTransform HandPoseOffset;
         public NativeArray<AttachHandPoseData> Chain;
         public float Weight;
+        public bool ReferenceInitialized;
 
         public void ProcessAnimation(AnimationStream stream)
         {
+            if (!ReferenceInitialized)
+            {
+                KTransform weaponReference = AnimationLayerJobUtility.GetTransform(stream, Weapon);
+                KTransform handReference = AnimationLayerJobUtility.GetTransform(stream, Hand);
+                RelativeHandPose = weaponReference.GetRelativeTransform(handReference, false);
+                for (int index = 0; index < Chain.Length; index++)
+                {
+                    AttachHandPoseData item = Chain[index];
+                    item.LocalRotation = item.Handle.GetLocalRotation(stream);
+                    Chain[index] = item;
+                }
+
+                ReferenceInitialized = true;
+            }
+
             if (!KCurves.IsWeightRelevant(Weight)) return;
             KTransform weapon = AnimationLayerJobUtility.GetTransform(stream, IkWeapon);
             KTransform attached = new KTransform(

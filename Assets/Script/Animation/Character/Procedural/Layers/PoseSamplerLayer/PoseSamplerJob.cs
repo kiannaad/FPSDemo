@@ -20,6 +20,8 @@ namespace CGame.Animation
         public Quaternion CachedPelvisPose;
         public KTransform WeaponBoneComponentPose;
         public KTransform WeaponBoneSpinePose;
+        public KTransform WeaponBoneRightLocalPose;
+        public KTransform WeaponBoneLeftLocalPose;
         public KTransform DefaultWeaponPose;
         public KTransform WeaponBoneOffset;
         public float WeaponBoneWeight;
@@ -31,6 +33,8 @@ namespace CGame.Animation
 
         public void ProcessAnimation(AnimationStream stream)
         {
+            if (!KCurves.IsWeightRelevant(Weight)) return;
+
             KTransform savedRoot = KTransform.Identity;
             KTransform worldPelvis = AnimationLayerJobUtility.GetTransform(stream, Pelvis);
             if (OverwriteRoot && HasValidRoot)
@@ -86,9 +90,17 @@ namespace CGame.Animation
                 WeaponBone.SetRotation(stream, WeaponBone.GetRotation(stream) * spinePose.Rotation);
             }
 
-            KTransform pose = AnimationLayerJobUtility.GetTransform(stream, WeaponBoneRight);
+            WeaponBoneRight.SetLocalPosition(stream, WeaponBoneRightLocalPose.Position);
+            WeaponBoneRight.SetLocalRotation(stream, WeaponBoneRightLocalPose.Rotation);
+            WeaponBoneLeft.SetLocalPosition(stream, WeaponBoneLeftLocalPose.Position);
+            WeaponBoneLeft.SetLocalRotation(stream, WeaponBoneLeftLocalPose.Rotation);
+
+            KTransform rightReference = AnimationLayerJobUtility.GetTransform(stream, WeaponBoneRight);
+            KTransform leftReference = AnimationLayerJobUtility.GetTransform(stream, WeaponBoneLeft);
+
+            KTransform pose = rightReference;
             KTransform right = AnimationLayerJobUtility.GetTransform(stream, WeaponBone);
-            KTransform left = AnimationLayerJobUtility.GetTransform(stream, WeaponBoneLeft);
+            KTransform left = leftReference;
             pose = WeaponBoneWeight >= 0f
                 ? KTransform.Lerp(pose, right, WeaponBoneWeight)
                 : KTransform.Lerp(pose, left, -WeaponBoneWeight);

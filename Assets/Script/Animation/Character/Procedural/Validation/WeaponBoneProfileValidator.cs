@@ -7,14 +7,22 @@ namespace CGame.Animation
         private static readonly Type[] KnifeLayerOrder =
         {
             typeof(PoseSamplerLayerSettings),
-            typeof(PoseOffsetLayerSettings)
+            typeof(IkLayerSettings)
         };
 
-        private static readonly Type[] Ak12LayerOrder =
+        private static readonly Type[] Ak12LegacyLayerOrder =
+        {
+            typeof(PoseSamplerLayerSettings),
+            typeof(IkLayerSettings)
+        };
+
+        private static readonly Type[] Ak12ProceduralLayerOrder =
         {
             typeof(PoseSamplerLayerSettings),
             typeof(AttachHandLayerSettings),
             typeof(ViewLayerSettings),
+            typeof(LookLayerSettings),
+            typeof(TurnLayerSettings),
             typeof(IkLayerSettings)
         };
 
@@ -25,7 +33,15 @@ namespace CGame.Animation
 
         public static void ValidateAk12(BoneProfile profile)
         {
-            Validate(profile, "AK12", Ak12LayerOrder);
+            if (profile == null)
+            {
+                throw new ArgumentNullException(nameof(profile));
+            }
+
+            Type[] expectedOrder = profile.Layers.Count == Ak12ProceduralLayerOrder.Length
+                ? Ak12ProceduralLayerOrder
+                : Ak12LegacyLayerOrder;
+            Validate(profile, "AK12", expectedOrder);
         }
 
         private static void Validate(BoneProfile profile, string weaponName, Type[] expectedOrder)

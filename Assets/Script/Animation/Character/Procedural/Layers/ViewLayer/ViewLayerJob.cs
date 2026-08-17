@@ -32,7 +32,7 @@ namespace CGame.Animation
         }
 
         public AnimationLayerSettings GetSettings() => settings;
-        public void OnPreAnimationUpdate() { }
+        public void OnPreAnimationUpdate(float deltaTime, float weight) { }
 
         public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight)
         {

@@ -16,7 +16,7 @@ namespace CGame.Animation
         public AnimationCurveBlend[] CurveBlending => curveBlending;
         public bool LinkDynamically => linkDynamically;
 
-        public float EvaluateWeight(Animator animator)
+        public float EvaluateWeight(CharacterAnimInstance owner)
         {
             if (curveBlending == null)
             {
@@ -28,7 +28,7 @@ namespace CGame.Animation
             {
                 AnimationCurveBlend blend = curveBlending[index]
                     ?? throw new InvalidOperationException($"{name} curve blend at index {index} is missing.");
-                weight *= blend.Evaluate(animator);
+                weight *= blend.Evaluate(owner);
             }
 
             return Mathf.Clamp01(weight * alpha);

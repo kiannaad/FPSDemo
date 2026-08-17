@@ -29,9 +29,13 @@ namespace CGame.Animation
         public IAnimationLayerJob Job { get; }
         public AnimationScriptPlayable Playable { get; private set; }
 
-        public void Update(float weight)
+        public void PreUpdate(float deltaTime, float weight)
         {
-            Job.OnPreAnimationUpdate();
+            Job.OnPreAnimationUpdate(deltaTime, weight);
+        }
+
+        public void UpdatePlayableJobData(float weight)
+        {
             Job.UpdatePlayableJobData(Playable, weight);
         }
 

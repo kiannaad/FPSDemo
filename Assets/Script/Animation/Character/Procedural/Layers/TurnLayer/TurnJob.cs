@@ -1,0 +1,82 @@
+using UnityEngine;
+using UnityEngine.Animations;
+
+namespace CGame.Animation
+{
+    public struct TurnJob : IAnimationJob
+    {
+        public TransformStreamHandle Root;
+        public TransformStreamHandle ModelRoot;
+        public float TurnAngleDegrees;
+        public float Weight;
+        public bool OffsetPosition;
+
+        public void ProcessAnimation(AnimationStream stream)
+        {
+            if (!KCurves.IsWeightRelevant(Weight)) return;
+
+            // The physical root follows ControlRotation immediately. Counter-rotate
+            // the visual ModelRoot in the AnimationStream so its Hips/feet inherit
+            // the turn offset. Look consumes the same offset and owns the upper
+            // body aim correction; do not restore UpperBodyRoot here.
+            Quaternion yaw = Quaternion.AngleAxis(TurnAngleDegrees, Vector3.up);
+            Vector3 pivot = Root.GetPosition(stream);
+            Vector3 currentPosition = ModelRoot.GetPosition(stream);
+            Quaternion currentRotation = ModelRoot.GetRotation(stream);
+            Quaternion targetRotation = yaw * currentRotation;
+
+            ModelRoot.SetRotation(stream, Quaternion.Slerp(currentRotation, targetRotation, Weight));
+            if (!OffsetPosition) return;
+
+            Vector3 targetPosition = pivot + yaw * (currentPosition - pivot);
+            ModelRoot.SetPosition(stream, Vector3.Lerp(currentPosition, targetPosition, Weight));
+        }
+
+        public void ProcessRootMotion(AnimationStream stream) { }
+    }
+
+    public enum TurnRequest
+    {
+        None,
+        Left,
+        Right
+    }
+
+    public struct TurnRuntimeState
+    {
+        private float cachedAngle;
+        private float playback;
+        public float Angle { get; private set; }
+        public bool IsTurning { get; private set; }
+
+        // This is the continuous visual ModelRoot offset. The threshold controls
+        // only the one-shot turn animation and when this offset is eased back to
+        // zero; gating it here would make the lower body snap at the threshold.
+        public float AppliedAngle => Angle;
+
+        public TurnRequest Advance(float viewDeltaDegrees, float deltaTime, float threshold, float speed, AnimationCurve curve)
+        {
+            Angle = Mathf.Clamp(Angle - viewDeltaDegrees, -180f, 180f);
+            TurnRequest request = TurnRequest.None;
+            if (!IsTurning && Mathf.Abs(Angle) > threshold)
+            {
+                cachedAngle = Angle;
+                playback = 0f;
+                IsTurning = true;
+                request = Angle < 0f ? TurnRequest.Right : TurnRequest.Left;
+            }
+
+            if (IsTurning && deltaTime > 0f)
+            {
+                playback = Mathf.Clamp01(playback + deltaTime * Mathf.Max(0f, speed));
+                Angle = Mathf.Lerp(cachedAngle, 0f, curve.Evaluate(playback));
+                if (playback >= 1f)
+                {
+                    Angle = 0f;
+                    IsTurning = false;
+                }
+            }
+            return request;
+        }
+    }
+}

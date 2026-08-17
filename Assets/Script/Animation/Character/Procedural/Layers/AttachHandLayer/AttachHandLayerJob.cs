@@ -32,10 +32,11 @@ namespace CGame.Animation
 
         public AnimationLayerSettings GetSettings() => settings;
 
-        public void OnPreAnimationUpdate() { }
+        public void OnPreAnimationUpdate(float deltaTime, float weight) { }
 
         public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight)
         {
+            job = playable.GetJobData<AttachHandJob>();
             job.Weight = weight;
             job.HandPoseOffset = settings.HandPoseOffset;
             job.Chain = chain;
@@ -61,14 +62,33 @@ namespace CGame.Animation
                 settings.ElementChainName,
                 settings.name);
 
-            jobData.RigComponent.RestoreInitializedHierarchyPose();
-
-            if (settings.CustomHandPose != null)
+            KTransform relativeHandPose = default;
+            Quaternion[] localRotations = new Quaternion[elements.Count];
+            bool referenceInitialized = settings.CustomHandPose != null;
+            if (referenceInitialized)
             {
-                settings.CustomHandPose.SampleAnimation(jobData.Animator.gameObject, 0f);
+                KTransform[] cachedHierarchyPose = CaptureHierarchyPose();
+                try
+                {
+                    settings.CustomHandPose.SampleAnimation(jobData.Animator.gameObject, 0f);
+                    relativeHandPose = new KTransform(weapon)
+                        .GetRelativeTransform(new KTransform(hand), false);
+                    for (int index = 0; index < elements.Count; index++)
+                    {
+                        Transform transform = RigHandleUtility.ResolveTransform(
+                            jobData.RigComponent,
+                            elements[index],
+                            settings.name);
+                        localRotations[index] = transform.localRotation;
+                    }
+                }
+                finally
+                {
+                    RestoreHierarchyPose(cachedHierarchyPose);
+                }
             }
 
-            KTransform relativeHandPose = new KTransform(weapon).GetRelativeTransform(new KTransform(hand), false);
+
             chain = new NativeArray<AttachHandPoseData>(elements.Count, Allocator.Persistent);
             for (int index = 0; index < elements.Count; index++)
             {
@@ -76,20 +96,44 @@ namespace CGame.Animation
                 chain[index] = new AttachHandPoseData
                 {
                     Handle = jobData.Animator.BindStreamTransform(transform),
-                    LocalRotation = transform.localRotation
+                    LocalRotation = localRotations[index]
                 };
             }
 
-            jobData.RigComponent.RestoreInitializedHierarchyPose();
-
             job = new AttachHandJob
             {
+                Hand = jobData.Animator.BindStreamTransform(hand),
+                Weapon = jobData.Animator.BindStreamTransform(weapon),
                 IkHand = jobData.Animator.BindStreamTransform(ikHand),
                 IkWeapon = jobData.Animator.BindStreamTransform(ikWeapon),
                 RelativeHandPose = relativeHandPose,
                 HandPoseOffset = settings.HandPoseOffset,
-                Chain = chain
+                Chain = chain,
+                ReferenceInitialized = referenceInitialized
             };
+        }
+
+        private KTransform[] CaptureHierarchyPose()
+        {
+            int count = jobData.RigComponent.Rig.Hierarchy.Count;
+            var pose = new KTransform[count];
+            for (int index = 0; index < count; index++)
+            {
+                pose[index] = new KTransform(jobData.RigComponent.GetRigTransform(index), false);
+            }
+
+            return pose;
+        }
+
+        private void RestoreHierarchyPose(KTransform[] pose)
+        {
+            for (int index = 0; index < pose.Length; index++)
+            {
+                Transform target = jobData.RigComponent.GetRigTransform(index);
+                target.localPosition = pose[index].Position;
+                target.localRotation = pose[index].Rotation;
+                target.localScale = pose[index].Scale;
+            }
         }
 
         private static AttachHandLayerSettings RequireSettings(AnimationLayerSettings value)

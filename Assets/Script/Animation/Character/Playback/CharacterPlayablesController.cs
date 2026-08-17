@@ -71,6 +71,17 @@ namespace CGame.Animation
         internal int SlotActiveSlotCount => slotMixer?.ActiveSlotCount ?? 0;
         internal int OverrideActiveSlotCount => overrideMixer?.ActiveSlotCount ?? 0;
 
+        internal bool TrySetTrigger(string triggerName)
+        {
+            if (string.IsNullOrWhiteSpace(triggerName) || !animatorControllerSource.IsValid())
+            {
+                return false;
+            }
+
+            animatorControllerSource.SetTrigger(Animator.StringToHash(triggerName));
+            return true;
+        }
+
 public bool IsValid()
         {
             if (isDisposed
@@ -312,7 +323,7 @@ public AnimationPlaybackHandle PlayPoseImmediate(
             return stopped;
         }
 
-        public float GetCurveValue(string curveName)
+        internal float GetCurveValue(string curveName)
         {
             return slotMixer != null ? slotMixer.GetCurveValue(curveName) : 0f;
         }

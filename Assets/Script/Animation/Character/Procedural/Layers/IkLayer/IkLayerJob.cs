@@ -35,7 +35,7 @@ namespace CGame.Animation
 
         public AnimationScriptPlayable CreatePlayable(PlayableGraph graph) => AnimationScriptPlayable.Create(graph, job, 1);
         public AnimationLayerSettings GetSettings() => settings;
-        public void OnPreAnimationUpdate() { }
+        public void OnPreAnimationUpdate(float deltaTime, float weight) { }
 
         public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight)
         {

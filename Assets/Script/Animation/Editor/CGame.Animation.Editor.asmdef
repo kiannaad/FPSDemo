@@ -2,7 +2,12 @@
     "name": "CGame.Animation.Editor",
     "rootNamespace": "CGame.Animation.Editor",
     "references": [
-        "CGame.Animation"
+        "CGame.Animation",
+        "CGame.InventoryEquipment",
+        "CGame.CharacterRuntime",
+        "CGame.Pawn",
+        "CGame.PlayerController",
+        "CGame.World"
     ],
     "includePlatforms": [
         "Editor"

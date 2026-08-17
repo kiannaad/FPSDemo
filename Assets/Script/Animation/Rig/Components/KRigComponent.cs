@@ -11,6 +11,7 @@ namespace CGame.Animation.Rig
 
         private KRig rig;
         private bool isInitialized;
+        private KTransform[] initializedLocalPose;
 
         public KRig Rig => rig;
         public bool IsInitialized => isInitialized;
@@ -25,6 +26,11 @@ namespace CGame.Animation.Rig
             ValidateHierarchy(expectedRig);
             ValidateVirtualElements();
             rig = expectedRig;
+            initializedLocalPose = new KTransform[hierarchy.Count];
+            for (int index = 0; index < hierarchy.Count; index++)
+            {
+                initializedLocalPose[index] = new KTransform(hierarchy[index], false);
+            }
             isInitialized = true;
         }
 
@@ -56,6 +62,23 @@ namespace CGame.Animation.Rig
             }
 
             return hierarchy[index];
+        }
+
+        public void RestoreInitializedHierarchyPose()
+        {
+            if (!isInitialized || initializedLocalPose == null || initializedLocalPose.Length != hierarchy.Count)
+            {
+                throw new InvalidOperationException("KRigComponent has no initialized hierarchy pose.");
+            }
+
+            for (int index = 0; index < hierarchy.Count; index++)
+            {
+                KTransform pose = initializedLocalPose[index];
+                Transform target = hierarchy[index];
+                target.localPosition = pose.Position;
+                target.localRotation = pose.Rotation;
+                target.localScale = pose.Scale;
+            }
         }
 
 #if UNITY_EDITOR

@@ -136,7 +136,7 @@ namespace KINEMATION.FPSAnimationFramework.Runtime.Layers.LookLayer
                 _lookInput.x = _jobData.inputController.GetValue<float>(_turnProperty);
             }
             
-            playable.SetJobData(this);
+            playable.SetJobData(this); 
         }
         
         public void LateUpdate()

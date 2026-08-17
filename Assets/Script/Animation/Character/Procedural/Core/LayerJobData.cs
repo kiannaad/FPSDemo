@@ -11,17 +11,18 @@ namespace CGame.Animation
             Animator animator,
             KRigComponent rigComponent,
             TransformStreamHandle characterRootHandle,
-            AnimationUpdateContext updateContext)
+            CharacterAnimInstance owner)
         {
             Animator = animator ?? throw new ArgumentNullException(nameof(animator));
             RigComponent = rigComponent ?? throw new ArgumentNullException(nameof(rigComponent));
             CharacterRootHandle = characterRootHandle;
-            UpdateContext = updateContext ?? throw new ArgumentNullException(nameof(updateContext));
+            Owner = owner ?? throw new ArgumentNullException(nameof(owner));
         }
 
         public Animator Animator { get; }
         public KRigComponent RigComponent { get; }
         public TransformStreamHandle CharacterRootHandle { get; }
-        public AnimationUpdateContext UpdateContext { get; }
+        public CharacterAnimInstance Owner { get; }
+        public AnimationUpdateContext UpdateContext => Owner.UpdateContext;
     }
 }

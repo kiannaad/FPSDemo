@@ -7,6 +7,7 @@ namespace CGame.Animation
     public sealed class CharacterAnimInstance : IDisposable
     {
         private readonly AnimationUpdateContext updateContext;
+        private readonly Animator animator;
         private readonly CharacterAnimatorController animatorController;
         private readonly CharacterPlayablesController playablesController;
         private readonly CharacterBoneController boneController;
@@ -24,7 +25,8 @@ namespace CGame.Animation
             if (animator == null) throw new ArgumentNullException(nameof(animator));
             if (rigComponent == null) throw new ArgumentNullException(nameof(rigComponent));
 
-            updateContext = new AnimationUpdateContext(source);
+            this.animator = animator;
+            updateContext = new AnimationUpdateContext(pawn, source);
             animatorController = new CharacterAnimatorController(animator, updateContext);
             playablesController = new CharacterPlayablesController(
                 pawn,
@@ -33,13 +35,71 @@ namespace CGame.Animation
             boneController = new CharacterBoneController(
                 animator,
                 rigComponent,
-                updateContext);
+                this);
         }
 
         public AnimationUpdateContext UpdateContext => updateContext;
         public CharacterBoneController BoneController => boneController;
+        public float GetCurveValue(string curveName)
+        {
+            if (string.IsNullOrWhiteSpace(curveName))
+            {
+                return 0f;
+            }
+
+            float mixerValue = GetCurveValue(curveName, AnimationCurveBlendSource.Playables);
+            if (!Mathf.Approximately(mixerValue, 0f))
+            {
+                return mixerValue;
+            }
+
+            return GetCurveValue(curveName, AnimationCurveBlendSource.Animator);
+        }
+
+        internal float GetCurveValue(string curveName, AnimationCurveBlendSource source)
+        {
+            if (string.IsNullOrWhiteSpace(curveName))
+            {
+                return 0f;
+            }
+
+            switch (source)
+            {
+                case AnimationCurveBlendSource.Animator:
+                    return HasFloatParameter(curveName) ? animator.GetFloat(curveName) : 0f;
+                case AnimationCurveBlendSource.Playables:
+                    return playablesController.GetCurveValue(curveName);
+                case AnimationCurveBlendSource.Context:
+                    return updateContext.GetCurveValue(curveName);
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(source), source, "Unknown curve blend source.");
+            }
+        }
+
+        private bool HasFloatParameter(string parameterName)
+        {
+            int parameterHash = Animator.StringToHash(parameterName);
+            AnimatorControllerParameter[] parameters = animator.parameters;
+            for (int index = 0; index < parameters.Length; index++)
+            {
+                AnimatorControllerParameter parameter = parameters[index];
+                if (parameter.nameHash == parameterHash
+                    && parameter.type == AnimatorControllerParameterType.Float)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         internal CharacterAnimatorController AnimatorController => animatorController;
         internal CharacterPlayablesController PlayablesController => playablesController;
+        internal bool TrySetAnimatorTrigger(string triggerName)
+        {
+            return !isDisposed && playablesController.TrySetTrigger(triggerName);
+        }
+
         public void UpdateAnimation(float deltaTime)
         {
             if (isDisposed || deltaTime <= 0f)
