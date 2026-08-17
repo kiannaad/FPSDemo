@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using CGame.GameplayTags;
+using CGame.InventoryEquipment;
 using UnityEngine;
 
 namespace CGame
@@ -13,13 +14,15 @@ namespace CGame
         [SerializeField] private CharacterPhysicsSettings characterPhysicsSettings;
         [SerializeField] private GameModeDefinition gameModeDefinition;
         [SerializeField] private GameplayTagSource[] gameplayTagSources;
+        [SerializeField] private WeaponDefinition[] weaponDefinitions;
 
         public override IReadOnlyList<WorldSubSystem> CreateWorldSubSystems()
         {
             var subSystems = new List<WorldSubSystem>
             {
                 new CharacterPhysicsSubSystem(characterPhysicsSettings),
-                new GameplayTagWorldCoreService(gameplayTagSources)
+                new GameplayTagWorldCoreService(gameplayTagSources),
+                new WeaponCatalogSubSystem(weaponDefinitions)
             };
             if (initializeResources)
             {
@@ -47,5 +50,27 @@ namespace CGame
                 ? null
                 : gameModeDefinition.CreateGameMode(world, player);
         }
-    }
+    
+
+public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
+        {
+            gameplayTagSources = sources ?? System.Array.Empty<GameplayTagSource>();
+        }
+
+        public void ConfigureGameMode(GameModeDefinition definition)
+        {
+            gameModeDefinition = definition ?? throw new System.ArgumentNullException(nameof(definition));
+        }
+
+        public void ConfigureWeaponDefinitions(params WeaponDefinition[] definitions)
+        {
+            weaponDefinitions = definitions ?? System.Array.Empty<WeaponDefinition>();
+        }
+
+
+public void ConfigureResourceInitialization(bool enabled)
+        {
+            initializeResources = enabled;
+        }
+}
 }

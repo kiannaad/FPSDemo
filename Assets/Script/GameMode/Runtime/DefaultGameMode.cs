@@ -62,6 +62,11 @@ namespace CGame
             {
                 candidateRegistration = World.RegisterActor(candidate, critical: true);
                 controller.Unpossess();
+                if (previousRegistration != null && !previousRegistration.IsDisposed)
+                {
+                    World.UnregisterActor(previousRegistration);
+                }
+
                 controller.Possess(candidate);
                 if (World.State == WorldState.Playing)
                 {
@@ -70,10 +75,6 @@ namespace CGame
 
                 defaultPawn = candidate;
                 pawnRegistration = candidateRegistration;
-                if (previousRegistration != null && !previousRegistration.IsDisposed)
-                {
-                    World.UnregisterActor(previousRegistration);
-                }
             }
             catch
             {

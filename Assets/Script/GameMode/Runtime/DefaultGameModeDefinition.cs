@@ -11,6 +11,12 @@ namespace CGame
         [SerializeField] private PawnDefinition pawnDefinition;
         [SerializeField] private InitialInventorySet initialInventorySet;
 
+        public void Configure(PawnDefinition pawn, InitialInventorySet inventory)
+        {
+            pawnDefinition = pawn ?? throw new ArgumentNullException(nameof(pawn));
+            initialInventorySet = inventory ?? throw new ArgumentNullException(nameof(inventory));
+        }
+
         public override GameMode CreateGameMode(World world, Player player)
         {
             if (pawnDefinition == null)

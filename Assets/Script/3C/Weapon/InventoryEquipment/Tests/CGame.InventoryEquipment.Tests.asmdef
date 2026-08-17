@@ -1,0 +1,22 @@
+{
+  "name": "CGame.InventoryEquipment.Tests",
+  "rootNamespace": "CGame.InventoryEquipment.Tests",
+  "references": [
+    "CGame.InventoryEquipment",
+    "CGame.Inventory",
+    "CGame.Ability",
+    "CGame.Animation",
+    "CGame.GameplayTags",
+    "CGame.World"
+  ],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": ["TestAssemblies"]
+}

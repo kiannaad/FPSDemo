@@ -117,6 +117,7 @@ namespace CGame
             ControlYaw += lookDelta.x;
             ControlRotation = Quaternion.Euler(ControlPitch, ControlYaw, 0f);
             PossessedPawn?.ApplyingControlRotation(ControlRotation);
+            PossessedPawn?.ApplyingViewDelta(lookDelta);
             PossessedPawn?.SubmitControlIntent(inputSource.ReadControlIntent());
             int requestedSlot = inputSource.RequestedQuickBarSlot;
             if (requestedSlot >= 0) QuickBar?.SelectSlot(requestedSlot);

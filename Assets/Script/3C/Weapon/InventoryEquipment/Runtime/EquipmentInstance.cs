@@ -11,8 +11,7 @@ namespace CGame.InventoryEquipment
         private IDisposable presentationReceipt;
 
         protected EquipmentInstance(
-            EquipmentCreateContext context,
-            IEnumerable<AbilitySet> abilitySets)
+            EquipmentCreateContext context)
         {
             if (context == null)
             {
@@ -23,6 +22,12 @@ namespace CGame.InventoryEquipment
             presentationReceipt = context.PresentationReceipt;
             AbilitySystem = context.AbilitySystem;
             Item = inventoryLease.Item;
+        }
+
+        protected void GrantAbilitySets(
+            IEnumerable<AbilitySet> abilitySets,
+            IReadOnlyList<AbilityGrantReceipt> replacedAbilityReceipts = null)
+        {
             var uniqueSets = new HashSet<AbilitySet>();
             try
             {
@@ -40,7 +45,7 @@ namespace CGame.InventoryEquipment
 
                     if (uniqueSets.Add(abilitySet))
                     {
-                        abilityReceipts.Add(AbilitySystem.GiveAbilitySet(abilitySet, this, context.ReplacedAbilityReceipts));
+                        abilityReceipts.Add(AbilitySystem.GiveAbilitySet(abilitySet, this, replacedAbilityReceipts));
                     }
                 }
             }

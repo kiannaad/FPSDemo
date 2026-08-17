@@ -1,42 +1,119 @@
 using System.Collections.Generic;
 using CGame.Ability;
+using UnityEngine;
+using CGame.Animation;
 
 namespace CGame.InventoryEquipment
 {
     public sealed class WeaponInstance : EquipmentInstance
     {
-        internal WeaponInstance(
-            EquipmentCreateContext context,
-            int magazineCapacity,
-            IEnumerable<AbilitySet> abilitySets)
-            : base(context, abilitySets)
+        private readonly WeaponDefinition definition;
+        private readonly AbilitySet abilitySet;
+        private GameObject presentationRoot;
+        private CharacterAnimInstance animationInstance;
+        private AnimationPlaybackHandle overlayHandle;
+        private Animator presentationAnimator;
+
+        internal WeaponInstance(EquipmentCreateContext context, WeaponDefinition definition)
+            : base(context)
         {
-            MagazineCapacity = magazineCapacity;
+            this.definition = definition;
+            MagazineCapacity = definition.MagazineCapacity;
+            abilitySet = definition.CreateAbilitySet();
         }
 
+        public WeaponDefinition Definition => definition;
         public int MagazineCapacity { get; }
 
         public int FireCount { get; private set; }
 
         public int ReloadCount { get; private set; }
 
+        public int RecoilCount { get; private set; }
+
         public int MeleeCount { get; private set; }
+
+        public bool IsArmed { get; private set; }
+
+        public bool IsPrepared => presentationRoot != null;
+
+        public GameObject PresentationRoot => presentationRoot;
+
+        public bool HasAnimationBinding =>
+            animationInstance != null
+            && overlayHandle != null
+            && overlayHandle.State != AnimationPlaybackState.Failed;
+
+        public void PreparePresentation(GameObject root)
+        {
+            if (root == null) throw new System.ArgumentNullException(nameof(root));
+            if (IsDisposed) throw new System.ObjectDisposedException(nameof(WeaponInstance));
+            if (presentationRoot != null) throw new System.InvalidOperationException("Weapon presentation is already prepared.");
+            presentationRoot = root;
+            presentationAnimator = root.GetComponentInChildren<Animator>(true);
+            if (presentationAnimator != null)
+            {
+                presentationAnimator.enabled = true;
+            }
+            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true)) renderer.enabled = false;
+        }
+
+        public void SetAnimationBinding(
+            CharacterAnimInstance owner,
+            AnimationPlaybackHandle preparedOverlayHandle)
+        {
+            if (animationInstance != null || overlayHandle != null)
+            {
+                throw new System.InvalidOperationException("Weapon animation binding is already prepared.");
+            }
+
+            if (owner == null) throw new System.ArgumentNullException(nameof(owner));
+            if (preparedOverlayHandle == null) throw new System.ArgumentNullException(nameof(preparedOverlayHandle));
+            animationInstance = owner;
+            overlayHandle = preparedOverlayHandle;
+            if (overlayHandle.State == AnimationPlaybackState.Failed)
+            {
+                animationInstance = null;
+                overlayHandle = null;
+                throw new System.InvalidOperationException("Weapon overlay failed before Arming.");
+            }
+        }
+
+        public void Arm(IReadOnlyList<AbilityGrantReceipt> replacedAbilityReceipts = null)
+        {
+            if (IsDisposed)
+            {
+                throw new System.ObjectDisposedException(nameof(WeaponInstance));
+            }
+
+            if (IsArmed)
+            {
+                return;
+            }
+            GrantAbilitySets(new[] { abilitySet }, replacedAbilityReceipts);
+            IsArmed = true;
+            if (presentationRoot != null)
+            {
+                foreach (Renderer renderer in presentationRoot.GetComponentsInChildren<Renderer>(true)) renderer.enabled = true;
+            }
+        }
 
         public bool Fire()
         {
-            if (IsDisposed || !Item.TryConsumeMagazineAmmo())
+            if (IsDisposed || !IsArmed || !Item.TryConsumeMagazineAmmo())
             {
                 return false;
             }
 
             FireCount++;
+            RecoilCount++;
             Item.SetDurability(Item.Durability - 0.001f);
             return true;
         }
 
         public int Reload()
         {
-            if (IsDisposed)
+            if (IsDisposed || !IsArmed)
             {
                 return 0;
             }
@@ -52,7 +129,7 @@ namespace CGame.InventoryEquipment
 
         public bool Melee()
         {
-            if (IsDisposed)
+            if (IsDisposed || !IsArmed)
             {
                 return false;
             }
@@ -60,6 +137,33 @@ namespace CGame.InventoryEquipment
             MeleeCount++;
             Item.SetDurability(Item.Durability - 0.01f);
             return true;
+        }
+
+        public override void Dispose()
+        {
+            if (IsDisposed) return;
+            HidePresentation();
+            if (animationInstance != null && overlayHandle != null)
+            {
+                animationInstance.StopAbilityAnimation(overlayHandle);
+            }
+            overlayHandle = null;
+            animationInstance = null;
+            if (presentationRoot != null)
+            {
+                UnityEngine.Object.Destroy(presentationRoot);
+                presentationRoot = null;
+            }
+            base.Dispose();
+        }
+
+        private void HidePresentation()
+        {
+            if (presentationRoot == null) return;
+            foreach (Renderer renderer in presentationRoot.GetComponentsInChildren<Renderer>(true))
+            {
+                renderer.enabled = false;
+            }
         }
     }
 }

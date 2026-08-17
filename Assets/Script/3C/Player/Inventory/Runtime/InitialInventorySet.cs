@@ -24,5 +24,13 @@ namespace CGame
                 : (ItemDefinition[])definitions.Clone();
             return set;
         }
-    }
+    
+
+public void Configure(int initialSelectedSlot, params ItemDefinition[] definitions)
+        {
+            selectedSlot = initialSelectedSlot;
+            itemDefinitions = definitions == null ? Array.Empty<ItemDefinition>() : (ItemDefinition[])definitions.Clone();
+            runtimeDefinitions = null;
+        }
+}
 }

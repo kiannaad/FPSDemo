@@ -4,7 +4,9 @@
   "references": [
     "CGame.Inventory",
     "CGame.Ability",
-    "CGame.GameplayTags"
+    "CGame.GameplayTags",
+    "CGame.Animation",
+    "CGame.World"
   ],
   "autoReferenced": true
 }

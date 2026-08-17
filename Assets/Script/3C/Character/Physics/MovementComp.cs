@@ -14,7 +14,6 @@ namespace CGame
         public float Mass { get; set; } = 100f;
         public float JumpSpeed { get; set; } = 7f;
         public float Gravity { get; set; } = 20f;
-        public float RotationSpeed { get; set; } = 720f;
         public float SprintAccelerationMultiplier { get; set; } = 1.7f;
 
         public void BindingMotor(CharacterPhysicsMotor characterMotor)
@@ -61,10 +60,7 @@ namespace CGame
             }
 
             Quaternion targetRotation = Quaternion.LookRotation(aimForward.normalized, Vector3.up);
-            currentRotation = Quaternion.RotateTowards(
-                currentRotation,
-                targetRotation,
-                Mathf.Max(0f, RotationSpeed) * deltaTime);
+            currentRotation = targetRotation;
         }
 
         public void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)

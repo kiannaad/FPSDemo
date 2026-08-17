@@ -10,7 +10,8 @@
     "CGame.Character.Definition",
     "CGame.Pawn",
     "CGame.Inventory",
-    "CGame.CharacterPhysics"
+    "CGame.CharacterPhysics",
+    "CGame.InventoryEquipment"
   ],
   "autoReferenced": true
 }
