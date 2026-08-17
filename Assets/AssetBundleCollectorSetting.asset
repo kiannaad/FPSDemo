@@ -30,19 +30,3 @@ MonoBehaviour:
       AssetTags:
       ActiveRuleName: EnableGroup
       Collectors:
-      - CollectPath: Assets/Resources/KnifeWeaponAnimationDefinition.asset
-        CollectorGUID: f608bde65d7fe334bb07733b338eef9e
-        CollectorType: 0
-        AddressRuleName: AddressByFileName
-        PackRuleName: PackSeparately
-        FilterRuleName: CollectAll
-        AssetTags:
-        UserData:
-      - CollectPath: Assets/Art/Animation/Weapon/KINEMATION/AK/RifleAKAnimationDefinition.asset
-        CollectorGUID: 9843548ba557c9840a45528f6b500206
-        CollectorType: 0
-        AddressRuleName: AddressByFileName
-        PackRuleName: PackSeparately
-        FilterRuleName: CollectAll
-        AssetTags:
-        UserData:
