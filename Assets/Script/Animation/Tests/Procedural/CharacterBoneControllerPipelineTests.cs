@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using CGame.Animation.Rig;
 using NUnit.Framework;
@@ -254,7 +255,7 @@ namespace CGame.Animation.Tests
             private readonly KRig rig;
             private readonly Animator animator;
             private readonly KRigComponent rigComponent;
-            private readonly AnimationUpdateContext updateContext;
+            private readonly List<CharacterAnimInstance> owners = new List<CharacterAnimInstance>();
             private readonly string animatorControllerPath;
 
             private TestRig(
@@ -279,7 +280,6 @@ namespace CGame.Animation.Tests
                 Source = source;
                 Target = target;
                 Virtual = virtualTransform;
-                updateContext = new AnimationUpdateContext(new TestAnimationSource(root.transform));
                 Controller = CreateController();
             }
 
@@ -349,7 +349,13 @@ namespace CGame.Animation.Tests
 
             public CharacterBoneController CreateController()
             {
-                return new CharacterBoneController(animator, rigComponent, updateContext);
+                var owner = new CharacterAnimInstance(
+                    new Pawn(root),
+                    new TestAnimationSource(root.transform),
+                    animator,
+                    rigComponent);
+                owners.Add(owner);
+                return owner.BoneController;
             }
 
             public BoneProfile CreateProfile()
@@ -363,6 +369,10 @@ namespace CGame.Animation.Tests
             public void Dispose()
             {
                 Controller?.Dispose();
+                for (int index = owners.Count - 1; index >= 0; index--)
+                {
+                    owners[index].Dispose();
+                }
                 UnityEngine.Object.DestroyImmediate(rig);
                 UnityEngine.Object.DestroyImmediate(root);
                 AssetDatabase.DeleteAsset(animatorControllerPath);
@@ -444,7 +454,7 @@ namespace CGame.Animation.Tests
             }
 
             public AnimationLayerSettings GetSettings() => settings;
-            public void OnPreAnimationUpdate() { }
+            public void OnPreAnimationUpdate(float deltaTime, float weight) { }
             public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight) { }
             public void OnPostAnimationUpdate() { }
             public void Dispose() { }

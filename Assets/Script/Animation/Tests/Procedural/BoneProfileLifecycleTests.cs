@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using CGame.Animation.Rig;
@@ -16,6 +17,7 @@ namespace CGame.Animation.Tests
         private GameObject root;
         private KRig rig;
         private PlayableGraph graph;
+        private CharacterAnimInstance owner;
         private CharacterBoneController controller;
         private string animatorControllerPath;
 
@@ -36,17 +38,19 @@ namespace CGame.Animation.Tests
             animator.Rebind();
             animator.Update(0f);
             graph = animator.playableGraph;
-            controller = new CharacterBoneController(
+            owner = new CharacterAnimInstance(
+                new Pawn(root),
+                new TestAnimationSource(root.transform),
                 animator,
-                rigComponent,
-                new AnimationUpdateContext(new TestAnimationSource(root.transform)));
+                rigComponent);
+            controller = owner.BoneController;
             Assert.That(controller.TryRebuild(), Is.True);
         }
 
         [TearDown]
         public void TearDown()
         {
-            controller?.Dispose();
+            owner?.Dispose();
             if (rig != null) UnityEngine.Object.DestroyImmediate(rig);
             if (root != null) UnityEngine.Object.DestroyImmediate(root);
             if (!string.IsNullOrEmpty(animatorControllerPath))
@@ -179,6 +183,42 @@ namespace CGame.Animation.Tests
         }
 
         [Test]
+        public void Update_RunsEveryPrePhaseBeforeAnyPlayableJobDataPush()
+        {
+            BoneProfile profile = CreateProfile();
+            TrackingLayerSettings firstLayer = ScriptableObject.CreateInstance<TrackingLayerSettings>();
+            TrackingLayerSettings secondLayer = ScriptableObject.CreateInstance<TrackingLayerSettings>();
+            var events = new List<string>();
+            firstLayer.Configure(rig);
+            secondLayer.Configure(rig);
+            firstLayer.ConfigureTracking("First", events);
+            secondLayer.ConfigureTracking("Second", events);
+            SetLayers(profile, firstLayer, secondLayer);
+            try
+            {
+                controller.LinkProfile(profile);
+                EvaluateAndPostUpdate();
+                events.Clear();
+
+                controller.Update(0.1f);
+
+                Assert.That(events, Is.EqualTo(new[]
+                {
+                    "First.Pre",
+                    "Second.Pre",
+                    "First.Push",
+                    "Second.Push"
+                }));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(secondLayer);
+                UnityEngine.Object.DestroyImmediate(firstLayer);
+                UnityEngine.Object.DestroyImmediate(profile);
+            }
+        }
+
+        [Test]
         public void PublicApiAndLayerJobData_ExposeOnlyTheSimplifiedContract()
         {
             MethodInfo link = typeof(CharacterBoneController).GetMethod(nameof(CharacterBoneController.LinkProfile));
@@ -199,6 +239,7 @@ namespace CGame.Animation.Tests
             {
                 nameof(LayerJobData.Animator),
                 nameof(LayerJobData.CharacterRootHandle),
+                nameof(LayerJobData.Owner),
                 nameof(LayerJobData.RigComponent),
                 nameof(LayerJobData.UpdateContext)
             }.OrderBy(name => name).ToArray()));
@@ -249,11 +290,20 @@ namespace CGame.Animation.Tests
 
         private sealed class TrackingLayerSettings : AnimationLayerSettings
         {
+            private string label;
+            private List<string> events;
+
             public int DisposeCount { get; private set; }
+
+            public void ConfigureTracking(string trackingLabel, List<string> trackingEvents)
+            {
+                label = trackingLabel;
+                events = trackingEvents;
+            }
 
             public override IAnimationLayerJob CreateAnimationJob()
             {
-                return new TrackingLayerJob(this);
+                return new TrackingLayerJob(this, label, events);
             }
 
             public void RecordDispose()
@@ -265,11 +315,18 @@ namespace CGame.Animation.Tests
         private sealed class TrackingLayerJob : IAnimationLayerJob
         {
             private readonly TrackingLayerSettings settings;
+            private readonly string label;
+            private readonly List<string> events;
             private bool isInitialized;
 
-            public TrackingLayerJob(TrackingLayerSettings settings)
+            public TrackingLayerJob(
+                TrackingLayerSettings settings,
+                string label,
+                List<string> events)
             {
                 this.settings = settings;
+                this.label = label;
+                this.events = events;
             }
 
             public Type SettingsType => typeof(TrackingLayerSettings);
@@ -283,8 +340,14 @@ namespace CGame.Animation.Tests
             }
 
             public AnimationLayerSettings GetSettings() => settings;
-            public void OnPreAnimationUpdate() { }
-            public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight) { }
+            public void OnPreAnimationUpdate(float deltaTime, float weight)
+            {
+                if (events != null) events.Add(label + ".Pre");
+            }
+            public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight)
+            {
+                if (events != null) events.Add(label + ".Push");
+            }
             public void OnPostAnimationUpdate() { }
             public void Dispose()
             {

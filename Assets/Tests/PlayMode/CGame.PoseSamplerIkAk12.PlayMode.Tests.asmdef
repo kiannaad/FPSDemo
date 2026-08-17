@@ -1,14 +1,19 @@
 {
-  "name": "CGame.Animation.Procedural.Tests",
+  "name": "CGame.PoseSamplerIkAk12.PlayMode.Tests",
   "rootNamespace": "CGame.Animation.Tests",
   "references": [
     "CGame.Animation",
-    "CGame.Animation.Editor",
-    "CGame.CharacterRuntime"
+    "CGame.CharacterRuntime",
+    "CGame.PlayerController",
+    "CGame.Pawn",
+    "CGame.InventoryEquipment",
+    "CGame.Inventory",
+    "CGame.GameplayTags",
+    "Unity.InputSystem",
+    "CGame.World",
+    "CGame.World.CoreServices"
   ],
-  "includePlatforms": [
-    "Editor"
-  ],
+  "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,
   "overrideReferences": false,
