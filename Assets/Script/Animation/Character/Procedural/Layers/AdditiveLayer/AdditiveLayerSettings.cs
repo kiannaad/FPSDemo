@@ -7,7 +7,7 @@ namespace CGame.Animation
     [CreateAssetMenu(menuName = "CGame/Animation/Procedural/Additive Layer", fileName = "AdditiveLayerSettings")]
     public sealed class AdditiveLayerSettings : WeaponLayerSettings
     {
-        [SerializeField] private KRigElement additiveBone;
+        [SerializeField] private KRigElement additiveBone = Element("IK WeaponBoneRight");
         [SerializeField, Min(0f)] private float interpolationSpeed;
         [SerializeField] private string aimingCurve;
         [SerializeField, Range(0f, 1f)] private float adsScalar = 1f;
@@ -29,6 +29,11 @@ namespace CGame.Animation
         {
             base.OnRigUpdated();
             SynchronizeRigElement(ref additiveBone);
+        }
+
+        private static KRigElement Element(string name)
+        {
+            return new KRigElement(-1, name, 0);
         }
     }
 }
