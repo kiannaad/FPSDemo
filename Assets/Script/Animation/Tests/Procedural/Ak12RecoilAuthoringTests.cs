@@ -35,7 +35,12 @@ namespace CGame.Animation.Tests
                 additive.WeaponIkBone.Name,
                 Is.EqualTo("IK WeaponBone"),
                 "AK12 Additive recoil must target the same IK WeaponBone that owns the visible weapon presentation.");
-            Assert.That(additive.AimingCurve, Is.EqualTo("AimingWeight"));
+            Assert.That(
+                additive.AdditiveBone.Name,
+                Is.EqualTo("WeaponBoneAdditive"),
+                "AK12 additive offsets must come from the neutral additive bone, never the rotated hand helper.");
+            Assert.That(additive.AimingCurve, Is.Empty);
+            Assert.That(additive.AdsScalar, Is.EqualTo(0.3f));
             SerializedObject serializedProfile = new SerializedObject(profile);
             SerializedProperty layers = serializedProfile.FindProperty("layers");
             int additiveIndex = -1;
@@ -47,7 +52,7 @@ namespace CGame.Animation.Tests
                     break;
                 }
             }
-            Assert.That(additiveIndex, Is.EqualTo(3));
+            Assert.That(additiveIndex, Is.EqualTo(4));
         }
     }
 }

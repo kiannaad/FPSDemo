@@ -36,7 +36,7 @@ namespace CGame.Animation.Tests
             Pose recoilOffset = new Pose(new Vector3(0.1f, 0.2f, 0.3f), Quaternion.Euler(1f, 2f, 3f));
             InvokePawn("SetAimAnimationFacts", true, aimOffset);
             root.transform.rotation = Quaternion.Euler(0f, 10f, 0f);
-            InvokePawn("ApplyingControlRotation", Quaternion.Euler(-15f, 55f, 0f));
+            InvokePawn("ApplyingPresentationRotation", Quaternion.Euler(-15f, 55f, 0f));
             InvokePawn("SetViewAnimationFacts",
                 Vector2.zero,
                 new Vector2(2f, -3f),
@@ -71,7 +71,7 @@ namespace CGame.Animation.Tests
         public void Update_CalculatesSignedRelativeYawAndControlPitchForLook()
         {
             root.transform.rotation = Quaternion.Euler(0f, 170f, 0f);
-            InvokePawn("ApplyingControlRotation", Quaternion.Euler(20f, -170f, 0f));
+            InvokePawn("ApplyingPresentationRotation", Quaternion.Euler(20f, -170f, 0f));
             InvokePawn("SetLookLayerWeight", 0f);
 
             UpdateContext();
@@ -107,6 +107,39 @@ namespace CGame.Animation.Tests
             Assert.That(context.WeaponCollisionDistance, Is.Zero);
         }
 
+        [Test]
+        public void RotationContract_PresentationChangesUntilNextPrePhysicsLatch()
+        {
+            Quaternion firstPresentation = Quaternion.Euler(-10f, 35f, 0f);
+            Quaternion secondPresentation = Quaternion.Euler(20f, 80f, 0f);
+
+            InvokePawn("ApplyingPresentationRotation", firstPresentation);
+            Assert.That(Quaternion.Angle(GetPawnRotation("PresentationRotation"), firstPresentation), Is.LessThan(0.001f));
+            Assert.That(Quaternion.Angle(GetPawnRotation("SimulatedRotation"), Quaternion.identity), Is.LessThan(0.001f));
+
+            LatchSimulatedRotation();
+            Assert.That(Quaternion.Angle(GetPawnRotation("SimulatedRotation"), firstPresentation), Is.LessThan(0.001f));
+
+            InvokePawn("ApplyingPresentationRotation", secondPresentation);
+            Assert.That(Quaternion.Angle(GetPawnRotation("PresentationRotation"), secondPresentation), Is.LessThan(0.001f));
+            Assert.That(Quaternion.Angle(GetPawnRotation("SimulatedRotation"), firstPresentation), Is.LessThan(0.001f));
+
+            LatchSimulatedRotation();
+            Assert.That(Quaternion.Angle(GetPawnRotation("SimulatedRotation"), secondPresentation), Is.LessThan(0.001f));
+        }
+
+        [Test]
+        public void RotationContract_ResetClearsPresentationAndSimulation()
+        {
+            InvokePawn("ApplyingPresentationRotation", Quaternion.Euler(0f, 90f, 0f));
+            LatchSimulatedRotation();
+
+            InvokePawn("ResetRotationState");
+
+            Assert.That(Quaternion.Angle(GetPawnRotation("PresentationRotation"), Quaternion.identity), Is.LessThan(0.001f));
+            Assert.That(Quaternion.Angle(GetPawnRotation("SimulatedRotation"), Quaternion.identity), Is.LessThan(0.001f));
+        }
+
         private void UpdateContext()
         {
             typeof(AnimationUpdateContext)
@@ -117,6 +150,18 @@ namespace CGame.Animation.Tests
         private void InvokePawn(string methodName, params object[] arguments)
         {
             typeof(Pawn).GetMethod(methodName).Invoke(pawn, arguments);
+        }
+
+        private void LatchSimulatedRotation()
+        {
+            typeof(Pawn)
+                .GetMethod("LatchSimulatedRotation", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(pawn, new object[] { 0.02f });
+        }
+
+        private Quaternion GetPawnRotation(string propertyName)
+        {
+            return (Quaternion)typeof(Pawn).GetProperty(propertyName).GetValue(pawn, null);
         }
 
         private sealed class TestAnimationSource : IAnimationCharacterSource

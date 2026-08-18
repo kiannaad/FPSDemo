@@ -35,6 +35,25 @@ namespace CGame.Animation.Tests
         }
 
         [Test]
+        public void TurnRuntimeState_ClampsVisualOffsetToLookYawRange()
+        {
+            TurnRuntimeState state = default;
+            AnimationCurve curve = AnimationCurve.Linear(0f, 0f, 1f, 1f);
+
+            state.Advance(-180f, 0f, 70f, 1f, curve);
+
+            Assert.That(state.AppliedAngle, Is.EqualTo(90f).Within(0.001f));
+
+            state = default;
+            state.Advance(-78f, 0f, 70f, 1f, curve);
+            state.ClampForLookYaw(-27f, 90f);
+
+            Assert.That(state.AppliedAngle, Is.EqualTo(63f).Within(0.001f));
+            Assert.That(-27f - state.AppliedAngle, Is.EqualTo(-90f).Within(0.001f),
+                "The composed view yaw must stay inside the available spine-chain range.");
+        }
+
+        [Test]
         public void KTransform_RelativeWorldAndLerpMathIsDeterministic()
         {
             System.Random random = new System.Random(13082026);
@@ -680,35 +699,24 @@ namespace CGame.Animation.Tests
         [Test]
         public void IkJob_ReachesTheSameTwoBoneTargetAsTheSourceSolver()
         {
-            GameObject root = new GameObject("IkParityRoot");
-            Transform upper = CreateChild(root.transform, "Upper");
-            Transform lower = CreateChild(upper, "Lower");
-            Transform tip = CreateChild(lower, "Tip");
-            lower.localPosition = Vector3.right;
-            tip.localPosition = Vector3.right;
-            Transform target = CreateChild(root.transform, "Target");
-            target.position = new Vector3(1.2f, 0.8f, 0f);
-            Transform hint = CreateChild(root.transform, "Hint");
-            hint.position = new Vector3(0f, 0f, 1f);
-            Animator animator = root.AddComponent<Animator>();
-            try
+            KTwoBoneIkData data = new KTwoBoneIkData
             {
-                IkJob job = new IkJob
-                {
-                    Root = animator.BindStreamTransform(root.transform),
-                    RightHand = new IkHandle(animator, tip, target, hint),
-                    Weight = 1f,
-                    RightHandWeight = 1f
-                };
+                Root = new KTransform(Vector3.zero, Quaternion.identity),
+                Mid = new KTransform(Vector3.right, Quaternion.identity),
+                Tip = new KTransform(Vector3.right * 2f, Quaternion.identity),
+                Target = new KTransform(new Vector3(1.2f, 0.8f, 0f), Quaternion.identity),
+                Hint = new KTransform(new Vector3(0f, 0f, 1f), Quaternion.identity),
+                PositionWeight = 1f,
+                RotationWeight = 1f,
+                HintWeight = 1f,
+                HasValidHint = true
+            };
 
-                EvaluateJob(animator, job);
+            KTwoBoneIK.Solve(ref data);
 
-                Assert.That(Vector3.Distance(tip.position, target.position), Is.LessThan(0.0001f));
-            }
-            finally
-            {
-                Object.DestroyImmediate(root);
-            }
+            Assert.That(Vector3.Distance(data.Tip.Position, data.Target.Position), Is.LessThan(0.0001f));
+            Assert.That(Vector3.Distance(data.Root.Position, data.Mid.Position), Is.EqualTo(1f).Within(0.0001f));
+            Assert.That(Vector3.Distance(data.Mid.Position, data.Tip.Position), Is.EqualTo(1f).Within(0.0001f));
         }
 
         private static void AssertJob<TSettings, TJob>()
@@ -779,6 +787,36 @@ namespace CGame.Animation.Tests
             finally
             {
                 graph.Destroy();
+            }
+        }
+
+        private static void EvaluateJobWithAnimationSource<T>(Animator animator, T job, Transform root) where T : struct, IAnimationJob
+        {
+            PlayableGraph graph = PlayableGraph.Create(typeof(T).Name + "ParityWithSource");
+            AnimationClip clip = new AnimationClip();
+            foreach (Transform transform in root.GetComponentsInChildren<Transform>())
+            {
+                string path = AnimationUtility.CalculateTransformPath(transform, root);
+                AnimationUtility.SetEditorCurve(
+                    clip,
+                    EditorCurveBinding.FloatCurve(path, typeof(Transform), "m_LocalPosition.x"),
+                    AnimationCurve.Constant(0f, 1f, transform.localPosition.x));
+            }
+
+            try
+            {
+                AnimationClipPlayable source = AnimationClipPlayable.Create(graph, clip);
+                AnimationScriptPlayable playable = AnimationScriptPlayable.Create(graph, job, 1);
+                graph.Connect(source, 0, playable, 0);
+                playable.SetInputWeight(0, 1f);
+                AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, typeof(T).Name, animator);
+                output.SetSourcePlayable(playable);
+                graph.Evaluate();
+            }
+            finally
+            {
+                graph.Destroy();
+                Object.DestroyImmediate(clip);
             }
         }
 

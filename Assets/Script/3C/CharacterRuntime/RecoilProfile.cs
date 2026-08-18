@@ -13,7 +13,7 @@ namespace CGame
         [SerializeField, Min(0f)] private float maximumYawDegrees = 3f;
         [SerializeField, Min(0f)] private float cameraShakeAmplitude = 0.1f;
         [SerializeField, Min(0.001f)] private float fireInterval = 0.1f;
-        [SerializeField, Range(0f, 1f)] private float adsScalar = 0.65f;
+        [SerializeField, Range(0f, 1f)] private float adsScalar = 0.3f;
 
         public Vector2 KickDegrees => kickDegrees;
         public Pose WeaponRecoilPose => new Pose(weaponTranslation, Quaternion.Euler(weaponEulerDegrees));

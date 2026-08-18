@@ -63,6 +63,7 @@ namespace CGame.Animation
                 settings.AngleThreshold,
                 settings.TurnSpeed,
                 settings.TurnCurve);
+            state.ClampForLookYaw(context.ViewAnglesDegrees.x, 90f);
             if (request != TurnRequest.None)
             {
                 pendingRequest = request;

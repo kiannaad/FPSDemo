@@ -10,6 +10,7 @@ namespace CGame.Animation
         public TransformStreamHandle Pelvis;
         public TransformStreamHandle PelvisParent;
         public TransformStreamHandle WeaponBone;
+        public TransformStreamHandle Camera;
         public TransformStreamHandle WeaponBoneRight;
         public TransformStreamHandle WeaponBoneLeft;
         public TransformStreamHandle IkWeaponBone;
@@ -19,16 +20,22 @@ namespace CGame.Animation
         public TransformStreamHandle IkLeftHandHint;
         public Quaternion CachedPelvisPose;
         public KTransform WeaponBoneComponentPose;
+        public KTransform WeaponBoneCameraPose;
         public KTransform WeaponBoneSpinePose;
         public KTransform WeaponBoneRightLocalPose;
         public KTransform WeaponBoneLeftLocalPose;
         public KTransform DefaultWeaponPose;
         public KTransform WeaponBoneOffset;
+        public KTransform RightHandReferencePose;
+        public KTransform LeftHandReferencePose;
+        public KTransform RightHintReferencePose;
+        public KTransform LeftHintReferencePose;
         public float WeaponBoneWeight;
         public float StabilizationWeight;
         public float Weight;
         public bool OverwriteRoot;
         public bool OverwriteWeaponBone;
+        public bool UseReferenceHandTargets;
         public bool HasValidRoot;
 
         public void ProcessAnimation(AnimationStream stream)
@@ -73,14 +80,21 @@ namespace CGame.Animation
         {
             KTransform root = AnimationLayerJobUtility.GetTransform(stream, CharacterRoot);
             KTransform spine = AnimationLayerJobUtility.GetTransform(stream, SpineRoot);
-            if (OverwriteWeaponBone)
+            if (UseReferenceHandTargets)
+            {
+                KTransform camera = AnimationLayerJobUtility.GetTransform(stream, Camera);
+                KTransform desired = camera.GetWorldTransform(WeaponBoneCameraPose, false);
+                WeaponBone.SetPosition(stream, desired.Position);
+                WeaponBone.SetRotation(stream, desired.Rotation);
+            }
+            else if (OverwriteWeaponBone)
             {
                 KTransform desired = root.GetWorldTransform(DefaultWeaponPose, false);
                 WeaponBone.SetPosition(stream, desired.Position);
                 WeaponBone.SetRotation(stream, desired.Rotation);
             }
 
-            if (WeaponBoneWeight > 0f)
+            if (!UseReferenceHandTargets && WeaponBoneWeight > 0f)
             {
                 KTransform componentPose = root.GetWorldTransform(WeaponBoneComponentPose, false);
                 KTransform spinePose = spine.GetWorldTransform(WeaponBoneSpinePose, false);
@@ -98,17 +112,31 @@ namespace CGame.Animation
             KTransform rightReference = AnimationLayerJobUtility.GetTransform(stream, WeaponBoneRight);
             KTransform leftReference = AnimationLayerJobUtility.GetTransform(stream, WeaponBoneLeft);
 
-            KTransform pose = rightReference;
             KTransform right = AnimationLayerJobUtility.GetTransform(stream, WeaponBone);
-            KTransform left = leftReference;
-            pose = WeaponBoneWeight >= 0f
-                ? KTransform.Lerp(pose, right, WeaponBoneWeight)
-                : KTransform.Lerp(pose, left, -WeaponBoneWeight);
+            KTransform pose;
+            if (UseReferenceHandTargets)
+            {
+                pose = right;
+            }
+            else
+            {
+                pose = WeaponBoneWeight >= 0f
+                    ? KTransform.Lerp(rightReference, right, WeaponBoneWeight)
+                    : KTransform.Lerp(rightReference, leftReference, -WeaponBoneWeight);
+            }
 
             KTransform rightHand = AnimationLayerJobUtility.GetTransform(stream, IkRightHand);
             KTransform leftHand = AnimationLayerJobUtility.GetTransform(stream, IkLeftHand);
             KTransform rightHint = AnimationLayerJobUtility.GetTransform(stream, IkRightHandHint);
             KTransform leftHint = AnimationLayerJobUtility.GetTransform(stream, IkLeftHandHint);
+            if (UseReferenceHandTargets)
+            {
+                KTransform referenceWeapon = AnimationLayerJobUtility.GetTransform(stream, WeaponBone);
+                rightHand = referenceWeapon.GetWorldTransform(RightHandReferencePose, false);
+                leftHand = referenceWeapon.GetWorldTransform(LeftHandReferencePose, false);
+                rightHint = referenceWeapon.GetWorldTransform(RightHintReferencePose, false);
+                leftHint = referenceWeapon.GetWorldTransform(LeftHintReferencePose, false);
+            }
             IkWeaponBone.SetPosition(stream, pose.Position);
             IkWeaponBone.SetRotation(stream, pose.Rotation * WeaponBoneOffset.Rotation);
             IkRightHand.SetPosition(stream, rightHand.Position);

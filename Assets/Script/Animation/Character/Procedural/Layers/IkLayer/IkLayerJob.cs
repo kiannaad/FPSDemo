@@ -40,7 +40,10 @@ namespace CGame.Animation
         public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight)
         {
             job.Weight = weight;
-            job.TurnOffset = updateContext.Rotation.YawDelta;
+            // Feet must compensate the visual ModelRoot offset produced by Turn.
+            // Rotation.YawDelta is only the physical root's frame-to-frame delta and
+            // has a different lifetime and sign from the visual turn offset.
+            job.TurnOffset = updateContext.TurnOffsetDegrees;
             job.OffsetFeetTargets = settings.OffsetFeetTargets;
             job.RightHandWeight = settings.RightHandWeight;
             job.LeftHandWeight = settings.LeftHandWeight;

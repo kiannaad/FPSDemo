@@ -15,7 +15,7 @@ namespace CGame.Animation
         {
             if (!KCurves.IsWeightRelevant(Weight)) return;
 
-            // The physical root follows ControlRotation immediately. Counter-rotate
+            // The physical root follows SimulatedRotation. Counter-rotate
             // the visual ModelRoot in the AnimationStream so its Hips/feet inherit
             // the turn offset. Look consumes the same offset and owns the upper
             // body aim correction; do not restore UpperBodyRoot here.
@@ -44,6 +44,8 @@ namespace CGame.Animation
 
     public struct TurnRuntimeState
     {
+        private const float MaxVisualOffsetDegrees = 90f;
+
         private float cachedAngle;
         private float playback;
         public float Angle { get; private set; }
@@ -54,9 +56,26 @@ namespace CGame.Animation
         // zero; gating it here would make the lower body snap at the threshold.
         public float AppliedAngle => Angle;
 
+        public void ClampForLookYaw(float viewYawDegrees, float maximumLookYawDegrees)
+        {
+            float maximum = Mathf.Max(0f, maximumLookYawDegrees);
+            float minimumAngle = Mathf.Max(-MaxVisualOffsetDegrees, viewYawDegrees - maximum);
+            float maximumAngle = Mathf.Min(MaxVisualOffsetDegrees, viewYawDegrees + maximum);
+
+            // TurnOffset is -Angle, so Look receives viewYawDegrees - Angle.
+            // Clamp the visual counter-offset to the yaw range the spine chain can
+            // actually express; otherwise a fast input frame leaves an aim gap.
+            Angle = minimumAngle <= maximumAngle
+                ? Mathf.Clamp(Angle, minimumAngle, maximumAngle)
+                : Mathf.Clamp(Angle, -MaxVisualOffsetDegrees, MaxVisualOffsetDegrees);
+        }
+
         public TurnRequest Advance(float viewDeltaDegrees, float deltaTime, float threshold, float speed, AnimationCurve curve)
         {
-            Angle = Mathf.Clamp(Angle - viewDeltaDegrees, -180f, 180f);
+            // Look can aim the upper body through at most +/- 90 degrees.  A wider
+            // visual ModelRoot offset leaves an uncompensated yaw gap between the
+            // weapon and camera after a high-rate input frame.
+            Angle = Mathf.Clamp(Angle - viewDeltaDegrees, -MaxVisualOffsetDegrees, MaxVisualOffsetDegrees);
             TurnRequest request = TurnRequest.None;
             if (!IsTurning && Mathf.Abs(Angle) > threshold)
             {

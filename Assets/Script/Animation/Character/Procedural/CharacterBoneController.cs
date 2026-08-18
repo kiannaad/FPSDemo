@@ -499,9 +499,23 @@ namespace CGame.Animation
                     weights[index] = layers[index].Settings.EvaluateWeight(owner);
                 }
 
+                // Turn produces the visual ModelRoot offset that Look consumes.
+                // Prepare that cross-layer input first without changing the
+                // Playable evaluation order (Look must still write before Turn).
                 for (int index = 0; index < layers.Count; index++)
                 {
-                    layers[index].PreUpdate(deltaTime, weights[index]);
+                    if (layers[index].Settings is TurnLayerSettings)
+                    {
+                        layers[index].PreUpdate(deltaTime, weights[index]);
+                    }
+                }
+
+                for (int index = 0; index < layers.Count; index++)
+                {
+                    if (!(layers[index].Settings is TurnLayerSettings))
+                    {
+                        layers[index].PreUpdate(deltaTime, weights[index]);
+                    }
                 }
 
                 for (int index = 0; index < layers.Count; index++)

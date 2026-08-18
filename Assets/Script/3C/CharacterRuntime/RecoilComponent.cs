@@ -32,17 +32,16 @@ private Vector2 rotationOffsetDegrees;
                 return FireResult.Failed("Recoil profile is not bound.", shotSequence);
             }
 
-            float scalar = isAiming ? profile.AdsScalar : 1f;
-            Vector2 kick = profile.KickDegrees * scalar;
+            Vector2 kick = profile.KickDegrees;
             rotationOffsetDegrees = new Vector2(
                 Mathf.Clamp(rotationOffsetDegrees.x + kick.x, -profile.MaximumPitchDegrees, profile.MaximumPitchDegrees),
                 Mathf.Clamp(rotationOffsetDegrees.y + kick.y, -profile.MaximumYawDegrees, profile.MaximumYawDegrees));
             shotSequence++;
-            weaponRecoilPose = ScalePose(profile.WeaponRecoilPose, scalar);
+            weaponRecoilPose = profile.WeaponRecoilPose;
             FrameData = new RecoilFrameData(
                 rotationOffsetDegrees,
-                ScalePose(profile.WeaponRecoilPose, scalar),
-                profile.CameraShakeAmplitude * scalar,
+                profile.WeaponRecoilPose,
+                profile.CameraShakeAmplitude,
                 shotSequence);
             pawn.SetRecoilFrameData(FrameData);
             return new FireResult(true, shotSequence);
@@ -87,9 +86,5 @@ private Vector2 rotationOffsetDegrees;
                 Quaternion.Slerp(pose.rotation, Quaternion.identity, alpha));
         }
 
-private static Pose ScalePose(Pose pose, float scalar)
-        {
-            return new Pose(pose.position * scalar, Quaternion.Slerp(Quaternion.identity, pose.rotation, scalar));
-        }
     }
 }

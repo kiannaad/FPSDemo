@@ -25,6 +25,9 @@ namespace CGame.Animation
             Transform weapon = Resolve(jobData, settings.WeaponBone, "weapon bone");
             Transform weaponRight = Resolve(jobData, settings.WeaponBoneRight, "right weapon bone");
             Transform weaponLeft = Resolve(jobData, settings.WeaponBoneLeft, "left weapon bone");
+            Transform camera = settings.UseReferenceHandTargets
+                ? Resolve(jobData, settings.CameraBone, "camera bone")
+                : null;
 
             KTransform defaultWeapon = settings.DefaultWeaponPose;
             KTransform[] cachedHierarchyPose = CaptureHierarchyPose(jobData);
@@ -34,6 +37,11 @@ namespace CGame.Animation
             KTransform spinePose;
             KTransform rightReferencePose;
             KTransform leftReferencePose;
+            KTransform rightHandReferencePose;
+            KTransform leftHandReferencePose;
+            KTransform rightHintReferencePose;
+            KTransform leftHintReferencePose;
+            KTransform weaponBoneCameraPose;
             try
             {
                 weapon.position = root.TransformPoint(defaultWeapon.Position);
@@ -55,6 +63,13 @@ namespace CGame.Animation
                 spinePose = new KTransform(spine).GetRelativeTransform(new KTransform(weapon), false);
                 rightReferencePose = new KTransform(weaponRight, false);
                 leftReferencePose = new KTransform(weaponLeft, false);
+                weaponBoneCameraPose = settings.UseReferenceHandTargets
+                    ? new KTransform(camera).GetRelativeTransform(new KTransform(weapon), false)
+                    : default;
+                rightHandReferencePose = CaptureVirtualTargetRelativeToWeapon(jobData, settings.IkRightHand, weapon, "right hand");
+                leftHandReferencePose = CaptureVirtualTargetRelativeToWeapon(jobData, settings.IkLeftHand, weapon, "left hand");
+                rightHintReferencePose = CaptureVirtualTargetRelativeToWeapon(jobData, settings.IkRightHandHint, weapon, "right hand hint");
+                leftHintReferencePose = CaptureVirtualTargetRelativeToWeapon(jobData, settings.IkLeftHandHint, weapon, "left hand hint");
             }
             finally
             {
@@ -71,6 +86,9 @@ namespace CGame.Animation
                     ? animator.BindStreamTransform(pelvis.parent)
                     : default,
                 WeaponBone = Bind(jobData, settings.WeaponBone, "weapon bone"),
+                Camera = settings.UseReferenceHandTargets
+                    ? Bind(jobData, settings.CameraBone, "camera bone")
+                    : default,
                 WeaponBoneRight = Bind(jobData, settings.WeaponBoneRight, "right weapon bone"),
                 WeaponBoneLeft = Bind(jobData, settings.WeaponBoneLeft, "left weapon bone"),
                 IkWeaponBone = Bind(jobData, settings.IkWeaponBone, "IK weapon bone"),
@@ -80,10 +98,15 @@ namespace CGame.Animation
                 IkLeftHandHint = Bind(jobData, settings.IkLeftHandHint, "IK left hint"),
                 CachedPelvisPose = cachedPelvisPose,
                 WeaponBoneComponentPose = componentPose,
+                WeaponBoneCameraPose = weaponBoneCameraPose,
                 WeaponBoneSpinePose = spinePose,
                 WeaponBoneRightLocalPose = rightReferencePose,
                 WeaponBoneLeftLocalPose = leftReferencePose,
                 WeaponBoneOffset = settings.WeaponBoneOffset,
+                RightHandReferencePose = rightHandReferencePose,
+                LeftHandReferencePose = leftHandReferencePose,
+                RightHintReferencePose = rightHintReferencePose,
+                LeftHintReferencePose = leftHintReferencePose,
                 HasValidRoot = hasValidRoot
             };
         }
@@ -101,13 +124,30 @@ namespace CGame.Animation
             job.WeaponBoneOffset = settings.WeaponBoneOffset;
             job.StabilizationWeight = settings.StabilizationWeight;
             job.WeaponBoneWeight = string.IsNullOrWhiteSpace(settings.WeaponBoneWeightCurve)
-                ? 0f
+                ? settings.DefaultWeaponBoneWeight
                 : owner.GetCurveValue(settings.WeaponBoneWeightCurve);
+            job.UseReferenceHandTargets = settings.UseReferenceHandTargets;
             playable.SetJobData(job);
         }
 
         public void OnPostAnimationUpdate() { }
         public void Dispose() { }
+
+        private static KTransform CaptureVirtualTargetRelativeToWeapon(
+            LayerJobData data,
+            CGame.Animation.Rig.KRigElement element,
+            Transform weapon,
+            string label)
+        {
+            Transform virtualTransform = Resolve(data, element, label);
+            CGame.Animation.Rig.KVirtualElement virtualElement = virtualTransform.GetComponent<CGame.Animation.Rig.KVirtualElement>();
+            if (virtualElement == null || virtualElement.TargetBone == null)
+            {
+                throw new InvalidOperationException(label + " virtual target must reference a source bone.");
+            }
+
+            return new KTransform(weapon).GetRelativeTransform(new KTransform(virtualElement.TargetBone), false);
+        }
 
         private static KTransform[] CaptureHierarchyPose(LayerJobData data)
         {
