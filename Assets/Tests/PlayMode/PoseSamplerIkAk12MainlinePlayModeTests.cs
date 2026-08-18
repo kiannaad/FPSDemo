@@ -75,14 +75,19 @@ namespace CGame.Animation.Tests
             BoneProfile profile = animation.AnimInstance.BoneController.ActiveProfile;
             Assert.That(profile, Is.SameAs(weapon.Definition.ArmedProfile));
             Assert.That(profile.name, Is.EqualTo("AK12LayerIntegrationTestProfile"));
-            Assert.That(profile.Layers, Has.Count.EqualTo(6));
+            Assert.That(profile.Layers, Has.Count.EqualTo(8));
             Assert.That(profile.Layers[0], Is.TypeOf<PoseSamplerLayerSettings>());
             Assert.That(profile.Layers[1], Is.TypeOf<AttachHandLayerSettings>());
             Assert.That(profile.Layers[2], Is.TypeOf<ViewLayerSettings>());
-            Assert.That(profile.Layers[3], Is.TypeOf<LookLayerSettings>());
-            Assert.That(profile.Layers[4], Is.TypeOf<TurnLayerSettings>());
-            Assert.That(profile.Layers[5], Is.TypeOf<IkLayerSettings>());
+            Assert.That(profile.Layers[3], Is.TypeOf<AdsLayerSettings>());
+            Assert.That(profile.Layers[4], Is.TypeOf<AdditiveLayerSettings>());
+            Assert.That(profile.Layers[5], Is.TypeOf<LookLayerSettings>());
+            Assert.That(profile.Layers[6], Is.TypeOf<TurnLayerSettings>());
+            Assert.That(profile.Layers[7], Is.TypeOf<IkLayerSettings>());
             Assert.That(animation.AnimInstance.BoneController.IsValid(), Is.True);
+            Assert.That(pawn.Root.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                .Any(renderer => renderer.enabled && renderer.sharedMesh != null && renderer.sharedMesh.name == "Body"), Is.True,
+                "Acceptance Pawn must retain the full Body mesh when no dedicated first-person material is authored.");
 
             yield return VerifyViewWeightAndPose(animation, profile);
             yield return VerifyMouseLook(animation, controller, pawn, profile);
@@ -111,12 +116,11 @@ namespace CGame.Animation.Tests
 
             Transform weaponBoneRight = animation.RigComponent.GetComponentsInChildren<Transform>(true)
                 .Single(item => item.name == "IK WeaponBoneRight");
-            AnimationScriptPlayable finalPlayable = GetFinalProfilePlayable(animation.Animator.playableGraph);
-            AnimationScriptPlayable turnPlayable = (AnimationScriptPlayable)finalPlayable.GetInput(0);
-            AnimationScriptPlayable lookPlayable = (AnimationScriptPlayable)turnPlayable.GetInput(0);
-            AnimationScriptPlayable viewPlayable = (AnimationScriptPlayable)lookPlayable.GetInput(0);
-            AnimationScriptPlayable attachPlayable = (AnimationScriptPlayable)viewPlayable.GetInput(0);
-            AnimationScriptPlayable samplerPlayable = (AnimationScriptPlayable)attachPlayable.GetInput(0);
+            AnimationScriptPlayable turnPlayable = FindJobPlayable<TurnJob>(animation.Animator.playableGraph);
+            AnimationScriptPlayable lookPlayable = FindJobPlayable<LookJob>(animation.Animator.playableGraph);
+            AnimationScriptPlayable viewPlayable = FindJobPlayable<ViewJob>(animation.Animator.playableGraph);
+            AnimationScriptPlayable attachPlayable = FindJobPlayable<AttachHandJob>(animation.Animator.playableGraph);
+            AnimationScriptPlayable samplerPlayable = FindJobPlayable<PoseSamplerJob>(animation.Animator.playableGraph);
             PoseSamplerJob samplerJob = samplerPlayable.GetJobData<PoseSamplerJob>();
             Assert.That(weaponBoneRight.localPosition.magnitude, Is.GreaterThan(0.05f),
                 "PoseSampler initialization must preserve the sampled right-hand-to-weapon calibration offset.");
@@ -151,7 +155,7 @@ namespace CGame.Animation.Tests
             Pawn pawn,
             BoneProfile profile)
         {
-            LookLayerSettings settings = (LookLayerSettings)profile.Layers[3];
+            LookLayerSettings settings = (LookLayerSettings)profile.Layers[5];;;
             Assert.That(settings.CurveBlending, Has.Length.EqualTo(1));
             AnimationCurveBlend blend = settings.CurveBlending[0];
             Assert.That(blend.CurveName, Is.EqualTo("LookLayerWeight"));
@@ -159,13 +163,13 @@ namespace CGame.Animation.Tests
             Assert.That(settings.UseTurnOffset, Is.True);
             VerifyLookElements(settings.PitchElements,
                 ("Hips", 5f), ("Spine", 17f), ("Chest", 17f),
-                ("UpperChest", 17f), ("Neck", 17f));
+                ("UpperChest", 17f), ("Neck", 34f));;
             VerifyLookElements(settings.YawElements,
                 ("Spine", 25f), ("Chest", 32.5f), ("UpperChest", 32.5f));
             VerifyLookElements(settings.RollElements,
                 ("Hips", 5f), ("Spine", 28.33f), ("Chest", 28.33f), ("UpperChest", 28.33f));
 
-            TurnLayerSettings turnSettings = (TurnLayerSettings)profile.Layers[4];
+            TurnLayerSettings turnSettings = (TurnLayerSettings)profile.Layers[6];;;
             Assert.That(turnSettings.AngleThreshold, Is.EqualTo(70f).Within(0.001f));
             Assert.That(turnSettings.TurnSpeed, Is.EqualTo(1.1f).Within(0.001f));
             Assert.That(turnSettings.AnimatorTurnLeftTrigger, Is.EqualTo("TurnLeft"));
@@ -194,7 +198,7 @@ namespace CGame.Animation.Tests
                 Assert.That(float.IsFinite(animation.AnimInstance.UpdateContext.ViewAnglesDegrees.y), Is.True,
                     "Control pitch must leave the read-only Look context finite.");
 
-                AnimationScriptPlayable lookPlayable = GetLookPlayable(animation.Animator.playableGraph);
+                AnimationScriptPlayable lookPlayable = FindJobPlayable<LookJob>(animation.Animator.playableGraph);
                 LookJob job = lookPlayable.GetJobData<LookJob>();
                 Assert.That(job.Weight, Is.EqualTo(1f).Within(0.0001f));
                 Assert.That(float.IsFinite(job.ViewAnglesDegrees.x), Is.True);
@@ -211,10 +215,41 @@ namespace CGame.Animation.Tests
                 World.Current.UpdateTick(1f / 60f);
                 yield return null;
 
-                AnimationScriptPlayable turnPlayable = GetTurnPlayable(animation.Animator.playableGraph);
+                AnimationScriptPlayable turnPlayable = FindJobPlayable<TurnJob>(animation.Animator.playableGraph);
                 TurnJob turnJob = turnPlayable.GetJobData<TurnJob>();
                 Assert.That(Mathf.Abs(turnJob.TurnAngleDegrees), Is.GreaterThan(0.1f),
                     "A threshold-crossing Mouse delta must reach the Turn playable through the production input path.");
+
+                Camera camera = pawn.Root.GetComponentInChildren<Camera>(true);
+                float idleFov = camera.fieldOfView;
+                InputSystem.QueueStateEvent(mouse, new MouseState { buttons = 2 });
+                InputSystem.Update();
+                Assert.That(mouse.rightButton.isPressed, Is.True,
+                    "The virtual input device must report its right button as held before the production World tick.");
+                for (int frame = 0; frame < 45; frame++)
+                {
+                    World.Current.UpdateTick(1f / 60f);
+                    yield return null;
+                }
+
+                Assert.That(pawn.IsAiming, Is.True,
+                    "Holding the production right mouse button must activate the acceptance AK12 Aim ability.");
+                Assert.That(camera.fieldOfView, Is.LessThan(idleFov),
+                    "Full ADS must narrow the Camera FOV in the acceptance scene.");
+                AnimationScriptPlayable adsPlayable = FindJobPlayable<AdsJob>(animation.Animator.playableGraph);
+                Assert.That(adsPlayable.GetJobData<AdsJob>().AimingWeight, Is.GreaterThan(0.99f));
+
+                InputSystem.QueueStateEvent(mouse, new MouseState());
+                InputSystem.Update();
+                for (int frame = 0; frame < 45; frame++)
+                {
+                    World.Current.UpdateTick(1f / 60f);
+                    yield return null;
+                }
+
+                Assert.That(pawn.IsAiming, Is.False,
+                    "Releasing the production right mouse button must exit ADS.");
+                Assert.That(camera.fieldOfView, Is.EqualTo(idleFov).Within(0.1f));
             }
             finally
             {
@@ -252,8 +287,8 @@ namespace CGame.Animation.Tests
 
             for (int frame = 0; frame < 4; frame++) yield return null;
             Assert.That(animation.Animator.GetFloat(fullBodyWeightHash), Is.Zero.Within(0.0001f));
-            AnimationScriptPlayable lookPlayable = GetLookPlayable(animation.Animator.playableGraph);
-            AnimationScriptPlayable viewPlayable = (AnimationScriptPlayable)lookPlayable.GetInput(0);
+            AnimationScriptPlayable lookPlayable = FindJobPlayable<LookJob>(animation.Animator.playableGraph);
+            AnimationScriptPlayable viewPlayable = FindJobPlayable<ViewJob>(animation.Animator.playableGraph);
             ViewJob viewJob = viewPlayable.GetJobData<ViewJob>();
             Assert.That(viewJob.Weight, Is.EqualTo(1f).Within(0.0001f));
             Assert.That(viewJob.WeaponPose.Pose.Position, Is.EqualTo(settings.IkWeaponBone.Pose.Position));
@@ -354,9 +389,9 @@ namespace CGame.Animation.Tests
             float? maximumRotationError,
             string phase)
         {
-            AnimationScriptPlayable lookPlayable = GetLookPlayable(animation.Animator.playableGraph);
-            AnimationScriptPlayable viewPlayable = (AnimationScriptPlayable)lookPlayable.GetInput(0);
-            AnimationScriptPlayable attachPlayable = (AnimationScriptPlayable)viewPlayable.GetInput(0);
+            AnimationScriptPlayable lookPlayable = FindJobPlayable<LookJob>(animation.Animator.playableGraph);
+            AnimationScriptPlayable viewPlayable = FindJobPlayable<ViewJob>(animation.Animator.playableGraph);
+            AnimationScriptPlayable attachPlayable = FindJobPlayable<AttachHandJob>(animation.Animator.playableGraph);
             AttachHandJob job = attachPlayable.GetJobData<AttachHandJob>();
             Assert.That(job.Weight, Is.EqualTo(expectedWeight).Within(0.0001f), phase);
 
@@ -420,16 +455,50 @@ namespace CGame.Animation.Tests
             return AnimationScriptPlayable.Null;
         }
 
-        private static AnimationScriptPlayable GetLookPlayable(PlayableGraph graph)
+private static AnimationScriptPlayable FindJobPlayable<TJob>(PlayableGraph graph)
+            where TJob : struct, IAnimationJob
         {
-            AnimationScriptPlayable turnPlayable = GetTurnPlayable(graph);
-            return (AnimationScriptPlayable)turnPlayable.GetInput(0);
+            for (int outputIndex = 0; outputIndex < graph.GetOutputCount(); outputIndex++)
+            {
+                PlayableOutput output = graph.GetOutput(outputIndex);
+                if (!output.IsOutputValid()) continue;
+                AnimationScriptPlayable result = FindJobPlayable<TJob>(output.GetSourcePlayable());
+                if (result.IsValid()) return result;
+            }
+
+            Assert.Fail($"Missing {typeof(TJob).Name} in CharacterBoneController graph.");
+            return AnimationScriptPlayable.Null;
         }
 
-        private static AnimationScriptPlayable GetTurnPlayable(PlayableGraph graph)
+        private static AnimationScriptPlayable FindJobPlayable<TJob>(Playable playable)
+            where TJob : struct, IAnimationJob
         {
-            AnimationScriptPlayable ikPlayable = GetFinalProfilePlayable(graph);
-            return (AnimationScriptPlayable)ikPlayable.GetInput(0);
+            if (!playable.IsValid()) return AnimationScriptPlayable.Null;
+            if (playable.IsPlayableOfType<AnimationScriptPlayable>())
+            {
+                AnimationScriptPlayable scriptPlayable = (AnimationScriptPlayable)playable;
+                try
+                {
+                    scriptPlayable.GetJobData<TJob>();
+                    return scriptPlayable;
+                }
+                catch (ArgumentException)
+                {
+                }
+            }
+
+            for (int inputIndex = 0; inputIndex < playable.GetInputCount(); inputIndex++)
+            {
+                AnimationScriptPlayable result = FindJobPlayable<TJob>(playable.GetInput(inputIndex));
+                if (result.IsValid()) return result;
+            }
+
+            return AnimationScriptPlayable.Null;
         }
+
+
+
+
+
     }
 }
