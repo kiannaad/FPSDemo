@@ -21,6 +21,19 @@ namespace CGame.Animation
             typeof(PoseSamplerLayerSettings),
             typeof(AttachHandLayerSettings),
             typeof(ViewLayerSettings),
+            typeof(AdditiveLayerSettings),
+            typeof(LookLayerSettings),
+            typeof(TurnLayerSettings),
+            typeof(IkLayerSettings)
+        };
+
+        private static readonly Type[] Ak12AdsLayerOrder =
+        {
+            typeof(PoseSamplerLayerSettings),
+            typeof(AttachHandLayerSettings),
+            typeof(ViewLayerSettings),
+            typeof(AdsLayerSettings),
+            typeof(AdditiveLayerSettings),
             typeof(LookLayerSettings),
             typeof(TurnLayerSettings),
             typeof(IkLayerSettings)
@@ -38,9 +51,12 @@ namespace CGame.Animation
                 throw new ArgumentNullException(nameof(profile));
             }
 
-            Type[] expectedOrder = profile.Layers.Count == Ak12ProceduralLayerOrder.Length
-                ? Ak12ProceduralLayerOrder
-                : Ak12LegacyLayerOrder;
+            Type[] expectedOrder = profile.Layers.Count switch
+            {
+                8 => Ak12AdsLayerOrder,
+                7 => Ak12ProceduralLayerOrder,
+                _ => Ak12LegacyLayerOrder
+            };
             Validate(profile, "AK12", expectedOrder);
         }
 

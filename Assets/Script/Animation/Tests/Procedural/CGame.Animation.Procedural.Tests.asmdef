@@ -4,7 +4,8 @@
   "references": [
     "CGame.Animation",
     "CGame.Animation.Editor",
-    "CGame.CharacterRuntime"
+    "CGame.CharacterRuntime",
+    "CGame.World"
   ],
   "includePlatforms": [
     "Editor"

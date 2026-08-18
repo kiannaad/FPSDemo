@@ -84,18 +84,18 @@ namespace CGame.Animation.EditorTools
                     break;
                 }
             }
-            if (additive != null && additiveIndex != 3 && profile.Layers.Count > 3)
+            if (additive != null && additiveIndex != 4 && profile.Layers.Count > 4)
             {
-                BoneProfileLayerAssetService.MoveLayer(profile, additiveIndex, 3);
+                BoneProfileLayerAssetService.MoveLayer(profile, additiveIndex, 4);
             }
 
             SerializedObject serialized = new SerializedObject(additive);
             serialized.FindProperty("rig").objectReferenceValue = profile.Rig;
             SetElement(serialized.FindProperty("weaponIkBone"), profile.Rig, "IK WeaponBone");
-            SetElement(serialized.FindProperty("additiveBone"), profile.Rig, "IK WeaponBoneRight");
+            SetElement(serialized.FindProperty("additiveBone"), profile.Rig, "WeaponBoneAdditive");
             serialized.FindProperty("interpolationSpeed").floatValue = 12f;
-            serialized.FindProperty("aimingCurve").stringValue = "AimingWeight";
-            serialized.FindProperty("adsScalar").floatValue = 0.65f;
+            serialized.FindProperty("aimingCurve").stringValue = string.Empty;
+            serialized.FindProperty("adsScalar").floatValue = 0.3f;
             serialized.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(additive);
             EnsureAdditiveLayerReference(profile);
@@ -133,6 +133,7 @@ namespace CGame.Animation.EditorTools
                 typeof(PoseSamplerLayerSettings),
                 typeof(AttachHandLayerSettings),
                 typeof(ViewLayerSettings),
+                typeof(AdsLayerSettings),
                 typeof(AdditiveLayerSettings),
                 typeof(LookLayerSettings),
                 typeof(TurnLayerSettings),
@@ -178,7 +179,7 @@ namespace CGame.Animation.EditorTools
                 }
             }
 
-            int insertIndex = Mathf.Min(3, layers.arraySize);
+            int insertIndex = Mathf.Min(4, layers.arraySize);
             if (existingIndex >= 0)
             {
                 if (existingIndex != insertIndex)

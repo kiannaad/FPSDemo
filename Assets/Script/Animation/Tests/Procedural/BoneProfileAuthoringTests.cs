@@ -38,7 +38,7 @@ namespace CGame.Animation.Tests
         }
 
         [Test]
-        public void LayerTypeDropdown_ExposesOnlyTheFiveApprovedLayerTypes()
+        public void LayerTypeDropdown_ExposesApprovedLayerTypes()
         {
             Type[] expected =
             {
@@ -46,11 +46,14 @@ namespace CGame.Animation.Tests
                 typeof(PoseOffsetLayerSettings),
                 typeof(AttachHandLayerSettings),
                 typeof(ViewLayerSettings),
+                typeof(AdditiveLayerSettings),
+                typeof(LookLayerSettings),
+                typeof(TurnLayerSettings),
                 typeof(IkLayerSettings)
             };
 
             Assert.That(AnimationLayerTypeDropdown.SupportedTypes, Is.EquivalentTo(expected));
-            Assert.That(AnimationLayerTypeDropdown.SupportedTypes.Count, Is.EqualTo(5));
+            Assert.That(AnimationLayerTypeDropdown.SupportedTypes.Count, Is.EqualTo(8));
         }
 
         [Test]

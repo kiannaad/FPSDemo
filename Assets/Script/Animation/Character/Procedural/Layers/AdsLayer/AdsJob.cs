@@ -32,6 +32,8 @@ namespace CGame.Animation
         public TransformStreamHandle AimTarget;
         public WeaponLayerJobData WeaponData;
         public KTransform AimPointOffset;
+        public KTransform DefaultAimPose;
+        public Vector3 AimTargetDefaultLocalPosition;
         public Vector3 PositionBlend;
         public Vector3 RotationBlend;
         public float AimingWeight;
@@ -44,18 +46,26 @@ namespace CGame.Animation
             float weight = KCurves.EvaluateEase(AimingWeight, AimingEase) * Weight;
             if (!KCurves.IsWeightRelevant(weight)) return;
             WeaponData.Cache(stream);
+            if (CameraBlend > 0f)
+            {
+                AimTarget.SetLocalPosition(stream, AimTargetDefaultLocalPosition);
+            }
+
             KTransform root = AnimationLayerJobUtility.GetTransform(stream, Root);
             KTransform weapon = root.GetRelativeTransform(AnimationLayerJobUtility.GetTransform(stream, Weapon), false);
             KTransform target = root.GetRelativeTransform(AnimationLayerJobUtility.GetTransform(stream, AimTarget), false);
-            Vector3 rawPosition = target.Position - weapon.Position;
-            Vector3 position = Vector3.Scale(rawPosition, Vector3.one - PositionBlend) + AimPointOffset.Position;
-            Quaternion rawRotation = Quaternion.Inverse(weapon.Rotation);
-            Vector3 rawEuler = Normalize(rawRotation.eulerAngles);
-            Vector3 rotationEuler = Vector3.Scale(rawEuler, Vector3.one - RotationBlend) + Normalize(AimPointOffset.Rotation.eulerAngles);
-            KTransform pose = new KTransform(position, Quaternion.Euler(rotationEuler));
+            KTransform pose = new KTransform(
+                target.Position - weapon.Position,
+                Quaternion.Inverse(weapon.Rotation));
+            pose.Position = Vector3.Scale(pose.Position, Vector3.one - PositionBlend)
+                + Vector3.Scale(DefaultAimPose.Position, PositionBlend);
+            pose.Position += AimPointOffset.Rotation * AimPointOffset.Position;
+            Vector3 rotationEuler = Vector3.Scale(Normalize(pose.Rotation.eulerAngles), Vector3.one - RotationBlend)
+                + Vector3.Scale(Normalize(DefaultAimPose.Rotation.eulerAngles), RotationBlend);
+            pose.Rotation = Quaternion.Euler(rotationEuler) * AimPointOffset.Rotation;
             AnimationLayerJobUtility.ModifyTransform(stream, Root, Weapon, new KPose
             {
-                Pose = pose,
+                Pose = new KTransform(pose.Position, pose.Rotation),
                 Space = TransformSpace.ComponentSpace,
                 ModifyMode = TransformModifyMode.Add
             }, weight * (1f - CameraBlend));
@@ -63,7 +73,7 @@ namespace CGame.Animation
             {
                 AnimationLayerJobUtility.ModifyTransform(stream, Root, AimTarget, new KPose
                 {
-                    Pose = new KTransform(-position, Quaternion.identity),
+                    Pose = new KTransform(-pose.Position, Quaternion.identity),
                     Space = TransformSpace.ComponentSpace,
                     ModifyMode = TransformModifyMode.Add
                 }, weight * CameraBlend);

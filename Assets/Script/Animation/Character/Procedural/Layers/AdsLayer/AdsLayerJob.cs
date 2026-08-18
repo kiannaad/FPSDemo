@@ -1,4 +1,5 @@
 using System;
+using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
 
@@ -13,6 +14,8 @@ namespace CGame.Animation
         private TransformStreamHandle aimTarget;
         private WeaponLayerJobData weaponData;
         private AdsRuntimeState state;
+        private KTransform defaultAimPose;
+        private Vector3 aimTargetDefaultLocalPosition;
 
         public Type SettingsType => typeof(AdsLayerSettings);
 
@@ -25,6 +28,16 @@ namespace CGame.Animation
             root = jobData.CharacterRootHandle;
             weapon = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.WeaponIkBone, settings.name);
             aimTarget = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.AimTargetBone, settings.name);
+            Transform rootTransform = jobData.Animator.transform;
+            Transform weaponTransform = RigHandleUtility.ResolveTransform(jobData.RigComponent, settings.WeaponIkBone, settings.name + " weapon IK bone");
+            Transform aimTargetTransform = RigHandleUtility.ResolveTransform(jobData.RigComponent, settings.AimTargetBone, settings.name + " aim target bone");
+            KTransform rootPose = new KTransform(rootTransform);
+            KTransform weaponPose = rootPose.GetRelativeTransform(new KTransform(weaponTransform), false);
+            KTransform aimTargetPose = rootPose.GetRelativeTransform(new KTransform(aimTargetTransform), false);
+            defaultAimPose = new KTransform(
+                aimTargetPose.Position - weaponPose.Position,
+                Quaternion.Inverse(weaponPose.Rotation));
+            aimTargetDefaultLocalPosition = aimTargetTransform.localPosition;
             weaponData.Initialize(jobData, settings);
         }
 
@@ -34,6 +47,8 @@ namespace CGame.Animation
             Weapon = weapon,
             AimTarget = aimTarget,
             WeaponData = weaponData,
+            DefaultAimPose = defaultAimPose,
+            AimTargetDefaultLocalPosition = aimTargetDefaultLocalPosition,
             PositionBlend = settings.PositionBlend,
             RotationBlend = settings.RotationBlend,
             CameraBlend = settings.CameraBlend,

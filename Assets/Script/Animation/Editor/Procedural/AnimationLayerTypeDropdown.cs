@@ -13,6 +13,7 @@ namespace CGame.Animation.Editor
             typeof(PoseOffsetLayerSettings),
             typeof(AttachHandLayerSettings),
             typeof(ViewLayerSettings),
+            typeof(AdditiveLayerSettings),
             typeof(LookLayerSettings),
             typeof(TurnLayerSettings),
             typeof(IkLayerSettings)
@@ -32,6 +33,7 @@ namespace CGame.Animation.Editor
             Add(menu, "Pose/Pose Offset", typeof(PoseOffsetLayerSettings), onSelected);
             Add(menu, "Hands/Attach Hand", typeof(AttachHandLayerSettings), onSelected);
             Add(menu, "View/View", typeof(ViewLayerSettings), onSelected);
+            Add(menu, "View/Additive", typeof(AdditiveLayerSettings), onSelected);
             Add(menu, "View/Look", typeof(LookLayerSettings), onSelected);
             Add(menu, "View/Turn", typeof(TurnLayerSettings), onSelected);
             Add(menu, "IK/IK", typeof(IkLayerSettings), onSelected);

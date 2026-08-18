@@ -1,4 +1,7 @@
 using System;
+using System.Linq;
+using CGame.Animation;
+using CGame.Animation.Rig;
 using UnityEngine;
 
 namespace CGame
@@ -7,6 +10,7 @@ public sealed class PawnCameraComponent : ActorComponent
     {
         private readonly Camera camera;
         private readonly bool requireCamera;
+        private float defaultFieldOfView;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private float diagnosticElapsed;
 #endif
@@ -16,6 +20,7 @@ public sealed class PawnCameraComponent : ActorComponent
             this.camera = camera;
             this.requireCamera = requireCamera;
             AddDependency<PawnMovementComponent>();
+            AddDependency<PawnAnimationComponent>();
         }
 
         public Camera Camera => camera;
@@ -32,6 +37,7 @@ public sealed class PawnCameraComponent : ActorComponent
             AddTickTask("Pawn.Camera", TickGroup.TG_Camera, Tick);
             if (camera != null)
             {
+                defaultFieldOfView = camera.fieldOfView;
                 camera.enabled = false;
             }
         }
@@ -65,6 +71,24 @@ public sealed class PawnCameraComponent : ActorComponent
                 return;
             }
 
+            PawnAnimationComponent animation = pawn.GetComponent<PawnAnimationComponent>();
+            AdsLayerSettings ads = animation?.AnimInstance?.BoneController.ActiveProfile?.Layers
+                .OfType<AdsLayerSettings>()
+                .FirstOrDefault();
+            if (ads != null && animation.RigComponent != null)
+            {
+                Transform animationCamera = RigHandleUtility.ResolveTransform(
+                    animation.RigComponent,
+                    ads.AimTargetBone,
+                    nameof(PawnCameraComponent));
+                camera.transform.position = animationCamera.position;
+            }
+
+            EquipmentManagerComponent equipment = pawn.GetComponent<EquipmentManagerComponent>();
+            float targetFieldOfView = pawn.IsAiming && equipment?.CurrentWeapon?.Definition != null
+                ? equipment.CurrentWeapon.Definition.AimFov
+                : defaultFieldOfView;
+            camera.fieldOfView = Mathf.MoveTowards(camera.fieldOfView, targetFieldOfView, 90f * deltaTime);
             camera.transform.rotation = pawn.EffectivePresentationRotation
                 * Quaternion.Euler(0f, 0f, pawn.CameraShakeSample);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD

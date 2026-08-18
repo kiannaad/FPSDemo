@@ -18,12 +18,22 @@ namespace CGame.Animation
     {
         [SerializeField] private KRigElement aimTargetBone;
         [SerializeField] private EaseMode aimingEaseMode = EaseMode.EaseInOut;
-        [SerializeField] private AdsAxisBlend positionBlend;
-        [SerializeField] private AdsAxisBlend rotationBlend;
-        [SerializeField, Min(0.01f)] private float aimingSpeed = 6f;
+        [SerializeField] private AdsAxisBlend positionBlend = new AdsAxisBlend
+        {
+            X = 0.404f,
+            Y = 0.394f,
+            Z = 0.384f
+        };
+        [SerializeField] private AdsAxisBlend rotationBlend = new AdsAxisBlend
+        {
+            X = 0.414f,
+            Y = 0.399f,
+            Z = 0.404f
+        };
+        [SerializeField, Min(0.01f)] private float aimingSpeed = 1.8f;
         [SerializeField] private EaseMode aimPointEaseMode = EaseMode.EaseInOut;
-        [SerializeField, Min(0.01f)] private float aimPointSpeed = 8f;
-        [SerializeField, Range(0f, 1f)] private float cameraBlend;
+        [SerializeField, Min(0.01f)] private float aimPointSpeed = 3f;
+        [SerializeField, Range(0f, 1f)] private float cameraBlend = 1f;
 
         public KRigElement AimTargetBone => aimTargetBone;
         public EaseMode AimingEaseMode => aimingEaseMode;
