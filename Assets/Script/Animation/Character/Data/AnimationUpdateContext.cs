@@ -30,6 +30,7 @@ namespace CGame.Animation
         public KTransform AimPointOffset { get; private set; } = KTransform.Identity;
         public Vector2 ViewAnglesDegrees { get; private set; }
         public Vector2 ViewDeltaDegrees { get; private set; }
+        public Quaternion PresentationRotation { get; private set; } = Quaternion.identity;
         public float LookLayerWeight { get; private set; }
         public float TurnOffsetDegrees { get; private set; }
         public float LeanAngleDegrees { get; private set; }
@@ -38,6 +39,7 @@ namespace CGame.Animation
         public KTransform RecoilOffset { get; private set; } = KTransform.Identity;
         public bool WeaponCollisionHasHit { get; private set; }
         public float WeaponCollisionDistance { get; private set; }
+        internal Pawn Pawn => pawn;
 
         internal void Update(float deltaTime)
         {
@@ -124,6 +126,9 @@ namespace CGame.Animation
         private void UpdateProceduralData()
         {
             IsAiming = pawn.IsAiming;
+            PresentationRotation = IsFinite(pawn.PresentationRotation)
+                ? pawn.PresentationRotation
+                : Quaternion.identity;
             AimPointOffset = SanitizePose(pawn.AimPointOffset);
             ViewAnglesDegrees = CalculateViewAnglesDegrees();
             ViewDeltaDegrees = SanitizeVector(pawn.ViewDeltaDegrees);
@@ -171,13 +176,13 @@ namespace CGame.Animation
 
         private Vector2 CalculateViewAnglesDegrees()
         {
-            if (pawn.Transform == null || !IsFinite(pawn.ControlRotation))
+            if (pawn.Transform == null || !IsFinite(pawn.PresentationRotation))
             {
                 return Vector2.zero;
             }
 
             Quaternion relativeControlRotation = Quaternion.Inverse(pawn.Transform.rotation)
-                * pawn.ControlRotation;
+                * pawn.PresentationRotation;
             Vector3 localControlForward = relativeControlRotation * Vector3.forward;
             if (!IsFinite(localControlForward))
             {

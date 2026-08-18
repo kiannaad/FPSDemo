@@ -38,6 +38,14 @@ namespace CGame.Ability
             return true;
         }
 
+        internal void Tick(float deltaTime)
+        {
+            if (State == AbilityTaskState.Active)
+            {
+                OnTick(deltaTime);
+            }
+        }
+
         protected bool CompleteTask()
         {
             if (State != AbilityTaskState.Active)
@@ -52,6 +60,10 @@ namespace CGame.Ability
         }
 
         protected virtual void OnActivate()
+        {
+        }
+
+        protected virtual void OnTick(float deltaTime)
         {
         }
 

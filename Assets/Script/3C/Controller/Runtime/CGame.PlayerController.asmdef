@@ -10,6 +10,7 @@
     "CGame.Character.Definition",
     "CGame.Inventory",
     "CGame.Animation",
+    "Unity.InputSystem",
     "CGame.Input"
   ],
   "autoReferenced": true

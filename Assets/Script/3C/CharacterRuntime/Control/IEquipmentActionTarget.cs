@@ -4,6 +4,8 @@ namespace CGame
     {
         bool Fire();
 
+        void UpdateFireInput(bool fireHeld, float deltaTime);
+
         int Reload();
 
         bool Melee();

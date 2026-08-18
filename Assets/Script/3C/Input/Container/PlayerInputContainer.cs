@@ -80,14 +80,15 @@ namespace CGame
                 MoveInput = readMoveInput(),
                 LookInput = ReadLookInput(),
                 FirePressed = input.Player.Fire.WasPressedThisFrame()
-                    || Mouse.current?.leftButton.wasPressedThisFrame == true,
+                    || anyMouseButtonWasPressedThisFrame(false),
                 FireHeld = input.Player.Fire.IsPressed()
-                    || Mouse.current?.leftButton.isPressed == true,
+                    || anyMouseButtonIsPressed(false),
                 JumpPressed = input.Player.Jump.WasPressedThisFrame()
                     || Keyboard.current?.spaceKey.wasPressedThisFrame == true,
                 SprintHeld = input.Player.Sprint.IsPressed()
                     || Keyboard.current?.leftShiftKey.isPressed == true,
-                AimHeld = input.Player.Aim.IsPressed(),
+                AimHeld = input.Player.Aim.IsPressed()
+                    || anyMouseButtonIsPressed(true),
                 ReloadPressed = input.Player.Reload.WasPressedThisFrame()
                     || Keyboard.current?.rKey.wasPressedThisFrame == true,
             };
@@ -145,6 +146,32 @@ namespace CGame
                 ? LookInputTimeMode.Delta
                 : LookInputTimeMode.Rate;
             return new LookInputValue(value, timeMode);
+        }
+
+        private static bool anyMouseButtonIsPressed(bool rightButton)
+        {
+            foreach (InputDevice device in InputSystem.devices)
+            {
+                if (device is Mouse mouse && (rightButton ? mouse.rightButton.isPressed : mouse.leftButton.isPressed))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool anyMouseButtonWasPressedThisFrame(bool rightButton)
+        {
+            foreach (InputDevice device in InputSystem.devices)
+            {
+                if (device is Mouse mouse && (rightButton ? mouse.rightButton.wasPressedThisFrame : mouse.leftButton.wasPressedThisFrame))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

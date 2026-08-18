@@ -1,3 +1,4 @@
+using CGame;
 using System;
 using CGame.Ability;
 using CGame.Animation;
@@ -22,6 +23,8 @@ namespace CGame.InventoryEquipment
         [SerializeField] private Vector3 presentationLocalScale = Vector3.one;
         [SerializeField] private WeaponAbilitySetDefinition abilitySet = new WeaponAbilitySetDefinition();
         [SerializeField] private int magazineCapacity = 30;
+        [SerializeField] private RecoilProfile recoilProfile;
+        [SerializeField, Min(0.001f)] private float fireInterval = 0.1f;
         [SerializeField] private int loadTicks = 1;
         [SerializeField] private bool simulateLoadFailure;
         [NonSerialized] private AbilitySet runtimeAbilitySet;
@@ -39,6 +42,8 @@ namespace CGame.InventoryEquipment
         public Vector3 PresentationLocalScale => presentationLocalScale;
         public WeaponAbilitySetDefinition AbilitySet => abilitySet;
         public int MagazineCapacity => magazineCapacity;
+        public RecoilProfile RecoilProfile => recoilProfile;
+        public float FireInterval => fireInterval;
         public override int LoadTicks => Math.Max(0, loadTicks);
         public override bool SimulateLoadFailure => simulateLoadFailure;
 
@@ -117,6 +122,11 @@ namespace CGame.InventoryEquipment
             if (magazineCapacity <= 0)
             {
                 throw new InvalidOperationException("Weapon Definition magazine capacity must be positive.");
+            }
+
+            if (fireInterval <= 0f)
+            {
+                throw new InvalidOperationException("Weapon Definition fire interval must be positive.");
             }
 
             if (abilitySet == null && runtimeAbilitySet == null)

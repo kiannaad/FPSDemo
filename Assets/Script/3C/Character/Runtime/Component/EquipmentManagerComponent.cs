@@ -14,6 +14,7 @@ namespace CGame
         private PawnBindingReceipt actionBinding;
         private PawnBindingReceipt quickBarBinding;
         private PendingEquipmentRequest pendingRequest;
+        private float fireCooldownRemaining;
 
         private readonly Dictionary<ItemInstanceHandle, WeaponInstance> preparedWeapons = new Dictionary<ItemInstanceHandle, WeaponInstance>();
 private PendingArming pendingArming;
@@ -86,6 +87,26 @@ protected override void OnShutdown()
 
         public bool Fire() => CurrentWeapon?.Fire() == true;
 
+        public void UpdateFireInput(bool fireHeld, float deltaTime)
+        {
+            if (!fireHeld)
+            {
+                fireCooldownRemaining = 0f;
+                return;
+            }
+
+            fireCooldownRemaining = Mathf.Max(0f, fireCooldownRemaining - Mathf.Max(0f, deltaTime));
+            if (fireCooldownRemaining > 0f || CurrentWeapon == null)
+            {
+                return;
+            }
+
+            if (Fire())
+            {
+                fireCooldownRemaining = Mathf.Max(0.001f, CurrentWeapon.Definition.FireInterval);
+            }
+        }
+
         public int Reload() => CurrentWeapon?.Reload() ?? 0;
 
         public bool Melee() => CurrentWeapon?.Melee() == true;
@@ -105,6 +126,7 @@ protected override void OnShutdown()
 
             PendingEquipmentRequest request = pendingRequest;
             pendingRequest = null;
+            fireCooldownRemaining = 0f;
             CompleteRequest(request);
         }
 

@@ -289,6 +289,22 @@ namespace CGame.Ability
             releasedInputHandles.Clear();
         }
 
+        public void Tick(float deltaTime)
+        {
+            if (IsDisposed || deltaTime <= 0f)
+            {
+                return;
+            }
+
+            foreach (AbilitySpec spec in specs.Values.ToArray())
+            {
+                if (spec.PrimaryInstance.State == AbilityInstanceState.Active)
+                {
+                    spec.PrimaryInstance.TickTasks(deltaTime);
+                }
+            }
+        }
+
         public AbilityActivationResult TryActivateAbility(AbilitySpecHandle handle)
         {
             if (!specs.TryGetValue(handle, out AbilitySpec spec))

@@ -107,25 +107,44 @@ namespace CGame.InventoryEquipment
             this.action = action;
         }
 
-        protected override void OnActivate()
+protected override void OnActivate()
         {
-            if (ActivationContext.Spec.SourceObject is WeaponInstance weapon)
+            if (!(ActivationContext.Spec.SourceObject is WeaponInstance weapon))
             {
-                switch (action)
-                {
-                    case WeaponAction.Fire:
-                        weapon.Fire();
-                        break;
-                    case WeaponAction.Reload:
-                        weapon.Reload();
-                        break;
-                    case WeaponAction.Melee:
-                        weapon.Melee();
-                        break;
-                }
+                EndAbility(AbilityEndReason.Failed);
+                return;
             }
 
-            EndAbility(AbilityEndReason.Completed);
+            switch (action)
+            {
+                case WeaponAction.Fire:
+                    if (weapon.TryFire().Succeeded)
+                    {
+                        StartTask(new RepeatFireTask(weapon, weapon.Definition.FireInterval));
+                    }
+                    else
+                    {
+                        EndAbility(AbilityEndReason.Failed);
+                    }
+                    break;
+                case WeaponAction.Reload:
+                    weapon.Reload();
+                    EndAbility(AbilityEndReason.Completed);
+                    break;
+                case WeaponAction.Melee:
+                    weapon.Melee();
+                    EndAbility(AbilityEndReason.Completed);
+                    break;
+            }
         }
+
+protected override void OnInputReleased()
+        {
+            if (action == WeaponAction.Fire)
+            {
+                EndAbility(AbilityEndReason.Cancelled);
+            }
+        }
+
     }
 }

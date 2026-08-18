@@ -146,6 +146,14 @@ namespace CGame.Ability
             }
         }
 
+        internal void TickTasks(float deltaTime)
+        {
+            for (int index = 0; index < activeTasks.Count; index++)
+            {
+                activeTasks[index].Tick(deltaTime);
+            }
+        }
+
         protected virtual void OnEnd(AbilityEndReason reason)
         {
         }

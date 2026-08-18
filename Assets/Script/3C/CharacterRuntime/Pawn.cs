@@ -8,6 +8,8 @@ namespace CGame
     public class Pawn : Actor, ICharacterIntentSink, ICharacterMovementCommandSource
     {
         private readonly List<ActorComponent> declaredComponents;
+        private readonly RecoilComponent recoilComponent;
+
         private Controller controller;
         private Vector3 movementInput;
         private Vector3 pendingForce;
@@ -30,6 +32,8 @@ namespace CGame
         {
             Root = root;
             Transform = root != null ? root.transform : null;
+            recoilComponent = new RecoilComponent(this);
+
             declaredComponents = components == null
                 ? new List<ActorComponent>()
                 : new List<ActorComponent>(components);
@@ -41,6 +45,20 @@ namespace CGame
 
         public GameObject Root { get; }
 
+
+
+        public RecoilProfile RecoilProfile { get; private set; }
+public RecoilComponent Recoil => recoilComponent;
+
+        public Vector2 RecoilRotationOffsetDegrees { get; private set; }
+
+        public Pose WeaponRecoilPose { get; private set; } = new Pose(Vector3.zero, Quaternion.identity);
+
+        public float CameraShakeSample { get; private set; }
+
+        public int RecoilShotSequence { get; private set; }
+
+
         public Transform Transform { get; }
 
         public Controller Controller => controller;
@@ -48,6 +66,17 @@ namespace CGame
         public AbilitySystemComponent AbilitySystem { get; private set; }
 
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
+
+
+
+        public Quaternion EffectivePresentationRotation =>
+            PresentationRotation * Quaternion.Euler(
+                -RecoilRotationOffsetDegrees.x,
+                RecoilRotationOffsetDegrees.y,
+                0f);
+public Quaternion PresentationRotation { get; private set; } = Quaternion.identity;
+
+        public Quaternion SimulatedRotation { get; private set; } = Quaternion.identity;
 
         public bool IsAiming { get; private set; }
 
@@ -112,6 +141,25 @@ namespace CGame
             ControlRotation = controlRotation;
         }
 
+        public void ApplyingPresentationRotation(Quaternion presentationRotation)
+        {
+            PresentationRotation = IsFinite(presentationRotation)
+                ? Quaternion.Normalize(presentationRotation)
+                : Quaternion.identity;
+        }
+
+        private void LatchSimulatedRotation(float deltaTime)
+        {
+            SimulatedRotation = PresentationRotation;
+        }
+
+public void ResetRotationState()
+        {
+            ControlRotation = Quaternion.identity;
+            PresentationRotation = Quaternion.identity;
+            SimulatedRotation = Quaternion.identity;
+        }
+
         public void ApplyingViewDelta(Vector2 viewDeltaDegrees)
         {
             ViewDeltaDegrees = viewDeltaDegrees;
@@ -127,6 +175,11 @@ namespace CGame
             IsAiming = isAiming;
             AimPointOffset = aimPointOffset;
         }
+        public void SetAimingFromInput(bool isAiming)
+        {
+            SetAimAnimationFacts(isAiming, AimPointOffset);
+        }
+
 
         public void SetViewAnimationFacts(
             Vector2 viewAnglesDegrees,
@@ -144,6 +197,34 @@ namespace CGame
         {
             RecoilOffset = recoilOffset;
         }
+
+
+
+        public void BindRecoilProfile(RecoilProfile profile)
+        {
+            RecoilProfile = profile ?? throw new ArgumentNullException(nameof(profile));
+            recoilComponent.Bind(profile);
+        }
+
+
+
+        public void AdvanceRecoil(float deltaTime)
+        {
+            recoilComponent.Advance(deltaTime);
+        }
+public FireResult NotifySuccessfulShot()
+        {
+            return recoilComponent.ApplySuccessfulShot(IsAiming);
+        }
+        internal void SetRecoilFrameData(RecoilFrameData frameData)
+        {
+            RecoilRotationOffsetDegrees = frameData.RotationOffsetDegrees;
+            WeaponRecoilPose = frameData.WeaponRecoilPose;
+            CameraShakeSample = frameData.CameraShakeSample;
+            RecoilShotSequence = frameData.ShotSequence;
+            SetRecoilAnimationFact(frameData.WeaponRecoilPose);
+        }
+
 
         public void SetWeaponCollisionAnimationFacts(bool hasHit, float distance)
         {
@@ -272,6 +353,16 @@ namespace CGame
             RecoilOffset = new Pose(Vector3.zero, Quaternion.identity);
             WeaponCollisionHasHit = false;
             WeaponCollisionDistance = 0f;
+            ResetRotationState();
+        }
+
+        private static bool IsFinite(Quaternion value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+                && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
+                && !float.IsNaN(value.z) && !float.IsInfinity(value.z)
+                && !float.IsNaN(value.w) && !float.IsInfinity(value.w)
+                && value.x * value.x + value.y * value.y + value.z * value.z + value.w * value.w > Mathf.Epsilon;
         }
     }
 }

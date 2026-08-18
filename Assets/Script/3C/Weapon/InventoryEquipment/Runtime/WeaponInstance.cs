@@ -1,3 +1,4 @@
+using CGame;
 using System.Collections.Generic;
 using CGame.Ability;
 using UnityEngine;
@@ -100,15 +101,31 @@ namespace CGame.InventoryEquipment
 
         public bool Fire()
         {
+            return TryFire().Succeeded;
+        }
+
+        public FireResult TryFire()
+        {
             if (IsDisposed || !IsArmed || !Item.TryConsumeMagazineAmmo())
             {
-                return false;
+                return FireResult.Failed("Weapon is not armed or has no ammunition.", 0);
             }
 
             FireCount++;
             RecoilCount++;
             Item.SetDurability(Item.Durability - 0.001f);
-            return true;
+            Pawn pawn = AbilitySystem.Avatar as Pawn;
+            if (pawn != null && Definition.RecoilProfile != null)
+            {
+                if (!ReferenceEquals(pawn.RecoilProfile, Definition.RecoilProfile))
+                {
+                    pawn.BindRecoilProfile(Definition.RecoilProfile);
+                }
+
+                return pawn.NotifySuccessfulShot();
+            }
+
+            return new FireResult(true, FireCount);
         }
 
         public int Reload()

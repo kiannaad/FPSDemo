@@ -35,7 +35,7 @@ namespace CGame
         public float LastTickDeltaTime { get; private set; }
         public Pawn PossessedPawn => PossessedActor as Pawn;
         public Pawn ControlledPawn => PossessedPawn;
-        public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
+        public Quaternion DesiredRotation { get; private set; } = Quaternion.identity;
 
         public static PlayerController Create(
             Player player,
@@ -74,11 +74,13 @@ namespace CGame
             PlayerState.SetAvatar(pawn);
             AttachPossessedActor(pawn);
             pawn.SettingController(this);
+            pawn.ApplyingControlRotation(DesiredRotation);
+            pawn.ApplyingPresentationRotation(DesiredRotation);
             try
             {
                 if (pawn.TryGetComponent(out PawnHeroComponent hero) && hero.HasInputProfile)
                 {
-                    hero.Bind(inputSource?.InputHandle, PlayerState.AbilitySystem);
+                    hero.Bind(inputSource?.InputHandle, PlayerState.AbilitySystem, pawn);
                 }
             }
             catch
@@ -102,26 +104,36 @@ namespace CGame
             DetachPossessedActor(oldPawn);
             oldPawn.ClearingController(this);
             oldPawn.ClearingControlIntent();
+            oldPawn.ResetRotationState();
             PlayerState?.ClearAvatar(oldPawn);
         }
 
         public void UpdatingController(float elapsedSeconds)
         {
-            if (inputSource == null)
+            if (inputSource == null || inputSource.InputHandle == null)
             {
                 return;
             }
 
+            PlayerInputState inputState = inputSource.InputHandle.GetState<PlayerInputState>();
+            bool aimHeld = inputState.AimHeld || UnityEngine.InputSystem.Mouse.current?.rightButton.isPressed == true;
+            bool fireHeld = inputState.FireHeld || UnityEngine.InputSystem.Mouse.current?.leftButton.isPressed == true;
+            PossessedPawn?.SetAimingFromInput(aimHeld);
+            equipmentActionTarget?.UpdateFireInput(fireHeld, elapsedSeconds);
+
             Vector2 lookDelta = inputSource.ReadLookDelta(elapsedSeconds);
             ControlPitch = Mathf.Clamp(ControlPitch - lookDelta.y, -89f, 89f);
             ControlYaw += lookDelta.x;
-            ControlRotation = Quaternion.Euler(ControlPitch, ControlYaw, 0f);
-            PossessedPawn?.ApplyingControlRotation(ControlRotation);
+            DesiredRotation = Quaternion.Euler(ControlPitch, ControlYaw, 0f);
+            PossessedPawn?.ApplyingControlRotation(DesiredRotation);
+            PossessedPawn?.ApplyingPresentationRotation(DesiredRotation);
             PossessedPawn?.ApplyingViewDelta(lookDelta);
             PossessedPawn?.SubmitControlIntent(inputSource.ReadControlIntent());
             int requestedSlot = inputSource.RequestedQuickBarSlot;
             if (requestedSlot >= 0) QuickBar?.SelectSlot(requestedSlot);
             PlayerState?.AbilitySystem.ProcessAbilityInput();
+            PlayerState?.AbilitySystem.Tick(elapsedSeconds);
+            PossessedPawn?.AdvanceRecoil(elapsedSeconds);
         }
 
         public PawnBindingReceipt BindEquipmentActionTarget(IEquipmentActionTarget target)
@@ -165,12 +177,14 @@ namespace CGame
         {
             IsActive = false;
             Unpossess();
+            ResetDesiredRotation();
         }
 
         protected override void OnShutdown()
         {
             IsActive = false;
             Unpossess();
+            ResetDesiredRotation();
             equipmentActionTarget = null;
             QuickBar?.Dispose();
             QuickBar = null;
@@ -195,6 +209,13 @@ namespace CGame
             TickCount++;
             LastTickDeltaTime = deltaTime;
             UpdatingController(deltaTime);
+        }
+
+        private void ResetDesiredRotation()
+        {
+            ControlYaw = 0f;
+            ControlPitch = 0f;
+            DesiredRotation = Quaternion.identity;
         }
     }
 }

@@ -6,6 +6,7 @@
     "CGame.Ability",
     "CGame.GameplayTags",
     "CGame.Animation",
+    "CGame.CharacterRuntime",
     "CGame.World"
   ],
   "autoReferenced": true

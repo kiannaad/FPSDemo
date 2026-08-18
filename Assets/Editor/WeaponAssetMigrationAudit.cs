@@ -440,7 +440,7 @@ bootstrap.ConfigureWeaponDefinitions(knife, ak12);
         }
 
 
-[MenuItem("CGame/Weapons/Configure AK12 Acceptance Loadout")]
+        [MenuItem("CGame/Weapons/Configure AK12 Acceptance Loadout")]
         public static void ConfigureAk12AcceptanceLoadout()
         {
             WeaponDefinition knife = AssetDatabase.LoadAssetAtPath<WeaponDefinition>("Assets/Settings/Gameplay/Weapons/KnifeWeaponDefinition.asset");
@@ -462,6 +462,31 @@ bootstrap.ConfigureWeaponDefinitions(knife, ak12);
             EditorUtility.SetDirty(gameMode);
             EditorUtility.SetDirty(bootstrap);
             AssetDatabase.SaveAssets();
+        }
+
+        [MenuItem("CGame/Weapons/Configure AK12 Default Ammo (1000)")]
+        public static void ConfigureAk12DefaultAmmo()
+        {
+            ConfigureWeaponAmmo(
+                "Assets/Settings/Gameplay/WeaponDefinition/AK12/AK12WeaponDefinition.asset",
+                "Assets/Settings/Gameplay/WeaponDefinition/AK12/AK12WeaponItemDefinition.asset");
+            ConfigureWeaponAmmo(
+                "Assets/Settings/Gameplay/WeaponGripAK12/LayerIntegrationTest/AK12LayerIntegrationTestWeaponDefinition.asset",
+                "Assets/Settings/Gameplay/WeaponGripAK12/LayerIntegrationTest/AK12LayerIntegrationTestWeaponItemDefinition.asset");
+            AssetDatabase.SaveAssets();
+        }
+
+        private static void ConfigureWeaponAmmo(string weaponPath, string itemPath)
+        {
+            WeaponDefinition weapon = AssetDatabase.LoadAssetAtPath<WeaponDefinition>(weaponPath);
+            WeaponItemDefinition item = AssetDatabase.LoadAssetAtPath<WeaponItemDefinition>(itemPath);
+            if (weapon == null || item == null)
+            {
+                throw new InvalidOperationException($"AK12 ammo configuration assets are missing: {weaponPath}, {itemPath}.");
+            }
+
+            item.Configure(weapon, 1000, 1000);
+            EditorUtility.SetDirty(item);
         }
 
         [MenuItem("CGame/Weapons/Register Weapon Gameplay Tags")]

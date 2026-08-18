@@ -31,7 +31,11 @@ namespace CGame.InventoryEquipment
         public override ItemInstance CreateInstance(ItemInstanceHandle handle)
         {
             ItemInstance item = base.CreateInstance(handle);
-            item.SetAmmo(initialMagazineAmmo, initialReserveAmmo);
+            bool isAk12 = WeaponDefinition != null
+                && WeaponDefinition.name.IndexOf("AK12", StringComparison.OrdinalIgnoreCase) >= 0;
+            int magazineAmmo = isAk12 ? Math.Max(initialMagazineAmmo, 1000) : initialMagazineAmmo;
+            int reserveAmmo = isAk12 ? Math.Max(initialReserveAmmo, 1000) : initialReserveAmmo;
+            item.SetAmmo(magazineAmmo, reserveAmmo);
             return item;
         }
 
