@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using CGame.Ability;
 using UnityEngine;
 
@@ -116,9 +117,16 @@ namespace CGame
             }
 
             PlayerInputState inputState = inputSource.InputHandle.GetState<PlayerInputState>();
-            bool aimHeld = inputState.AimHeld || UnityEngine.InputSystem.Mouse.current?.rightButton.isPressed == true;
-            bool fireHeld = inputState.FireHeld || UnityEngine.InputSystem.Mouse.current?.leftButton.isPressed == true;
-            PossessedPawn?.SetAimingFromInput(aimHeld);
+            bool aimHeld = inputState.AimHeld || UnityEngine.InputSystem.InputSystem.devices
+                .OfType<UnityEngine.InputSystem.Mouse>()
+                .Any(mouse => mouse.rightButton.isPressed);
+            bool fireHeld = inputState.FireHeld || UnityEngine.InputSystem.InputSystem.devices
+                .OfType<UnityEngine.InputSystem.Mouse>()
+                .Any(mouse => mouse.leftButton.isPressed);
+            if (PossessedPawn != null && PossessedPawn.TryGetComponent(out PawnHeroComponent hero))
+            {
+                hero.UpdateAimInput(aimHeld);
+            }
             equipmentActionTarget?.UpdateFireInput(fireHeld, elapsedSeconds);
 
             Vector2 lookDelta = inputSource.ReadLookDelta(elapsedSeconds);

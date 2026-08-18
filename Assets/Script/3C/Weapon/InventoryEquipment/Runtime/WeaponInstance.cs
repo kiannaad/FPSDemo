@@ -14,6 +14,7 @@ namespace CGame.InventoryEquipment
         private CharacterAnimInstance animationInstance;
         private AnimationPlaybackHandle overlayHandle;
         private Animator presentationAnimator;
+        private Transform weaponAimPoint;
 
         internal WeaponInstance(EquipmentCreateContext context, WeaponDefinition definition)
             : base(context)
@@ -51,6 +52,8 @@ namespace CGame.InventoryEquipment
             if (IsDisposed) throw new System.ObjectDisposedException(nameof(WeaponInstance));
             if (presentationRoot != null) throw new System.InvalidOperationException("Weapon presentation is already prepared.");
             presentationRoot = root;
+            weaponAimPoint = FindWeaponAimPoint(root.transform);
+            BindAimPointToPawn();
             presentationAnimator = root.GetComponentInChildren<Animator>(true);
             if (presentationAnimator != null)
             {
@@ -160,6 +163,7 @@ namespace CGame.InventoryEquipment
         {
             if (IsDisposed) return;
             HidePresentation();
+            ClearAimPointFromPawn();
             if (animationInstance != null && overlayHandle != null)
             {
                 animationInstance.StopAbilityAnimation(overlayHandle);
@@ -171,7 +175,44 @@ namespace CGame.InventoryEquipment
                 UnityEngine.Object.Destroy(presentationRoot);
                 presentationRoot = null;
             }
+            weaponAimPoint = null;
             base.Dispose();
+        }
+
+        private void BindAimPointToPawn()
+        {
+            if (!(AbilitySystem.Avatar is Pawn pawn) || presentationRoot == null || weaponAimPoint == null)
+            {
+                return;
+            }
+
+            Transform presentationTransform = presentationRoot.transform;
+            Pose aimPointOffset = new Pose(
+                -presentationTransform.InverseTransformPoint(weaponAimPoint.position),
+                Quaternion.Inverse(presentationTransform.rotation) * weaponAimPoint.rotation);
+            pawn.SetCurrentWeaponAimPoint(weaponAimPoint);
+            pawn.SetAimAnimationFacts(pawn.IsAiming, aimPointOffset);
+        }
+
+        private void ClearAimPointFromPawn()
+        {
+            if (AbilitySystem.Avatar is Pawn pawn && ReferenceEquals(pawn.CurrentWeaponAimPoint, weaponAimPoint))
+            {
+                pawn.SetCurrentWeaponAimPoint(null);
+            }
+        }
+
+        private static Transform FindWeaponAimPoint(Transform root)
+        {
+            foreach (Transform candidate in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (candidate.name == "WeaponAimPoint")
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
 
         private void HidePresentation()

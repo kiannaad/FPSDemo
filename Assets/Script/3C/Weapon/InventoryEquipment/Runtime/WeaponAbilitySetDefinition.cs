@@ -12,6 +12,15 @@ namespace CGame.InventoryEquipment
         [SerializeReference] private List<WeaponAbilityDefinition> abilities =
             new List<WeaponAbilityDefinition>();
 
+        public IReadOnlyList<WeaponAbilityDefinition> Abilities => abilities;
+
+        public void SetAbilities(IEnumerable<WeaponAbilityDefinition> definitions)
+        {
+            abilities = definitions == null
+                ? new List<WeaponAbilityDefinition>()
+                : new List<WeaponAbilityDefinition>(definitions);
+        }
+
         public AbilitySet CreateAbilitySet()
         {
             var grants = new List<AbilityGrantDefinition>();
@@ -32,10 +41,16 @@ namespace CGame.InventoryEquipment
     [Serializable]
     public abstract class WeaponAbilityDefinition
     {
-        [SerializeField] private GameplayTag abilityTag;
-        [SerializeField] private GameplayTag inputTag;
+        [SerializeField] protected GameplayTag abilityTag;
+        [SerializeField] protected GameplayTag inputTag;
 
-        public AbilityGrantDefinition CreateGrant()
+        public void Configure(GameplayTag newAbilityTag, GameplayTag newInputTag)
+        {
+            abilityTag = newAbilityTag;
+            inputTag = newInputTag;
+        }
+
+        public virtual AbilityGrantDefinition CreateGrant()
         {
             if (abilityTag.IsEmpty || inputTag.IsEmpty)
             {
@@ -43,11 +58,19 @@ namespace CGame.InventoryEquipment
             }
 
             return new AbilityGrantDefinition(
-                new WeaponActionAbilityDefinition(abilityTag, Action),
+                new WeaponActionAbilityDefinition(
+                    abilityTag,
+                    Action,
+                    InputActivationPolicy,
+                    ActivationOwnedTags,
+                    BlockedOwnedTags),
                 inputTag);
         }
 
         protected abstract WeaponAction Action { get; }
+        protected virtual AbilityInputActivationPolicy InputActivationPolicy => AbilityInputActivationPolicy.OnInputTriggered;
+        protected virtual IEnumerable<GameplayTag> ActivationOwnedTags => null;
+        protected virtual IEnumerable<GameplayTag> BlockedOwnedTags => null;
     }
 
     [Serializable]
@@ -74,20 +97,46 @@ namespace CGame.InventoryEquipment
         protected override WeaponAction Action => WeaponAction.Melee;
     }
 
+    [Serializable]
+    public sealed class AimWeaponAbilityDefinition : WeaponAbilityDefinition
+    {
+        [SerializeField] private GameplayTag aimingStateTag;
+        [SerializeField] private GameplayTag[] blockedOwnedTags = Array.Empty<GameplayTag>();
+
+        protected override WeaponAction Action => WeaponAction.Aim;
+        protected override AbilityInputActivationPolicy InputActivationPolicy => AbilityInputActivationPolicy.WhileInputActive;
+        protected override IEnumerable<GameplayTag> ActivationOwnedTags => new[] { aimingStateTag };
+        protected override IEnumerable<GameplayTag> BlockedOwnedTags => blockedOwnedTags;
+
+        public void ConfigureAimingState(GameplayTag newAimingStateTag, IEnumerable<GameplayTag> newBlockedOwnedTags)
+        {
+            aimingStateTag = newAimingStateTag;
+            blockedOwnedTags = newBlockedOwnedTags == null
+                ? Array.Empty<GameplayTag>()
+                : new List<GameplayTag>(newBlockedOwnedTags).ToArray();
+        }
+    }
+
     public enum WeaponAction
     {
         Fire,
         Reload,
         Recoil,
-        Melee
+        Melee,
+        Aim
     }
 
     internal sealed class WeaponActionAbilityDefinition : AbilityDefinition
     {
         private readonly WeaponAction action;
 
-        public WeaponActionAbilityDefinition(GameplayTag abilityTag, WeaponAction action)
-            : base(abilityTag)
+        public WeaponActionAbilityDefinition(
+            GameplayTag abilityTag,
+            WeaponAction action,
+            AbilityInputActivationPolicy inputActivationPolicy,
+            IEnumerable<GameplayTag> activationOwnedTags,
+            IEnumerable<GameplayTag> blockedOwnedTags)
+            : base(abilityTag, activationOwnedTags, null, blockedOwnedTags, inputActivationPolicy)
         {
             this.action = action;
         }
@@ -135,14 +184,32 @@ protected override void OnActivate()
                     weapon.Melee();
                     EndAbility(AbilityEndReason.Completed);
                     break;
+                case WeaponAction.Aim:
+                    if (ActivationContext.AbilitySystem.Avatar is Pawn pawn)
+                    {
+                        pawn.SetAimingFromAbility(true);
+                    }
+                    else
+                    {
+                        EndAbility(AbilityEndReason.Failed);
+                    }
+                    break;
             }
         }
 
 protected override void OnInputReleased()
         {
-            if (action == WeaponAction.Fire)
+            if (action == WeaponAction.Fire || action == WeaponAction.Aim)
             {
                 EndAbility(AbilityEndReason.Cancelled);
+            }
+        }
+
+        protected override void OnEnd(AbilityEndReason reason)
+        {
+            if (action == WeaponAction.Aim && ActivationContext?.AbilitySystem.Avatar is Pawn pawn)
+            {
+                pawn.SetAimingFromAbility(false);
             }
         }
 

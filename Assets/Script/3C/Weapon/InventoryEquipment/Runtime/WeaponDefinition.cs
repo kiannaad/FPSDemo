@@ -24,6 +24,7 @@ namespace CGame.InventoryEquipment
         [SerializeField] private WeaponAbilitySetDefinition abilitySet = new WeaponAbilitySetDefinition();
         [SerializeField] private int magazineCapacity = 30;
         [SerializeField] private RecoilProfile recoilProfile;
+        [SerializeField, Range(1f, 179f)] private float aimFov = 40f;
         [SerializeField, Min(0.001f)] private float fireInterval = 0.1f;
         [SerializeField] private int loadTicks = 1;
         [SerializeField] private bool simulateLoadFailure;
@@ -43,6 +44,7 @@ namespace CGame.InventoryEquipment
         public WeaponAbilitySetDefinition AbilitySet => abilitySet;
         public int MagazineCapacity => magazineCapacity;
         public RecoilProfile RecoilProfile => recoilProfile;
+        public float AimFov => aimFov;
         public float FireInterval => fireInterval;
         public override int LoadTicks => Math.Max(0, loadTicks);
         public override bool SimulateLoadFailure => simulateLoadFailure;
@@ -95,6 +97,16 @@ namespace CGame.InventoryEquipment
                 : throw new ArgumentNullException(nameof(calibration));
         }
 
+        public void ConfigureAimFov(float value)
+        {
+            if (value <= 0f || value >= 180f)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), "Aim FOV must be between 0 and 180 degrees.");
+            }
+
+            aimFov = value;
+        }
+
         public static WeaponDefinition CreateRuntime(
             GameplayTag weaponTag,
             int magazineCapacity,
@@ -127,6 +139,11 @@ namespace CGame.InventoryEquipment
             if (fireInterval <= 0f)
             {
                 throw new InvalidOperationException("Weapon Definition fire interval must be positive.");
+            }
+
+            if (aimFov <= 0f || aimFov >= 180f)
+            {
+                throw new InvalidOperationException("Weapon Definition aim FOV must be between 0 and 180 degrees.");
             }
 
             if (abilitySet == null && runtimeAbilitySet == null)

@@ -82,6 +82,8 @@ public Quaternion PresentationRotation { get; private set; } = Quaternion.identi
 
         public Pose AimPointOffset { get; private set; } = new Pose(Vector3.zero, Quaternion.identity);
 
+        public Transform CurrentWeaponAimPoint { get; private set; }
+
         public Vector2 ViewAnglesDegrees { get; private set; }
 
         public Vector2 ViewDeltaDegrees { get; private set; }
@@ -175,7 +177,17 @@ public void ResetRotationState()
             IsAiming = isAiming;
             AimPointOffset = aimPointOffset;
         }
+
+        public void SetCurrentWeaponAimPoint(Transform aimPoint)
+        {
+            CurrentWeaponAimPoint = aimPoint;
+        }
         public void SetAimingFromInput(bool isAiming)
+        {
+            SetAimAnimationFacts(isAiming, AimPointOffset);
+        }
+
+        public void SetAimingFromAbility(bool isAiming)
         {
             SetAimAnimationFacts(isAiming, AimPointOffset);
         }
@@ -206,16 +218,16 @@ public void ResetRotationState()
             recoilComponent.Bind(profile);
         }
 
-
-
         public void AdvanceRecoil(float deltaTime)
         {
             recoilComponent.Advance(deltaTime);
         }
-public FireResult NotifySuccessfulShot()
+
+        public FireResult NotifySuccessfulShot()
         {
             return recoilComponent.ApplySuccessfulShot(IsAiming);
         }
+
         internal void SetRecoilFrameData(RecoilFrameData frameData)
         {
             RecoilRotationOffsetDegrees = frameData.RotationOffsetDegrees;
@@ -345,6 +357,7 @@ public FireResult NotifySuccessfulShot()
         {
             IsAiming = false;
             AimPointOffset = new Pose(Vector3.zero, Quaternion.identity);
+            CurrentWeaponAimPoint = null;
             ViewAnglesDegrees = Vector2.zero;
             ViewDeltaDegrees = Vector2.zero;
             LookLayerWeight = 1f;

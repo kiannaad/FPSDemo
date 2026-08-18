@@ -12,6 +12,7 @@ namespace CGame
         private readonly List<IDisposable> bindings = new List<IDisposable>();
         private AbilitySystemComponent abilitySystem;
         private Pawn pawn;
+        private bool aimInputHeld;
 
         public PawnHeroComponent(InputProfile inputProfile)
         {
@@ -20,6 +21,31 @@ namespace CGame
 
         public bool IsBound => abilitySystem != null;
         public bool HasInputProfile => inputProfile != null;
+
+        public void UpdateAimInput(bool isHeld)
+        {
+            if (!IsBound || aimInputHeld == isHeld)
+            {
+                return;
+            }
+
+            InputTagBinding aimBinding = inputProfile.InputTagConfig.Bindings.FirstOrDefault(binding =>
+                string.Equals(binding.ActionReference?.action?.name, "Aim", StringComparison.Ordinal));
+            if (aimBinding == null)
+            {
+                return;
+            }
+
+            aimInputHeld = isHeld;
+            if (isHeld)
+            {
+                abilitySystem.AbilityInputTagPressed(aimBinding.InputTag);
+            }
+            else
+            {
+                abilitySystem.AbilityInputTagReleased(aimBinding.InputTag);
+            }
+        }
 
         public void Bind(InputHandle inputHandle, AbilitySystemComponent abilitySystem, Pawn pawn = null)
         {
@@ -34,29 +60,16 @@ namespace CGame
             {
                 foreach (InputTagBinding binding in inputProfile.InputTagConfig.Bindings)
                 {
-                    bool isAimAction = string.Equals(binding.ActionReference?.action?.name, "Aim", StringComparison.Ordinal);
                     bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Performed, _ =>
                     {
                         abilitySystem.AbilityInputTagPressed(binding.InputTag);
-                        if (isAimAction) pawn?.SetAimingFromInput(true);
                     }));
                     bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Canceled, _ =>
                     {
                         abilitySystem.AbilityInputTagReleased(binding.InputTag);
-                        if (isAimAction) pawn?.SetAimingFromInput(false);
                     }));
                 }
-                if (inputProfile.TryResolveAction("Aim", out UnityEngine.InputSystem.InputAction aimAction)
-                    && !inputProfile.InputTagConfig.Bindings.Any(binding =>
-                        string.Equals(binding.ActionReference?.action?.name, "Aim", StringComparison.Ordinal)))
-                {
-                    UnityEngine.InputSystem.InputActionReference aimReference =
-                        UnityEngine.InputSystem.InputActionReference.Create(aimAction);
-                    bindings.Add(inputHandle.RegisterActionCallback(
-                        aimReference, InputCallbackPhase.Performed, _ => pawn?.SetAimingFromInput(true)));
-                    bindings.Add(inputHandle.RegisterActionCallback(
-                        aimReference, InputCallbackPhase.Canceled, _ => pawn?.SetAimingFromInput(false)));
-                }                this.pawn = pawn;
+                this.pawn = pawn;
 
                 this.abilitySystem = abilitySystem;
             }
@@ -74,6 +87,7 @@ namespace CGame
             abilitySystem?.ClearAbilityInput();
             abilitySystem = null;
             pawn = null;
+            aimInputHeld = false;
         }
 
         protected override void OnShutdown() => Unbind();
