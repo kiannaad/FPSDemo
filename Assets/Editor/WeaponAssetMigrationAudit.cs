@@ -89,9 +89,9 @@ namespace CGame.Editor
             string animationDirectory = "Assets/Settings/Animation/Weapons/" + name + "/";
             BoneProfile profile = AssetDatabase.LoadAssetAtPath<BoneProfile>(animationDirectory + name + "BoneProfile.asset");
             profile?.Validate(rig);
-            WeaponIkMotion equip = AssetDatabase.LoadAssetAtPath<WeaponIkMotion>(animationDirectory + name + "EquipIkMotion.asset");
-            WeaponIkMotion unequip = AssetDatabase.LoadAssetAtPath<WeaponIkMotion>(animationDirectory + name + "UnequipIkMotion.asset");
-            equip?.Validate(); unequip?.Validate();
+            IkMotionLayerSettings equip = AssetDatabase.LoadAssetAtPath<IkMotionLayerSettings>(animationDirectory + name + "EquipIkMotion.asset");
+            IkMotionLayerSettings unequip = AssetDatabase.LoadAssetAtPath<IkMotionLayerSettings>(animationDirectory + name + "UnequipIkMotion.asset");
+            equip?.Validate(rig); unequip?.Validate(rig);
             WeaponDefinition definition = AssetDatabase.LoadAssetAtPath<WeaponDefinition>("Assets/Settings/Gameplay/Weapons/" + name + "WeaponDefinition.asset");
             if (definition == null || definition.Prefab != prefab || definition.ArmedProfile != profile || definition.EquipIkMotion != equip || definition.UnequipIkMotion != unequip)
                 throw new InvalidOperationException("Weapon Definition has an incomplete migrated reference set: " + name);
@@ -135,13 +135,13 @@ namespace CGame.Editor
             overlay.name = name + "OverlayPose";
             if (!overlay.TryInitialize(clip)) throw new InvalidOperationException("Failed to configure overlay: " + name);
             AssetDatabase.CreateAsset(overlay, animationDirectory + "/" + name + "OverlayPose.asset");
-            var equipMotion = ScriptableObject.CreateInstance<WeaponIkMotion>();
+            var equipMotion = ScriptableObject.CreateInstance<IkMotionLayerSettings>();
             equipMotion.name = name + "EquipIkMotion";
-            equipMotion.Configure(overlay, 0.15f);
+            equipMotion.Configure(rig, new KRigElement(-1, "IK WeaponBone", 0), default, default, 0.15f);
             AssetDatabase.CreateAsset(equipMotion, animationDirectory + "/" + name + "EquipIkMotion.asset");
-            var unequipMotion = ScriptableObject.CreateInstance<WeaponIkMotion>();
+            var unequipMotion = ScriptableObject.CreateInstance<IkMotionLayerSettings>();
             unequipMotion.name = name + "UnequipIkMotion";
-            unequipMotion.Configure(overlay, 0.15f);
+            unequipMotion.Configure(rig, new KRigElement(-1, "IK WeaponBone", 0), default, default, 0.15f);
             AssetDatabase.CreateAsset(unequipMotion, animationDirectory + "/" + name + "UnequipIkMotion.asset");
 
             if (!GameplayTag.TryCreateSerialized(tagName, out GameplayTag tag)) throw new InvalidOperationException("Invalid weapon tag: " + tagName);
@@ -443,18 +443,20 @@ bootstrap.ConfigureWeaponDefinitions(knife, ak12);
         [MenuItem("CGame/Weapons/Configure AK12 Acceptance Loadout")]
         public static void ConfigureAk12AcceptanceLoadout()
         {
-            WeaponDefinition knife = AssetDatabase.LoadAssetAtPath<WeaponDefinition>("Assets/Settings/Gameplay/Weapons/KnifeWeaponDefinition.asset");
-            WeaponDefinition ak12 = AssetDatabase.LoadAssetAtPath<WeaponDefinition>("Assets/Settings/Gameplay/Weapons/AK12WeaponDefinition.asset");
-            WeaponItemDefinition ak12Item = AssetDatabase.LoadAssetAtPath<WeaponItemDefinition>("Assets/Settings/Gameplay/Weapons/AK12WeaponItemDefinition.asset");
+            WeaponDefinition knife = AssetDatabase.LoadAssetAtPath<WeaponDefinition>("Assets/Settings/Gameplay/WeaponDefinition/Knife/KnifeWeaponDefinition.asset");
+            WeaponDefinition ak12 = AssetDatabase.LoadAssetAtPath<WeaponDefinition>("Assets/Settings/Gameplay/WeaponDefinition/AK12/AK12WeaponDefinition.asset");
+            WeaponItemDefinition knifeItem = AssetDatabase.LoadAssetAtPath<WeaponItemDefinition>("Assets/Settings/Gameplay/WeaponDefinition/Knife/KnifeWeaponItemDefinition.asset");
+            WeaponItemDefinition ak12Item = AssetDatabase.LoadAssetAtPath<WeaponItemDefinition>("Assets/Settings/Gameplay/WeaponDefinition/AK12/AK12WeaponItemDefinition.asset");
             GameplayTagSource tagSource = AssetDatabase.LoadAssetAtPath<GameplayTagSource>("Assets/Settings/Gameplay/SampleScene/SampleInputTagSource.asset");
+            GameplayTagSource weaponTagSource = AssetDatabase.LoadAssetAtPath<GameplayTagSource>("Assets/Data/GamePlayTag/Sources/DefaultGameplayTags.asset");
             PawnDefinition pawn = AssetDatabase.LoadAssetAtPath<PawnDefinition>("Assets/Prefab/Gameplay/DefaultPawnData.asset");
             InitialInventorySet inventory = AssetDatabase.LoadAssetAtPath<InitialInventorySet>("Assets/Settings/Gameplay/WeaponGripAK12/WeaponGripAK12InitialInventory.asset");
             DefaultGameModeDefinition gameMode = AssetDatabase.LoadAssetAtPath<DefaultGameModeDefinition>("Assets/Settings/Gameplay/WeaponGripAK12/WeaponGripAK12GameMode.asset");
             GameBootstrap bootstrap = AssetDatabase.LoadAssetAtPath<GameBootstrap>("Assets/Settings/Gameplay/WeaponGripAK12/WeaponGripAK12GameBootstrap.asset");
-            if (knife == null || ak12 == null || ak12Item == null || tagSource == null || pawn == null || inventory == null || gameMode == null || bootstrap == null) throw new InvalidOperationException("AK12 acceptance configuration assets are missing.");
-            inventory.Configure(0, ak12Item);
+            if (knife == null || ak12 == null || knifeItem == null || ak12Item == null || tagSource == null || weaponTagSource == null || pawn == null || inventory == null || gameMode == null || bootstrap == null) throw new InvalidOperationException("AK12 acceptance configuration assets are missing.");
+            inventory.Configure(1, knifeItem, ak12Item);
             gameMode.Configure(pawn, inventory);
-            bootstrap.ConfigureGameplayTagSources(tagSource);
+            bootstrap.ConfigureGameplayTagSources(tagSource, weaponTagSource);
             bootstrap.ConfigureGameMode(gameMode);
             bootstrap.ConfigureWeaponDefinitions(knife, ak12);
             bootstrap.ConfigureResourceInitialization(false);
