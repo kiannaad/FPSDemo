@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CGame.Ability;
+using CGame.GameplayTags;
 using UnityEngine;
 
 namespace CGame
@@ -138,7 +139,12 @@ namespace CGame
             PossessedPawn?.ApplyingViewDelta(lookDelta);
             PossessedPawn?.SubmitControlIntent(inputSource.ReadControlIntent());
             int requestedSlot = inputSource.RequestedQuickBarSlot;
-            if (requestedSlot >= 0) QuickBar?.SelectSlot(requestedSlot);
+            if (requestedSlot >= 0) TryRequestQuickBarSlot(requestedSlot);
+            if (inputState.ReloadPressed
+                && GameplayTagManager.Instance.TryRequestTag("InputTag.Weapon.Reload", out GameplayTag reloadInputTag))
+            {
+                PlayerState?.AbilitySystem.AbilityInputTagPressed(reloadInputTag);
+            }
             PlayerState?.AbilitySystem.ProcessAbilityInput();
             PlayerState?.AbilitySystem.Tick(elapsedSeconds);
             PossessedPawn?.AdvanceRecoil(elapsedSeconds);
@@ -156,6 +162,24 @@ namespace CGame
                     equipmentActionTarget = previousTarget;
                 }
             });
+        }
+
+public bool TryRequestQuickBarSlot(int slotIndex)
+        {
+            if (QuickBar == null || slotIndex < 0 || slotIndex >= QuickBar.Slots.Count
+                || equipmentActionTarget == null
+                || !equipmentActionTarget.CanAcceptDirectSlotSelection(slotIndex))
+            {
+                return false;
+            }
+
+            ItemInstanceHandle handle = QuickBar.Slots[slotIndex];
+            if (QuickBar.SelectedSlot == slotIndex && QuickBar.EquippedHandle == handle)
+            {
+                return true;
+            }
+
+            return QuickBar.SelectSlot(slotIndex);
         }
 
         protected override void OnInitialize()

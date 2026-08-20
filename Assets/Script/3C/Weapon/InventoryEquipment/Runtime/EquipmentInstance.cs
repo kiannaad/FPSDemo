@@ -66,6 +66,16 @@ namespace CGame.InventoryEquipment
 
         public bool IsDisposed { get; private set; }
 
+        protected void RevokeAbilitySets()
+        {
+            for (int index = abilityReceipts.Count - 1; index >= 0; index--)
+            {
+                abilityReceipts[index].Revoke();
+            }
+
+            abilityReceipts.Clear();
+        }
+
         public virtual void Dispose()
         {
             if (IsDisposed)
@@ -74,12 +84,7 @@ namespace CGame.InventoryEquipment
             }
 
             IsDisposed = true;
-            for (int index = abilityReceipts.Count - 1; index >= 0; index--)
-            {
-                abilityReceipts[index].Revoke();
-            }
-
-            abilityReceipts.Clear();
+            RevokeAbilitySets();
             presentationReceipt?.Dispose();
             presentationReceipt = null;
             inventoryLease?.Dispose();

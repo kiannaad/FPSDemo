@@ -416,8 +416,23 @@ namespace CGame.Ability
                 return AbilityActivationResult.Failure(new[] { AbilityFailureTags.AlreadyActive });
             }
 
-            var activationHandle = new AbilityActivationHandle(++nextActivationHandle);
+            var activationHandle = new AbilityActivationHandle(nextActivationHandle + 1);
             var context = new AbilityActivationContext(this, spec, Avatar, activationHandle, eventPayload);
+            if (!spec.PrimaryInstance.CanActivate(context))
+            {
+                return AbilityActivationResult.Failure();
+            }
+
+            foreach (AbilitySpec targetSpec in specs.Values
+                         .Where(candidate =>
+                             candidate.PrimaryInstance.State == AbilityInstanceState.Active &&
+                             spec.Definition.CancelAbilityTags.Contains(candidate.Definition.AbilityTag))
+                         .ToArray())
+            {
+                CancelAbility(targetSpec.Handle, AbilityEndReason.Cancelled);
+            }
+
+            nextActivationHandle++;
             spec.PrimaryInstance.Activate(context);
             return AbilityActivationResult.Success(activationHandle);
         }

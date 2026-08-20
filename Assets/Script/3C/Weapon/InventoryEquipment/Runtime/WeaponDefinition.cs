@@ -16,12 +16,13 @@ namespace CGame.InventoryEquipment
         [SerializeField] private AnimationClipAsset overlayPose;
         [SerializeField] private BoneProfile armedProfile;
         [SerializeField] private HandPalmCalibration handPalmCalibration;
-        [SerializeField] private WeaponIkMotion equipIkMotion;
-        [SerializeField] private WeaponIkMotion unequipIkMotion;
+        [SerializeField] private IkMotionLayerSettings equipIkMotion;
+        [SerializeField] private IkMotionLayerSettings unequipIkMotion;
         [SerializeField] private Vector3 presentationLocalPosition;
         [SerializeField] private Vector3 presentationLocalEulerAngles;
         [SerializeField] private Vector3 presentationLocalScale = Vector3.one;
         [SerializeField] private WeaponAbilitySetDefinition abilitySet = new WeaponAbilitySetDefinition();
+        [SerializeField] private WeaponReloadDefinition reloadDefinition = new WeaponReloadDefinition();
         [SerializeField] private int magazineCapacity = 30;
         [SerializeField] private RecoilProfile recoilProfile;
         [SerializeField, Range(1f, 179f)] private float aimFov = 40f;
@@ -36,12 +37,13 @@ namespace CGame.InventoryEquipment
         public AnimationClipAsset OverlayPose => overlayPose;
         public BoneProfile ArmedProfile => armedProfile;
         public HandPalmCalibration HandPalmCalibration => handPalmCalibration;
-        public WeaponIkMotion EquipIkMotion => equipIkMotion;
-        public WeaponIkMotion UnequipIkMotion => unequipIkMotion;
+        public IkMotionLayerSettings EquipIkMotion => equipIkMotion;
+        public IkMotionLayerSettings UnequipIkMotion => unequipIkMotion;
         public Vector3 PresentationLocalPosition => presentationLocalPosition;
         public Quaternion PresentationLocalRotation => Quaternion.Euler(presentationLocalEulerAngles);
         public Vector3 PresentationLocalScale => presentationLocalScale;
         public WeaponAbilitySetDefinition AbilitySet => abilitySet;
+        public WeaponReloadDefinition ReloadDefinition => reloadDefinition;
         public int MagazineCapacity => magazineCapacity;
         public RecoilProfile RecoilProfile => recoilProfile;
         public float AimFov => aimFov;
@@ -57,7 +59,12 @@ namespace CGame.InventoryEquipment
 
         public AbilitySet CreateAbilitySet()
         {
-            return runtimeAbilitySet ?? abilitySet.CreateAbilitySet();
+            if (runtimeAbilitySet != null)
+            {
+                return runtimeAbilitySet;
+            }
+
+            return abilitySet.CreateAbilitySet(reloadDefinition);
         }
 
         public void ConfigurePresentation(
@@ -66,8 +73,8 @@ namespace CGame.InventoryEquipment
             string weaponAnimatorPath,
             AnimationClipAsset pose,
             BoneProfile profile,
-            WeaponIkMotion equipMotion = null,
-            WeaponIkMotion unequipMotion = null)
+            IkMotionLayerSettings equipMotion = null,
+            IkMotionLayerSettings unequipMotion = null)
         {
             weaponTag = tag;
             prefab = weaponPrefab;
@@ -105,6 +112,11 @@ namespace CGame.InventoryEquipment
             }
 
             aimFov = value;
+        }
+
+        public void ConfigureReloadDefinition(WeaponReloadDefinition definition)
+        {
+            reloadDefinition = definition ?? throw new ArgumentNullException(nameof(definition));
         }
 
         public static WeaponDefinition CreateRuntime(
@@ -149,6 +161,26 @@ namespace CGame.InventoryEquipment
             if (abilitySet == null && runtimeAbilitySet == null)
             {
                 throw new InvalidOperationException("Weapon Definition requires an AbilitySet definition.");
+            }
+
+            if (reloadDefinition != null && reloadDefinition.IsConfigured)
+            {
+                reloadDefinition.Validate();
+
+                bool hasReloadAbility = false;
+                foreach (WeaponAbilityDefinition ability in abilitySet.Abilities)
+                {
+                    if (ability is ReloadWeaponAbilityDefinition)
+                    {
+                        hasReloadAbility = true;
+                        break;
+                    }
+                }
+
+                if (!hasReloadAbility)
+                {
+                    throw new InvalidOperationException("Configured Reload Definition requires a Reload Ability configuration.");
+                }
             }
 
             if (prefab != null && (overlayPose == null || armedProfile == null || equipIkMotion == null || unequipIkMotion == null))

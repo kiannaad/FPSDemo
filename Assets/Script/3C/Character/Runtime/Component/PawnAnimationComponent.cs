@@ -72,7 +72,28 @@ namespace CGame
         private void DispatchPostAnimation(float deltaTime)
         {
             PostAnimationTickCount++;
-            animInstance?.DispatchAnimationNotifies();
+            if (animInstance == null || !(Owner is Pawn pawn))
+            {
+                return;
+            }
+
+            animInstance.DispatchAnimationNotifies();
+            if (!animInstance.TryGetWeaponCollisionProbe(
+                    out Vector3 origin,
+                    out Vector3 direction,
+                    out float distance))
+            {
+                return;
+            }
+
+            bool hasHit = Physics.Raycast(
+                origin,
+                direction.normalized,
+                out RaycastHit hit,
+                distance,
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore);
+            pawn.SetWeaponCollisionAnimationFacts(hasHit, hasHit ? hit.distance : 0f);
         }
 
         private sealed class AnimationCharacterSource : IAnimationCharacterSource

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.GameplayTags;
 using UnityEngine;
 
 namespace CGame
@@ -17,6 +18,7 @@ namespace CGame
         private bool pendingJump;
         private bool sprintRequested;
         private bool rootDestroyed;
+        private static readonly GameplayTag ReloadingStateTag = CreateTag("State.Weapon.Reloading");
 
         public Pawn()
             : this(null, Array.Empty<ActorComponent>())
@@ -255,7 +257,8 @@ public void ResetRotationState()
         {
             bool jumpRequested = pendingJump;
             pendingJump = false;
-            return new CharacterMovementCommand(movementInput, jumpRequested, sprintRequested);
+            bool reloadBlocksSprint = AbilitySystem != null && AbilitySystem.HasOwnedTag(ReloadingStateTag);
+            return new CharacterMovementCommand(movementInput, jumpRequested, sprintRequested && !reloadBlocksSprint);
         }
 
         public Vector3 PeekingMovementInput() => movementInput;
@@ -376,6 +379,16 @@ public void ResetRotationState()
                 && !float.IsNaN(value.z) && !float.IsInfinity(value.z)
                 && !float.IsNaN(value.w) && !float.IsInfinity(value.w)
                 && value.x * value.x + value.y * value.y + value.z * value.z + value.w * value.w > Mathf.Epsilon;
+        }
+
+        private static GameplayTag CreateTag(string value)
+        {
+            if (!GameplayTag.TryCreateSerialized(value, out GameplayTag tag))
+            {
+                throw new InvalidOperationException($"Invalid gameplay tag '{value}'.");
+            }
+
+            return tag;
         }
     }
 }

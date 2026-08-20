@@ -14,6 +14,11 @@ namespace CGame.Ability
         public AbilityActivationContext ActivationContext => activationContext;
         public int ActiveTaskCount => activeTasks.Count;
 
+        public virtual bool CanActivate(AbilityActivationContext context)
+        {
+            return true;
+        }
+
         internal void Activate(AbilityActivationContext context)
         {
             activationContext = context;

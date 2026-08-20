@@ -6,8 +6,8 @@ namespace CGame
 
         void UpdateFireInput(bool fireHeld, float deltaTime);
 
-        int Reload();
-
         bool Melee();
+
+        bool CanAcceptDirectSlotSelection(int slotIndex);
     }
 }

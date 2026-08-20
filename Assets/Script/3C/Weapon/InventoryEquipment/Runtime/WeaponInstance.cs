@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using CGame.Ability;
 using UnityEngine;
 using CGame.Animation;
+using UnityEngine.Animations;
+using UnityEngine.Playables;
 
 namespace CGame.InventoryEquipment
 {
@@ -15,6 +17,8 @@ namespace CGame.InventoryEquipment
         private AnimationPlaybackHandle overlayHandle;
         private Animator presentationAnimator;
         private Transform weaponAimPoint;
+        private PlayableGraph reloadPresentationGraph;
+        private AnimationClipPlayable reloadPresentationPlayable;
 
         internal WeaponInstance(EquipmentCreateContext context, WeaponDefinition definition)
             : base(context)
@@ -41,10 +45,32 @@ namespace CGame.InventoryEquipment
 
         public GameObject PresentationRoot => presentationRoot;
 
+        public bool IsPresentationVisible { get; private set; }
+
         public bool HasAnimationBinding =>
             animationInstance != null
             && overlayHandle != null
             && overlayHandle.State != AnimationPlaybackState.Failed;
+
+        internal bool TryGetCharacterAnimation(out CharacterAnimInstance value)
+        {
+            value = animationInstance;
+            return !IsDisposed && value != null;
+        }
+
+        public bool IsReloadPresentationActive => reloadPresentationGraph.IsValid();
+
+        public bool CanBeginReloadPresentation =>
+            !IsDisposed
+            && IsArmed
+            && presentationAnimator != null
+            && Definition.ReloadDefinition?.WeaponAnimation != null;
+
+        public bool IsReloadPresentationComplete =>
+            reloadPresentationGraph.IsValid()
+            && reloadPresentationPlayable.IsValid()
+            && Definition.ReloadDefinition?.WeaponAnimation != null
+            && reloadPresentationPlayable.GetTime() >= Definition.ReloadDefinition.WeaponAnimation.length;
 
         public void PreparePresentation(GameObject root)
         {
@@ -60,6 +86,7 @@ namespace CGame.InventoryEquipment
                 presentationAnimator.enabled = true;
             }
             foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true)) renderer.enabled = false;
+            IsPresentationVisible = false;
         }
 
         public void SetAnimationBinding(
@@ -96,11 +123,23 @@ namespace CGame.InventoryEquipment
             }
             GrantAbilitySets(new[] { abilitySet }, replacedAbilityReceipts);
             IsArmed = true;
-            if (presentationRoot != null)
-            {
-                foreach (Renderer renderer in presentationRoot.GetComponentsInChildren<Renderer>(true)) renderer.enabled = true;
-            }
         }
+
+        public void Disarm()
+        {
+            if (IsDisposed)
+            {
+                return;
+            }
+
+            StopReloadPresentation();
+            ClearAnimationBinding();
+            RevokeAbilitySets();
+            IsArmed = false;
+            ClearAimPointFromPawn();
+        }
+
+
 
         public bool Fire()
         {
@@ -131,20 +170,55 @@ namespace CGame.InventoryEquipment
             return new FireResult(true, FireCount);
         }
 
-        public int Reload()
+        public bool BeginReloadPresentation()
         {
-            if (IsDisposed || !IsArmed)
+            if (!CanBeginReloadPresentation)
             {
-                return 0;
+                return false;
             }
 
-            int loaded = Item.ReloadMagazine(MagazineCapacity);
-            if (loaded > 0)
+            StopReloadPresentation();
+            reloadPresentationGraph = PlayableGraph.Create($"{presentationAnimator.name}.ReloadPresentation");
+            AnimationPlayableOutput output = AnimationPlayableOutput.Create(
+                reloadPresentationGraph,
+                "ReloadPresentation",
+                presentationAnimator);
+            reloadPresentationPlayable = AnimationClipPlayable.Create(
+                reloadPresentationGraph,
+                Definition.ReloadDefinition.WeaponAnimation);
+            output.SetSourcePlayable(reloadPresentationPlayable);
+            reloadPresentationGraph.Play();
+            return true;
+        }
+
+        public bool StopReloadPresentation()
+        {
+            if (!reloadPresentationGraph.IsValid())
+            {
+                return false;
+            }
+
+            reloadPresentationGraph.Destroy();
+            reloadPresentationPlayable = default;
+            return true;
+        }
+
+        public bool FinishReloadPresentation()
+        {
+            if (!IsReloadPresentationComplete)
+            {
+                return false;
+            }
+
+            return StopReloadPresentation();
+        }
+
+        internal void NotifyReloadCommitted(int loadedAmmo)
+        {
+            if (loadedAmmo > 0)
             {
                 ReloadCount++;
             }
-
-            return loaded;
         }
 
         public bool Melee()
@@ -162,14 +236,8 @@ namespace CGame.InventoryEquipment
         public override void Dispose()
         {
             if (IsDisposed) return;
+            Disarm();
             HidePresentation();
-            ClearAimPointFromPawn();
-            if (animationInstance != null && overlayHandle != null)
-            {
-                animationInstance.StopAbilityAnimation(overlayHandle);
-            }
-            overlayHandle = null;
-            animationInstance = null;
             if (presentationRoot != null)
             {
                 UnityEngine.Object.Destroy(presentationRoot);
@@ -186,10 +254,15 @@ namespace CGame.InventoryEquipment
                 return;
             }
 
-            Transform presentationTransform = presentationRoot.transform;
+            Transform weaponIkTransform = presentationRoot.transform.parent;
+            if (weaponIkTransform == null)
+            {
+                throw new System.InvalidOperationException("Weapon presentation requires an IK WeaponBone parent.");
+            }
+
             Pose aimPointOffset = new Pose(
-                -presentationTransform.InverseTransformPoint(weaponAimPoint.position),
-                Quaternion.Inverse(presentationTransform.rotation) * weaponAimPoint.rotation);
+                -weaponIkTransform.InverseTransformPoint(weaponAimPoint.position),
+                Quaternion.Inverse(weaponIkTransform.rotation) * weaponAimPoint.rotation);
             pawn.SetCurrentWeaponAimPoint(weaponAimPoint);
             pawn.SetAimAnimationFacts(pawn.IsAiming, aimPointOffset);
         }
@@ -215,13 +288,40 @@ namespace CGame.InventoryEquipment
             return null;
         }
 
-        private void HidePresentation()
+        public void HidePresentation()
         {
+            IsPresentationVisible = false;
             if (presentationRoot == null) return;
             foreach (Renderer renderer in presentationRoot.GetComponentsInChildren<Renderer>(true))
             {
                 renderer.enabled = false;
             }
+        }
+
+        public void ShowPresentation()
+        {
+            if (presentationRoot == null)
+            {
+                IsPresentationVisible = false;
+                return;
+            }
+
+            IsPresentationVisible = true;
+            foreach (Renderer renderer in presentationRoot.GetComponentsInChildren<Renderer>(true))
+            {
+                renderer.enabled = true;
+            }
+        }
+
+        private void ClearAnimationBinding()
+        {
+            if (animationInstance != null && overlayHandle != null)
+            {
+                animationInstance.StopAbilityAnimation(overlayHandle);
+            }
+
+            overlayHandle = null;
+            animationInstance = null;
         }
     }
 }

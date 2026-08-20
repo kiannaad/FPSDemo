@@ -72,6 +72,13 @@ namespace CGame
             return actionMap != null;
         }
 
+        public bool TryResolveAction(string actionName, out InputAction action)
+        {
+            InputActionMap actionMap = ResolveActionMap();
+            action = actionMap?.FindAction(actionName, false);
+            return action != null;
+        }
+
         private InputActionMap ResolveActionMap()
         {
             return inputActions != null && Guid.TryParse(actionMapId, out Guid mapId)

@@ -8,6 +8,7 @@
     "CGame.CharacterRuntime",
     "CGame.Character.Definition",
     "CGame.Ability",
+    "CGame.GameplayTags",
     "CGame.Inventory",
     "CGame.InventoryEquipment"
     ,"CGame.CharacterPhysics",

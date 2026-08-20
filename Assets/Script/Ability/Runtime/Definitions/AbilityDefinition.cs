@@ -17,7 +17,8 @@ namespace CGame.Ability
             IEnumerable<GameplayTag> requiredOwnedTags = null,
             IEnumerable<GameplayTag> blockedOwnedTags = null,
             AbilityInputActivationPolicy inputActivationPolicy = AbilityInputActivationPolicy.OnInputTriggered,
-            IEnumerable<GameplayTag> triggerEventTags = null)
+            IEnumerable<GameplayTag> triggerEventTags = null,
+            IEnumerable<GameplayTag> cancelAbilityTags = null)
         {
             AbilityTag = abilityTag;
             this.activationOwnedTags = Copy(activationOwnedTags);
@@ -25,6 +26,7 @@ namespace CGame.Ability
             this.blockedOwnedTags = Copy(blockedOwnedTags);
             InputActivationPolicy = inputActivationPolicy;
             this.triggerEventTags = Copy(triggerEventTags);
+            CancelAbilityTags = Copy(cancelAbilityTags);
         }
 
         public GameplayTag AbilityTag { get; }
@@ -33,6 +35,7 @@ namespace CGame.Ability
         public IReadOnlyList<GameplayTag> BlockedOwnedTags => blockedOwnedTags;
         public AbilityInputActivationPolicy InputActivationPolicy { get; }
         public IReadOnlyList<GameplayTag> TriggerEventTags => triggerEventTags;
+        public IReadOnlyList<GameplayTag> CancelAbilityTags { get; }
 
         protected abstract AbilityInstance CreateInstance();
 
