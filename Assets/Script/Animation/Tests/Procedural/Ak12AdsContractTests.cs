@@ -97,7 +97,6 @@ namespace CGame.Animation.Tests
             Assert.That(ads.AimTargetBone.Name, Is.EqualTo("Camera"));
             Assert.That(ads.CameraBlend, Is.EqualTo(1f));
             Assert.That(sampler.UseReferenceHandTargets, Is.True);
-            Assert.That(sampler.CameraBone.Name, Is.EqualTo("Camera"));
             Assert.That(sampler.DefaultWeaponBoneWeight, Is.EqualTo(1f));
             Assert.That(additive.AdditiveBone.Name, Is.EqualTo("WeaponBoneAdditive"));
         }

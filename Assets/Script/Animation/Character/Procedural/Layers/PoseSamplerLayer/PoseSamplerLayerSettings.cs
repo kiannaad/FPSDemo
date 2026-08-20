@@ -24,7 +24,6 @@ namespace CGame.Animation
         [SerializeField] private KRigElement weaponBoneRight = Element("IK WeaponBoneRight");
         [SerializeField] private KRigElement weaponBoneLeft = Element("IK WeaponBoneLeft");
         [SerializeField] private KRigElement weaponBone = Element("WeaponBone");
-        [SerializeField] private KRigElement cameraBone = Element("Camera");
 
         [Header("Spine")]
         [SerializeField] private KRigElement pelvis = Element("Hips");
@@ -49,7 +48,6 @@ namespace CGame.Animation
         public KRigElement WeaponBoneRight => weaponBoneRight;
         public KRigElement WeaponBoneLeft => weaponBoneLeft;
         public KRigElement WeaponBone => weaponBone;
-        public KRigElement CameraBone => cameraBone;
         public KRigElement Pelvis => pelvis;
         public KRigElement SpineRoot => spineRoot;
         public float StabilizationWeight => stabilizationWeight;
@@ -70,10 +68,6 @@ namespace CGame.Animation
             ValidateElement(expectedRig, weaponBoneRight, "right weapon bone");
             ValidateElement(expectedRig, weaponBoneLeft, "left weapon bone");
             ValidateElement(expectedRig, weaponBone, "weapon bone");
-            if (useReferenceHandTargets)
-            {
-                ValidateElement(expectedRig, cameraBone, "camera bone");
-            }
             ValidateElement(expectedRig, pelvis, "pelvis");
             ValidateElement(expectedRig, spineRoot, "spine root");
         }
@@ -88,10 +82,6 @@ namespace CGame.Animation
             SynchronizeRigElement(ref weaponBoneRight);
             SynchronizeRigElement(ref weaponBoneLeft);
             SynchronizeRigElement(ref weaponBone);
-            if (useReferenceHandTargets)
-            {
-                SynchronizeRigElement(ref cameraBone);
-            }
             SynchronizeRigElement(ref pelvis);
             SynchronizeRigElement(ref spineRoot);
         }

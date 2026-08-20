@@ -10,7 +10,6 @@ namespace CGame.Animation
         public TransformStreamHandle Pelvis;
         public TransformStreamHandle PelvisParent;
         public TransformStreamHandle WeaponBone;
-        public TransformStreamHandle Camera;
         public TransformStreamHandle WeaponBoneRight;
         public TransformStreamHandle WeaponBoneLeft;
         public TransformStreamHandle IkWeaponBone;
@@ -20,7 +19,6 @@ namespace CGame.Animation
         public TransformStreamHandle IkLeftHandHint;
         public Quaternion CachedPelvisPose;
         public KTransform WeaponBoneComponentPose;
-        public KTransform WeaponBoneCameraPose;
         public KTransform WeaponBoneSpinePose;
         public KTransform WeaponBoneRightLocalPose;
         public KTransform WeaponBoneLeftLocalPose;
@@ -80,14 +78,7 @@ namespace CGame.Animation
         {
             KTransform root = AnimationLayerJobUtility.GetTransform(stream, CharacterRoot);
             KTransform spine = AnimationLayerJobUtility.GetTransform(stream, SpineRoot);
-            if (UseReferenceHandTargets)
-            {
-                KTransform camera = AnimationLayerJobUtility.GetTransform(stream, Camera);
-                KTransform desired = camera.GetWorldTransform(WeaponBoneCameraPose, false);
-                WeaponBone.SetPosition(stream, desired.Position);
-                WeaponBone.SetRotation(stream, desired.Rotation);
-            }
-            else if (OverwriteWeaponBone)
+            if (OverwriteWeaponBone)
             {
                 KTransform desired = root.GetWorldTransform(DefaultWeaponPose, false);
                 WeaponBone.SetPosition(stream, desired.Position);
