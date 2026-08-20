@@ -1,8 +1,22 @@
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Animations;
 
 namespace CGame.Animation
 {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    public struct PoseSamplerDebugSample
+    {
+        public Vector3 WeaponBonePosition;
+        public Vector3 RightReferencePosition;
+        public Vector3 LeftReferencePosition;
+        public Vector3 ExpectedRightBlendPosition;
+        public Vector3 IkWeaponPosition;
+        public float WeaponBoneWeight;
+        public byte Captured;
+    }
+#endif
+
     public struct PoseSamplerJob : IAnimationJob
     {
         public TransformStreamHandle CharacterRoot;
@@ -35,6 +49,9 @@ namespace CGame.Animation
         public bool OverwriteWeaponBone;
         public bool UseReferenceHandTargets;
         public bool HasValidRoot;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        public NativeArray<PoseSamplerDebugSample> DebugSamples;
+#endif
 
         public void ProcessAnimation(AnimationStream stream)
         {
@@ -76,6 +93,7 @@ namespace CGame.Animation
 
         private void PositionWeaponBone(AnimationStream stream)
         {
+            UseReferenceHandTargets = false;
             KTransform root = AnimationLayerJobUtility.GetTransform(stream, CharacterRoot);
             KTransform spine = AnimationLayerJobUtility.GetTransform(stream, SpineRoot);
             if (OverwriteWeaponBone)
@@ -138,6 +156,21 @@ namespace CGame.Animation
             IkRightHandHint.SetRotation(stream, rightHint.Rotation);
             IkLeftHandHint.SetPosition(stream, leftHint.Position);
             IkLeftHandHint.SetRotation(stream, leftHint.Rotation);
+// #if UNITY_EDITOR || DEVELOPMENT_BUILD
+//             if (DebugSamples.IsCreated && DebugSamples[0].Captured == 0)
+//             {
+//                 DebugSamples[0] = new PoseSamplerDebugSample
+//                 {
+//                     WeaponBonePosition = right.Position,
+//                     RightReferencePosition = rightReference.Position,
+//                     LeftReferencePosition = leftReference.Position,
+//                     ExpectedRightBlendPosition = Vector3.Lerp(rightReference.Position, right.Position, WeaponBoneWeight),
+//                     IkWeaponPosition = pose.Position,
+//                     WeaponBoneWeight = WeaponBoneWeight,
+//                     Captured = 1
+//                 };
+//             }
+// #endif
         }
     }
 }

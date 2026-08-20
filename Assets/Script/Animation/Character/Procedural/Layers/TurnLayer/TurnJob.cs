@@ -56,6 +56,14 @@ namespace CGame.Animation
         // zero; gating it here would make the lower body snap at the threshold.
         public float AppliedAngle => Angle;
 
+        public void Cancel()
+        {
+            cachedAngle = 0f;
+            playback = 0f;
+            Angle = 0f;
+            IsTurning = false;
+        }
+
         public void ClampForLookYaw(float viewYawDegrees, float maximumLookYawDegrees)
         {
             float maximum = Mathf.Max(0f, maximumLookYawDegrees);

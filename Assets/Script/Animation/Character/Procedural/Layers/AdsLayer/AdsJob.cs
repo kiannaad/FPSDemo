@@ -65,10 +65,16 @@ namespace CGame.Animation
             pose.Rotation = Quaternion.Euler(rotationEuler) * AimPointOffset.Rotation;
             AnimationLayerJobUtility.ModifyTransform(stream, Root, Weapon, new KPose
             {
-                Pose = new KTransform(pose.Position, pose.Rotation),
+                Pose = new KTransform(pose.Position, Quaternion.identity),
                 Space = TransformSpace.ComponentSpace,
                 ModifyMode = TransformModifyMode.Add
             }, weight * (1f - CameraBlend));
+            AnimationLayerJobUtility.ModifyTransform(stream, Root, Weapon, new KPose
+            {
+                Pose = new KTransform(Vector3.zero, pose.Rotation),
+                Space = TransformSpace.ComponentSpace,
+                ModifyMode = TransformModifyMode.Add
+            }, weight);
             if (CameraBlend > 0f)
             {
                 AnimationLayerJobUtility.ModifyTransform(stream, Root, AimTarget, new KPose

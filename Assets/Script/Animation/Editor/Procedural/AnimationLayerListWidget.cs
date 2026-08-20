@@ -18,7 +18,7 @@ namespace CGame.Animation.Editor
             SerializedProperty layers = serializedProfile.FindProperty("layers");
             list = new ReorderableList(serializedProfile, layers, true, true, true, true)
             {
-                drawHeaderCallback = rect => EditorGUI.LabelField(rect, "Ordered Animation Layers"),
+                drawHeaderCallback = rect => EditorGUI.LabelField(rect, "Animation Layers"),
                 drawElementCallback = DrawElement,
                 elementHeight = EditorGUIUtility.singleLineHeight + 6f,
                 onAddDropdownCallback = ShowAddMenu,
@@ -39,25 +39,21 @@ namespace CGame.Animation.Editor
             SerializedProperty element = list.serializedProperty.GetArrayElementAtIndex(index);
             AnimationLayerSettings layer = element.objectReferenceValue as AnimationLayerSettings;
             rect.y += 2f;
-            float buttonWidth = 48f;
-            Rect fieldRect = new Rect(rect.x, rect.y, rect.width - buttonWidth * 3f - 12f, EditorGUIUtility.singleLineHeight);
-            Rect editRect = new Rect(fieldRect.xMax + 4f, rect.y, buttonWidth, EditorGUIUtility.singleLineHeight);
-            Rect copyRect = new Rect(editRect.xMax + 4f, rect.y, buttonWidth, EditorGUIUtility.singleLineHeight);
-            Rect pasteRect = new Rect(copyRect.xMax + 4f, rect.y, buttonWidth, EditorGUIUtility.singleLineHeight);
-            using (new EditorGUI.DisabledScope(true))
+            float buttonWidth = 76f;
+            Rect labelRect = new Rect(rect.x + 18f, rect.y, rect.width - buttonWidth - 22f, EditorGUIUtility.singleLineHeight);
+            Rect editRect = new Rect(labelRect.xMax + 4f, rect.y, buttonWidth, EditorGUIUtility.singleLineHeight);
+            if (GUI.Button(labelRect, GetDisplayName(index, layer), EditorStyles.label))
             {
-                EditorGUI.ObjectField(fieldRect, layer, typeof(AnimationLayerSettings), false);
+                list.index = index;
             }
 
             using (new EditorGUI.DisabledScope(layer == null))
             {
-                if (GUI.Button(editRect, "Edit")) AnimationLayerEditorWindow.Open(layer);
-                if (GUI.Button(copyRect, "Copy")) BoneProfileLayerAssetService.CopyLayer(profile, index);
-            }
-
-            using (new EditorGUI.DisabledScope(!BoneProfileLayerAssetService.CanPasteTo(profile, index)))
-            {
-                if (GUI.Button(pasteRect, "Paste")) BoneProfileLayerAssetService.PasteLayer(profile, index);
+                if (GUI.Button(editRect, "Edit Layer"))
+                {
+                    list.index = index;
+                    AnimationLayerEditorWindow.Open(layer);
+                }
             }
         }
 
@@ -73,14 +69,20 @@ namespace CGame.Animation.Editor
 
         private void RemoveSelected(ReorderableList reorderableList)
         {
-            if (reorderableList.index < 0 || reorderableList.index >= profile.Layers.Count)
+            int removeIndex = reorderableList.index;
+            if (removeIndex < 0 || removeIndex >= profile.Layers.Count)
+            {
+                removeIndex = profile.Layers.Count - 1;
+            }
+
+            if (removeIndex < 0)
             {
                 return;
             }
 
-            BoneProfileLayerAssetService.RemoveLayer(profile, reorderableList.index);
+            BoneProfileLayerAssetService.RemoveLayer(profile, removeIndex);
             serializedProfile.Update();
-            reorderableList.index = Mathf.Clamp(reorderableList.index - 1, -1, profile.Layers.Count - 1);
+            reorderableList.index = Mathf.Clamp(removeIndex - 1, -1, profile.Layers.Count - 1);
         }
 
         private void OnReordered(ReorderableList reorderableList, int oldIndex, int newIndex)
@@ -88,6 +90,31 @@ namespace CGame.Animation.Editor
             serializedProfile.ApplyModifiedProperties();
             EditorUtility.SetDirty(profile);
             AssetDatabase.SaveAssets();
+        }
+
+        private static string GetDisplayName(int index, AnimationLayerSettings layer)
+        {
+            string layerType = layer == null ? "Missing Layer" : GetLayerTypeName(layer.GetType().Name);
+            return $"{index + 1:D2} · {layerType}";
+        }
+
+        private static string GetLayerTypeName(string typeName)
+        {
+            return typeName switch
+            {
+                "PoseSamplerLayerSettings" => "Pose Sampler",
+                "PoseOffsetLayerSettings" => "Pose Offset",
+                "AttachHandLayerSettings" => "Attach Hand",
+                "ViewLayerSettings" => "View",
+                "AdsLayerSettings" => "ADS",
+                "AdditiveLayerSettings" => "Additive",
+                "LookLayerSettings" => "Look",
+                "TurnLayerSettings" => "Turn",
+                "IkMotionLayerSettings" => "IK Motion",
+                "IkLayerSettings" => "IK",
+                "SwayLayerSettings" => "Sway",
+                _ => ObjectNames.NicifyVariableName(typeName.Replace("LayerSettings", string.Empty))
+            };
         }
     }
 }

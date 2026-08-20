@@ -1,4 +1,5 @@
 using System;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -11,6 +12,10 @@ namespace CGame.Animation
         private CharacterAnimInstance owner;
         private PoseSamplerLayerSettings settings;
         private PoseSamplerJob job;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private NativeArray<PoseSamplerDebugSample> debugSamples;
+        private bool hasLoggedDebugSample;
+#endif
 
         public Type SettingsType => typeof(PoseSamplerLayerSettings);
 
@@ -64,6 +69,12 @@ namespace CGame.Animation
                 rightHintReferencePose = CaptureVirtualTargetRelativeToWeapon(jobData, settings.IkRightHandHint, weapon, "right hand hint");
                 leftHintReferencePose = CaptureVirtualTargetRelativeToWeapon(jobData, settings.IkLeftHandHint, weapon, "left hand hint");
             }
+            catch (Exception exception)
+            {
+                Debug.LogError($"PoseSampler 初始化失败。Layer={settings.name}");
+                Debug.LogException(exception);
+                throw;
+            }
             finally
             {
                 RestoreHierarchyPose(jobData, cachedHierarchyPose);
@@ -98,6 +109,17 @@ namespace CGame.Animation
                 LeftHintReferencePose = leftHintReferencePose,
                 HasValidRoot = hasValidRoot
             };
+// #if UNITY_EDITOR || DEVELOPMENT_BUILD
+//             debugSamples = new NativeArray<PoseSamplerDebugSample>(1, Allocator.Persistent);
+//             job.DebugSamples = debugSamples;
+//             Debug.Log(
+//                 $"[WeaponIkProbe][PoseSamplerInit] Layer={settings.name}; "
+//                 + $"ReferencePose={(settings.ReferencePose != null ? settings.ReferencePose.name : "<none>")}; "
+//                 + $"OverwriteWeaponBone={settings.OverwriteWeaponBone}; "
+//                 + $"UseReferenceHandTargets={settings.UseReferenceHandTargets}; "
+//                 + $"DefaultWeaponBoneWeight={settings.DefaultWeaponBoneWeight:F3}; "
+//                 + $"Curve={settings.WeaponBoneWeightCurve}");
+// #endif
         }
 
         public AnimationScriptPlayable CreatePlayable(PlayableGraph graph) => AnimationScriptPlayable.Create(graph, job, 1);
@@ -119,8 +141,34 @@ namespace CGame.Animation
             playable.SetJobData(job);
         }
 
-        public void OnPostAnimationUpdate() { }
-        public void Dispose() { }
+        public void OnPostAnimationUpdate()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (hasLoggedDebugSample || !debugSamples.IsCreated || debugSamples[0].Captured == 0)
+            {
+                return;
+            }
+
+            PoseSamplerDebugSample sample = debugSamples[0];
+            Debug.Log(
+                $"[WeaponIkProbe][PoseSampler] Layer={settings.name}; "
+                + $"WeaponBone={sample.WeaponBonePosition:F3}; "
+                + $"RightReference={sample.RightReferencePosition:F3}; "
+                + $"LeftReference={sample.LeftReferencePosition:F3}; "
+                + $"ExpectedRightBlend={sample.ExpectedRightBlendPosition:F3}; "
+                + $"IkWeapon={sample.IkWeaponPosition:F3}; "
+                + $"WeaponBoneWeight={sample.WeaponBoneWeight:F3}");
+            hasLoggedDebugSample = true;
+#endif
+        }
+
+        public void Dispose()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (debugSamples.IsCreated) debugSamples.Dispose();
+            hasLoggedDebugSample = false;
+#endif
+        }
 
         private static KTransform CaptureVirtualTargetRelativeToWeapon(
             LayerJobData data,

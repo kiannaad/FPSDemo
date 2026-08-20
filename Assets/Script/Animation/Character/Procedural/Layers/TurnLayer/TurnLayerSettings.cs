@@ -10,9 +10,12 @@ namespace CGame.Animation
         [SerializeField] private KRigElement characterRootBone = new KRigElement(-1, "Skeleton", -1);
         [SerializeField] private KRigElement characterHipBone = new KRigElement(-1, "Hips", -1);
         [SerializeField] private KRigElement upperBodyRootBone = new KRigElement(-1, "Spine", -1);
-        [SerializeField, Range(0f, 180f)] private float angleThreshold = 90f;
+        // TurnRuntimeState clamps the accumulated free-look angle to +/-90 degrees.
+        // Keep the trigger threshold strictly inside that range: the request uses a
+        // strict comparison, so a threshold of 90 can never produce a turn request.
+        [SerializeField, Range(0f, 89.9f)] private float angleThreshold = 70f;
         [SerializeField] private AnimationCurve turnCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
-        [SerializeField, Min(0f)] private float turnSpeed = 1f;
+        [SerializeField, Min(0.0001f)] private float turnSpeed = 1f;
         [SerializeField] private string animatorTurnRightTrigger = "TurnRight";
         [SerializeField] private string animatorTurnLeftTrigger = "TurnLeft";
 
@@ -33,7 +36,11 @@ namespace CGame.Animation
             RigHandleUtility.ResolveElement(expectedRig, characterHipBone, name + " hip bone");
             RigHandleUtility.ResolveElement(expectedRig, upperBodyRootBone, name + " upper body root bone");
             if (turnCurve == null) throw new InvalidOperationException(name + " turn curve is missing.");
-            if (angleThreshold < 0f || turnSpeed < 0f) throw new InvalidOperationException(name + " turn values must be non-negative.");
+            if (angleThreshold < 0f || angleThreshold >= 90f)
+            {
+                throw new InvalidOperationException(name + " turn threshold must be in [0, 90).");
+            }
+            if (turnSpeed <= 0f) throw new InvalidOperationException(name + " turn speed must be positive.");
             if (string.IsNullOrWhiteSpace(animatorTurnRightTrigger)
                 || string.IsNullOrWhiteSpace(animatorTurnLeftTrigger))
             {

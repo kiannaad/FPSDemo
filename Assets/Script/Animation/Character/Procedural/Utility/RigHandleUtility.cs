@@ -16,6 +16,15 @@ namespace CGame.Animation
                 throw new InvalidOperationException(owner + " has no rig element name.");
             }
 
+            if (element.Index >= 0 && element.Index < rig.Hierarchy.Count)
+            {
+                KRigElement indexed = rig.Hierarchy[element.Index];
+                if (string.Equals(indexed.Name, element.Name, StringComparison.Ordinal))
+                {
+                    return indexed;
+                }
+            }
+
             KRigElement? match = null;
             foreach (KRigElement candidate in rig.Hierarchy)
             {

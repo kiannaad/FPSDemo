@@ -7,18 +7,14 @@ namespace CGame.Animation
         private static readonly Type[] KnifeLayerOrder =
         {
             typeof(PoseSamplerLayerSettings),
-            typeof(IkLayerSettings)
-        };
-
-        private static readonly Type[] Ak12LegacyLayerOrder =
-        {
-            typeof(PoseSamplerLayerSettings),
+            typeof(IkMotionLayerSettings),
             typeof(IkLayerSettings)
         };
 
         private static readonly Type[] Ak12ProceduralLayerOrder =
         {
             typeof(PoseSamplerLayerSettings),
+            typeof(IkMotionLayerSettings),
             typeof(AttachHandLayerSettings),
             typeof(ViewLayerSettings),
             typeof(AdditiveLayerSettings),
@@ -30,6 +26,7 @@ namespace CGame.Animation
         private static readonly Type[] Ak12AdsLayerOrder =
         {
             typeof(PoseSamplerLayerSettings),
+            typeof(IkMotionLayerSettings),
             typeof(AttachHandLayerSettings),
             typeof(ViewLayerSettings),
             typeof(AdsLayerSettings),
@@ -53,9 +50,10 @@ namespace CGame.Animation
 
             Type[] expectedOrder = profile.Layers.Count switch
             {
-                8 => Ak12AdsLayerOrder,
-                7 => Ak12ProceduralLayerOrder,
-                _ => Ak12LegacyLayerOrder
+                9 => Ak12AdsLayerOrder,
+                8 => Ak12ProceduralLayerOrder,
+                _ => throw new InvalidOperationException(
+                    "AK12 Bone Profile requires exactly 8 layers, or 9 layers when it includes ADS.")
             };
             Validate(profile, "AK12", expectedOrder);
         }

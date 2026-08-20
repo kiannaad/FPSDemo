@@ -16,6 +16,8 @@ namespace CGame.Animation.Editor
         private SerializedProperty easeMode;
         private SerializedProperty evaluationTimeout;
         private KRig previousRig;
+        private string validationMessage;
+        private MessageType validationMessageType;
 
         private void OnEnable()
         {
@@ -33,6 +35,7 @@ namespace CGame.Animation.Editor
         {
             BoneProfile profile = (BoneProfile)target;
             serializedObject.Update();
+            EditorGUILayout.LabelField("Profile Settings", EditorStyles.boldLabel);
             EditorGUI.BeginChangeCheck();
             EditorGUILayout.PropertyField(rig);
             EditorGUILayout.PropertyField(blendIn);
@@ -53,15 +56,31 @@ namespace CGame.Animation.Editor
 
             EditorGUILayout.Space();
             layerList.Draw();
-            DrawValidation(profile);
+            DrawValidationControls(profile);
         }
 
-        private static void DrawValidation(BoneProfile profile)
+        private void DrawValidationControls(BoneProfile profile)
+        {
+            EditorGUILayout.Space();
+            if (GUILayout.Button("Validate Profile"))
+            {
+                ValidateProfile(profile);
+            }
+
+            if (!string.IsNullOrEmpty(validationMessage))
+            {
+                EditorGUILayout.HelpBox(validationMessage, validationMessageType);
+            }
+        }
+
+        private void ValidateProfile(BoneProfile profile)
         {
             IReadOnlyList<string> ownershipErrors = BoneProfileLayerAssetService.GetOwnershipErrors(profile);
-            for (int index = 0; index < ownershipErrors.Count; index++)
+            if (ownershipErrors.Count > 0)
             {
-                EditorGUILayout.HelpBox(ownershipErrors[index], MessageType.Error);
+                validationMessage = string.Join("\n", ownershipErrors);
+                validationMessageType = MessageType.Error;
+                return;
             }
 
             try
@@ -77,15 +96,15 @@ namespace CGame.Animation.Editor
                     WeaponBoneProfileValidator.ValidateAk12(profile);
                 }
 
-                if (ownershipErrors.Count == 0)
-                {
-                    EditorGUILayout.HelpBox("Bone Profile validation passed.", MessageType.Info);
-                }
+                validationMessage = "Bone Profile validation passed.";
+                validationMessageType = MessageType.Info;
             }
             catch (Exception exception)
             {
-                EditorGUILayout.HelpBox(exception.Message, MessageType.Error);
+                validationMessage = exception.Message;
+                validationMessageType = MessageType.Error;
             }
         }
+
     }
 }

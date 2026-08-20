@@ -26,6 +26,9 @@ namespace CGame.Animation
         private BoneProfile nextProfile;
         private bool shouldLinkProfile;
         private bool isDisposed;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private float diagnosticElapsed;
+#endif
 
         public CharacterBoneController(
             Animator animator,
@@ -39,7 +42,41 @@ namespace CGame.Animation
         }
 
         public CharacterAnimInstance Owner { get; }
-        public BoneProfile ActiveProfile => activeProfile;
+
+
+        public bool TryPlayWeaponIkMotion(IkMotionLayerSettings motion)
+        {
+            return !isDisposed && IsValid() && activeRuntime != null && motion != null
+                && activeProfile != null && motion.Rig == activeProfile.Rig
+                && activeRuntime.TryPlayWeaponIkMotion(motion);
+        }
+
+        public bool IsWeaponIkMotionComplete(IkMotionLayerSettings motion)
+        {
+            return !isDisposed && IsValid() && activeRuntime != null && motion != null
+                && activeProfile != null && motion.Rig == activeProfile.Rig
+                && activeRuntime.IsWeaponIkMotionComplete(motion);
+        }
+
+        public bool HasWeaponIkMotionReachedEnd(IkMotionLayerSettings motion)
+        {
+            return !isDisposed && IsValid() && activeRuntime != null && motion != null
+                && activeProfile != null && motion.Rig == activeProfile.Rig
+                && activeRuntime.HasWeaponIkMotionReachedEnd(motion);
+        }
+public BoneProfile ActiveProfile => activeProfile;
+
+        public bool TryGetWeaponCollisionProbe(
+            out Vector3 origin,
+            out Vector3 direction,
+            out float distance)
+        {
+            origin = Vector3.zero;
+            direction = Vector3.forward;
+            distance = 0f;
+            return activeRuntime != null
+                && activeRuntime.TryGetWeaponCollisionProbe(out origin, out direction, out distance);
+        }
 
         public bool IsValid()
         {
@@ -118,6 +155,9 @@ namespace CGame.Animation
             }
 
             UpdateRuntime(activeRuntime, deltaTime);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            LogMotionDiagnostics(deltaTime);
+#endif
         }
 
         public void PostAnimationUpdate()
@@ -424,6 +464,111 @@ namespace CGame.Animation
             runtime.Update(Owner, deltaTime);
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private void LogMotionDiagnostics(float deltaTime)
+        {
+            if (activeProfile == null || !HasMotionDiagnosticsLayer(activeProfile))
+            {
+                return;
+            }
+
+            diagnosticElapsed += Mathf.Max(0f, deltaTime);
+            if (diagnosticElapsed < 0.25f)
+            {
+                return;
+            }
+
+            diagnosticElapsed = 0f;
+            Pawn pawn = updateContext.Pawn;
+            if (pawn.Transform == null)
+            {
+                return;
+            }
+
+            Transform leftFoot = FindRigTransform("LeftFoot");
+            Transform rightFoot = FindRigTransform("RightFoot");
+            Transform weaponBone = FindRigTransform("WeaponBone");
+            Transform ikWeaponBone = FindRigTransform("IK WeaponBone");
+            Transform rightHand = FindRigTransform("RightHand");
+            Transform ikRightHand = FindRigTransform("IK RightHand");
+            Transform leftHand = FindRigTransform("LeftHand");
+            Transform ikLeftHand = FindRigTransform("IK LeftHand");
+            Camera camera = rigComponent.GetComponentInChildren<Camera>(true);
+            AnimatorStateInfo animatorState = animator.GetCurrentAnimatorStateInfo(0);
+            float rootRigAngle = Quaternion.Angle(pawn.Transform.rotation, rigComponent.transform.rotation);
+            // Debug.Log(
+            //     $"[ProceduralMotion] Profile={activeProfile.name}; Layers={DescribeLayers(activeProfile)}; "
+            //     + $"Controller={animator.runtimeAnimatorController.name}; "
+            //     + $"Presentation={pawn.PresentationRotation.eulerAngles}; Pawn={pawn.Transform.rotation.eulerAngles}; "
+            //     + $"Rig={rigComponent.transform.rotation.eulerAngles}; PawnRigAngle={rootRigAngle:F3}; "
+            //     + $"View={updateContext.ViewAnglesDegrees}; TurnOffset={updateContext.TurnOffsetDegrees:F3}; "
+            //     + $"AnimatorHash={animatorState.fullPathHash}; AnimatorTime={animatorState.normalizedTime:F3}; "
+            //     + $"LeftFoot={DescribePosition(leftFoot)}; RightFoot={DescribePosition(rightFoot)}; "
+            //     + $"Weapon={DescribePosition(weaponBone)}; IkWeapon={DescribePosition(ikWeaponBone)}; "
+            //     + $"Camera={DescribeTransform(camera?.transform)}; IkWeaponInCamera={DescribeRelativePose(camera?.transform, ikWeaponBone)}; "
+            //     + $"RightHand={DescribePosition(rightHand)}; IkRightHand={DescribePosition(ikRightHand)}; "
+            //     + $"LeftHand={DescribePosition(leftHand)}; IkLeftHand={DescribePosition(ikLeftHand)}",
+            //     rigComponent);
+        }
+
+        private static bool HasMotionDiagnosticsLayer(BoneProfile profile)
+        {
+            foreach (AnimationLayerSettings layer in profile.Layers)
+            {
+                if (layer is LookLayerSettings || layer is TurnLayerSettings || layer is IkLayerSettings)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string DescribeLayers(BoneProfile profile)
+        {
+            string[] names = new string[profile.Layers.Count];
+            for (int index = 0; index < profile.Layers.Count; index++)
+            {
+                names[index] = profile.Layers[index].GetType().Name;
+            }
+
+            return string.Join(" -> ", names);
+        }
+
+        private static string DescribePosition(Transform transform)
+        {
+            return transform == null ? "n/a" : transform.position.ToString("F3");
+        }
+        private static string DescribeTransform(Transform transform)
+        {
+            return transform == null
+                ? "n/a"
+                : $"{transform.position:F3}/{transform.rotation.eulerAngles:F3}";
+        }
+
+        private static string DescribeRelativePose(Transform reference, Transform transform)
+        {
+            if (reference == null || transform == null) return "n/a";
+            Vector3 position = reference.InverseTransformPoint(transform.position);
+            Quaternion rotation = Quaternion.Inverse(reference.rotation) * transform.rotation;
+            return $"{position:F3}/{rotation.eulerAngles:F3}";
+        }
+
+
+        private Transform FindRigTransform(string elementName)
+        {
+            for (int index = 0; index < rigComponent.Rig.Hierarchy.Count; index++)
+            {
+                if (string.Equals(rigComponent.Rig.Hierarchy[index].Name, elementName, StringComparison.Ordinal))
+                {
+                    return rigComponent.GetRigTransform(index);
+                }
+            }
+
+            return null;
+        }
+#endif
+
         private void DestroyPlayable(AnimationScriptPlayable playable)
         {
             if (graph.IsValid() && playable.IsValid())
@@ -457,7 +602,37 @@ namespace CGame.Animation
             private readonly List<AnimationLayer> layers = new List<AnimationLayer>();
             private bool isDisposed;
 
-            public void Add(AnimationLayer layer)
+
+
+            public bool TryPlayWeaponIkMotion(IkMotionLayerSettings motion)
+            {
+                foreach (AnimationLayer layer in layers)
+                {
+                    if (layer.Job is IkMotionLayerJob job && job.TryPlay(motion)) return true;
+                }
+                return false;
+            }
+
+            public bool IsWeaponIkMotionComplete(IkMotionLayerSettings motion)
+            {
+                foreach (AnimationLayer layer in layers)
+                {
+                    if (layer.Job is IkMotionLayerJob job && job.IsCompleteFor(motion)) return true;
+                }
+
+                return false;
+            }
+
+            public bool HasWeaponIkMotionReachedEnd(IkMotionLayerSettings motion)
+            {
+                foreach (AnimationLayer layer in layers)
+                {
+                    if (layer.Job is IkMotionLayerJob job && job.HasReachedEndFor(motion)) return true;
+                }
+
+                return false;
+            }
+public void Add(AnimationLayer layer)
             {
                 layers.Add(layer ?? throw new ArgumentNullException(nameof(layer)));
             }
@@ -531,6 +706,29 @@ namespace CGame.Animation
                 {
                     layers[index].PostUpdate();
                 }
+            }
+
+            public bool TryGetWeaponCollisionProbe(
+                out Vector3 origin,
+                out Vector3 direction,
+                out float distance)
+            {
+                for (int index = 0; index < layers.Count; index++)
+                {
+                    if (layers[index].Job is CollisionLayerJob collision
+                        && collision.ProbeLength > 0f)
+                    {
+                        origin = collision.ProbeOrigin;
+                        direction = collision.ProbeDirection;
+                        distance = collision.ProbeLength;
+                        return direction.sqrMagnitude > 0.0001f;
+                    }
+                }
+
+                origin = Vector3.zero;
+                direction = Vector3.forward;
+                distance = 0f;
+                return false;
             }
 
             public void Dispose()

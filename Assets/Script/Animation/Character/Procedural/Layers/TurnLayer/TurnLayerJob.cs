@@ -15,6 +15,13 @@ namespace CGame.Animation
         private bool offsetPosition;
         private TurnRuntimeState state;
         private TurnRequest pendingRequest;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private static readonly int turnLeftStateHash = Animator.StringToHash("TurnInPlace.TurnLeft.Blend Tree");
+        private static readonly int turnRightStateHash = Animator.StringToHash("TurnInPlace.TurnRight.Blend Tree");
+        private int triggerDiagnosticFrame = -1;
+        private string triggerDiagnosticName;
+        private bool triggerWasAccepted;
+#endif
 
         public Type SettingsType => typeof(TurnLayerSettings);
         public float TurnOffsetDegrees => -state.AppliedAngle;
@@ -51,8 +58,24 @@ namespace CGame.Animation
         public AnimationLayerSettings GetSettings() => settings;
         public void OnPreAnimationUpdate(float deltaTime, float weight)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            UpdateTriggerDiagnostics();
+#endif
             if (!KCurves.IsWeightRelevant(weight))
             {
+                context.SetTurnOffsetDegrees(0f);
+                return;
+            }
+
+            // Movement already owns the physical root facing and the locomotion
+            // pose. Turn-in-place must not counter-rotate Skeleton at the same
+            // time, otherwise the feet are driven sideways by both systems.
+            bool canTurnInPlace = context.CharacterState.IsGrounded
+                && !context.CharacterState.IsMoving;
+            if (!canTurnInPlace)
+            {
+                state.Cancel();
+                pendingRequest = TurnRequest.None;
                 context.SetTurnOffsetDegrees(0f);
                 return;
             }
@@ -64,6 +87,18 @@ namespace CGame.Animation
                 settings.TurnSpeed,
                 settings.TurnCurve);
             state.ClampForLookYaw(context.ViewAnglesDegrees.x, 90f);
+// #if UNITY_EDITOR || DEVELOPMENT_BUILD
+//             if (Mathf.Abs(context.ViewDeltaDegrees.x) > 0.01f
+//                 && Mathf.Abs(state.AppliedAngle) >= settings.AngleThreshold - 20f)
+//             {
+//                 Debug.Log(
+//                     $"[TurnTriggerProbe] viewDelta={context.ViewDeltaDegrees.x:F3}; "
+//                     + $"viewYaw={context.ViewAnglesDegrees.x:F3}; angle={state.AppliedAngle:F3}; "
+//                     + $"threshold={settings.AngleThreshold:F3}; weight={weight:F3}; "
+//                     + $"isTurning={state.IsTurning}; request={request}",
+//                     owner.AnimatorController.Animator);
+//             }
+// #endif
             if (request != TurnRequest.None)
             {
                 pendingRequest = request;
@@ -71,7 +106,10 @@ namespace CGame.Animation
                     ? settings.AnimatorTurnLeftTrigger
                     : settings.AnimatorTurnRightTrigger;
                 context.SetTurnOffsetDegrees(TurnOffsetDegrees * weight);
-                owner.TrySetAnimatorTrigger(triggerName);
+                bool triggerAccepted = owner.TrySetAnimatorTrigger(triggerName);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                BeginTriggerDiagnostics(triggerName, triggerAccepted);
+#endif
                 return;
             }
 
@@ -88,5 +126,90 @@ namespace CGame.Animation
 
         public void OnPostAnimationUpdate() { }
         public void Dispose() { }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private void BeginTriggerDiagnostics(string triggerName, bool triggerAccepted)
+        {
+            triggerDiagnosticFrame = 0;
+            triggerDiagnosticName = triggerName;
+            triggerWasAccepted = triggerAccepted;
+            WriteTriggerDiagnostic("request");
+        }
+
+        private void UpdateTriggerDiagnostics()
+        {
+            if (triggerDiagnosticFrame < 0)
+            {
+                return;
+            }
+
+            triggerDiagnosticFrame++;
+            if (triggerDiagnosticFrame == 1
+                || triggerDiagnosticFrame == 8
+                || triggerDiagnosticFrame == 30
+                || triggerDiagnosticFrame == 60)
+            {
+                WriteTriggerDiagnostic("follow-up");
+            }
+
+            if (triggerDiagnosticFrame >= 60)
+            {
+                triggerDiagnosticFrame = -1;
+            }
+        }
+
+        private void WriteTriggerDiagnostic(string phase)
+        {
+            CharacterPlayablesController controller = owner.PlayablesController;
+            bool hasControllerState = controller.TryGetAnimatorControllerLayerState(
+                1,
+                out AnimatorStateInfo playableCurrent,
+                out AnimatorStateInfo playableNext,
+                out bool playableIsTransitioning);
+            Animator animator = owner.AnimatorController.Animator;
+            bool animatorHasTurnLayer = animator.layerCount > 1;
+            float animatorLayerWeight = animatorHasTurnLayer ? animator.GetLayerWeight(1) : -1f;
+            AnimatorStateInfo animatorCurrent = animatorHasTurnLayer
+                ? animator.GetCurrentAnimatorStateInfo(1)
+                : default;
+            bool animatorIsTransitioning = animatorHasTurnLayer && animator.IsInTransition(1);
+            AnimatorStateInfo animatorNext = animatorIsTransitioning
+                ? animator.GetNextAnimatorStateInfo(1)
+                : default;
+            AnimationLayerMixerPlayable masterMixer = controller.MasterMixer;
+            float masterOverlayWeight = masterMixer.IsValid()
+                ? masterMixer.GetInputWeight(1)
+                : -1f;
+            bool controllerInTurnState = IsTurnState(playableCurrent.fullPathHash);
+            bool controllerNextIsTurnState = IsTurnState(playableNext.fullPathHash);
+            bool animatorInTurnState = IsTurnState(animatorCurrent.fullPathHash);
+            bool animatorNextIsTurnState = IsTurnState(animatorNext.fullPathHash);
+
+            // Debug.Log(
+            //     $"[TurnTrigger] phase={phase}; frame={triggerDiagnosticFrame}; trigger={triggerDiagnosticName}; "
+            //     + $"accepted={triggerWasAccepted}; controllerValid={controller.IsValid()}; "
+            //     + $"controllerLayer1Available={hasControllerState}; "
+            //     + $"controllerCurrent={playableCurrent.fullPathHash}@{playableCurrent.normalizedTime:F3}; "
+            //     + $"controllerInTurnState={controllerInTurnState}; "
+            //     + $"controllerTransition={playableIsTransitioning}; "
+            //     + $"controllerNext={playableNext.fullPathHash}@{playableNext.normalizedTime:F3}; "
+            //     + $"controllerNextIsTurnState={controllerNextIsTurnState}; "
+            //     + $"animatorCurrent={animatorCurrent.fullPathHash}@{animatorCurrent.normalizedTime:F3}; "
+            //     + $"animatorInTurnState={animatorInTurnState}; "
+            //     + $"animatorTransition={animatorIsTransitioning}; "
+            //     + $"animatorNext={animatorNext.fullPathHash}@{animatorNext.normalizedTime:F3}; "
+            //     + $"animatorNextIsTurnState={animatorNextIsTurnState}; "
+            //     + $"turnAngle={state.AppliedAngle:F3}; turnOffset={TurnOffsetDegrees:F3}; "
+            //     + $"layerWeight={animatorLayerWeight:F3}; masterOverlayWeight="
+            //     + $"{masterOverlayWeight:F3}; slots="
+            //     + $"{controller.OverlayActiveSlotCount}/{controller.SlotActiveSlotCount}/{controller.OverrideActiveSlotCount}",
+            //     animator);
+        }
+
+        private static bool IsTurnState(int stateHash)
+        {
+            return stateHash == turnLeftStateHash || stateHash == turnRightStateHash;
+        }
+#endif
     }
 }

@@ -1,8 +1,22 @@
 using UnityEngine;
 using UnityEngine.Animations;
+using Unity.Collections;
 
 namespace CGame.Animation
 {
+    public struct IkDebugSample
+    {
+        public Vector3 TargetPosition;
+        public Quaternion TargetRotation;
+        public Vector3 HintPosition;
+        public Vector3 PreSolveTipPosition;
+        public Quaternion PreSolveTipRotation;
+        public Vector3 PostSolveTipPosition;
+        public Quaternion PostSolveTipRotation;
+        public float RootToTargetDistance;
+        public byte WasSolved;
+    }
+
     public struct IkHandle
     {
         public TransformStreamHandle Root;
@@ -28,20 +42,34 @@ namespace CGame.Animation
             };
         }
 
-        public void Solve(AnimationStream stream, float weight)
+        public void Solve(AnimationStream stream, float weight, ref IkDebugSample debugSample)
         {
-            if (!KCurves.IsWeightRelevant(weight)) return;
             Data.Tip = AnimationLayerJobUtility.GetTransform(stream, Tip);
             Data.Mid = AnimationLayerJobUtility.GetTransform(stream, Mid);
             Data.Root = AnimationLayerJobUtility.GetTransform(stream, Root);
             Data.Target = AnimationLayerJobUtility.GetTransform(stream, Target);
             Data.Hint = AnimationLayerJobUtility.GetTransform(stream, Hint);
-            if (Data.Tip.Equals(Data.Target, false)) return;
+
+            debugSample.TargetPosition = Data.Target.Position;
+            debugSample.TargetRotation = Data.Target.Rotation;
+            debugSample.HintPosition = Data.Hint.Position;
+            debugSample.PreSolveTipPosition = Data.Tip.Position;
+            debugSample.PreSolveTipRotation = Data.Tip.Rotation;
+            debugSample.PostSolveTipPosition = Data.Tip.Position;
+            debugSample.PostSolveTipRotation = Data.Tip.Rotation;
+            debugSample.RootToTargetDistance = Vector3.Distance(Data.Root.Position, Data.Target.Position);
+            debugSample.WasSolved = 0;
+
+            if (!KCurves.IsWeightRelevant(weight) || Data.Tip.Equals(Data.Target, false)) return;
             KTwoBoneIK.Solve(ref Data);
             Root.SetRotation(stream, Quaternion.Slerp(Root.GetRotation(stream), Data.Root.Rotation, weight));
             Mid.SetRotation(stream, Quaternion.Slerp(Mid.GetRotation(stream), Data.Mid.Rotation, weight));
             Tip.SetRotation(stream, Quaternion.Slerp(Tip.GetRotation(stream), Data.Tip.Rotation, weight));
+            debugSample.PostSolveTipPosition = Data.Tip.Position;
+            debugSample.PostSolveTipRotation = Data.Tip.Rotation;
+            debugSample.WasSolved = 1;
         }
+
     }
 
     public struct IkJob : IAnimationJob
@@ -59,16 +87,31 @@ namespace CGame.Animation
         public float LeftFootWeight;
         public bool IsHuman;
         public bool OffsetFeetTargets;
+        public NativeArray<IkDebugSample> DebugSamples;
 
         public void ProcessAnimation(AnimationStream stream)
         {
             if (!KCurves.IsWeightRelevant(Weight)) return;
-            RightHand.Solve(stream, Weight * RightHandWeight);
-            LeftHand.Solve(stream, Weight * LeftHandWeight);
+            IkDebugSample rightHandSample = default;
+            IkDebugSample leftHandSample = default;
+            RightHand.Solve(stream, Weight * RightHandWeight, ref rightHandSample);
+            LeftHand.Solve(stream, Weight * LeftHandWeight, ref leftHandSample);
+            if (DebugSamples.IsCreated)
+            {
+                DebugSamples[0] = rightHandSample;
+                DebugSamples[1] = leftHandSample;
+            }
             if (!IsHuman || !stream.isHumanStream)
             {
-                RightFoot.Solve(stream, Weight * RightFootWeight);
-                LeftFoot.Solve(stream, Weight * LeftFootWeight);
+                IkDebugSample rightFootSample = default;
+                IkDebugSample leftFootSample = default;
+                RightFoot.Solve(stream, Weight * RightFootWeight, ref rightFootSample);
+                LeftFoot.Solve(stream, Weight * LeftFootWeight, ref leftFootSample);
+                if (DebugSamples.IsCreated)
+                {
+                    DebugSamples[2] = rightFootSample;
+                    DebugSamples[3] = leftFootSample;
+                }
                 return;
             }
 
@@ -94,5 +137,6 @@ namespace CGame.Animation
             human.SetGoalWeightRotation(goal, 1f);
             human.SetGoalRotation(goal, human.GetGoalRotationFromPose(goal));
         }
+
     }
 }

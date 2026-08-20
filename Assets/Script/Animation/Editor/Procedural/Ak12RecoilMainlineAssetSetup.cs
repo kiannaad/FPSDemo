@@ -69,6 +69,8 @@ namespace CGame.Animation.EditorTools
 
             EnsureLayer<LookLayerSettings>(profile);
             EnsureLayer<TurnLayerSettings>(profile);
+            ConfigureLook(profile);
+            ConfigureTurn(profile);
             AdditiveLayerSettings additive = profile.Layers.OfType<AdditiveLayerSettings>().FirstOrDefault();
             if (additive == null)
             {
@@ -123,6 +125,59 @@ namespace CGame.Animation.EditorTools
                 EditorUtility.SetDirty(layer);
                 EditorUtility.SetDirty(profile);
                 AssetDatabase.SaveAssets();
+            }
+        }
+
+        private static void ConfigureLook(BoneProfile profile)
+        {
+            LookLayerSettings look = profile.Layers.OfType<LookLayerSettings>().FirstOrDefault();
+            if (look == null)
+            {
+                return;
+            }
+
+            SerializedObject serialized = new SerializedObject(look);
+            serialized.FindProperty("rig").objectReferenceValue = profile.Rig;
+            serialized.FindProperty("useTurnOffset").boolValue = true;
+            ConfigureLookElements(serialized.FindProperty("pitchElements"), profile.Rig,
+                ("Hips", 5f), ("Spine", 17f), ("Chest", 17f), ("UpperChest", 17f), ("Neck", 34f));
+            ConfigureLookElements(serialized.FindProperty("yawElements"), profile.Rig,
+                ("Spine", 25f), ("Chest", 32.5f), ("UpperChest", 32.5f));
+            ConfigureLookElements(serialized.FindProperty("rollElements"), profile.Rig,
+                ("Hips", 5f), ("Spine", 28.33f), ("Chest", 28.33f), ("UpperChest", 28.33f));
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(look);
+        }
+
+        private static void ConfigureTurn(BoneProfile profile)
+        {
+            TurnLayerSettings turn = profile.Layers.OfType<TurnLayerSettings>().FirstOrDefault();
+            if (turn == null)
+            {
+                return;
+            }
+
+            SerializedObject serialized = new SerializedObject(turn);
+            serialized.FindProperty("rig").objectReferenceValue = profile.Rig;
+            serialized.FindProperty("angleThreshold").floatValue = 70f;
+            serialized.FindProperty("turnSpeed").floatValue = 1.1f;
+            serialized.FindProperty("animatorTurnRightTrigger").stringValue = "TurnRight";
+            serialized.FindProperty("animatorTurnLeftTrigger").stringValue = "TurnLeft";
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(turn);
+        }
+
+        private static void ConfigureLookElements(
+            SerializedProperty entries,
+            KRig rig,
+            params (string name, float limit)[] elements)
+        {
+            entries.arraySize = elements.Length;
+            for (int index = 0; index < elements.Length; index++)
+            {
+                SerializedProperty entry = entries.GetArrayElementAtIndex(index);
+                SetElement(entry.FindPropertyRelative("Element"), rig, elements[index].name);
+                entry.FindPropertyRelative("AngleLimits").vector2Value = new Vector2(elements[index].limit, elements[index].limit);
             }
         }
 

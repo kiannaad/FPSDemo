@@ -56,7 +56,7 @@ namespace CGame.Animation
             // leaves the camera ahead of the muzzle during fast input.
             if (settings.UseTurnOffset)
             {
-                // ViewAngles compensates ControlRotation relative to the physical root;
+                // ViewAngles compensates PresentationRotation relative to the physical root;
                 // TurnOffset compensates that root relative to ModelRoot. Both are
                 // required to aim the upper body at the camera without moving mounts.
                 target.x += context.TurnOffsetDegrees;

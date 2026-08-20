@@ -10,6 +10,19 @@ namespace CGame.Animation
         public Quaternion LocalRotation;
     }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    public struct AttachHandDebugSample
+    {
+        public Vector3 WeaponPosition;
+        public Vector3 HandPosition;
+        public Vector3 IkWeaponPosition;
+        public Vector3 IkHandPosition;
+        public Vector3 RelativeHandPosition;
+        public float RelativeHandRotationAngle;
+        public byte Captured;
+    }
+#endif
+
     public struct AttachHandJob : IAnimationJob
     {
         public TransformStreamHandle Hand;
@@ -21,6 +34,9 @@ namespace CGame.Animation
         public NativeArray<AttachHandPoseData> Chain;
         public float Weight;
         public bool ReferenceInitialized;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        public NativeArray<AttachHandDebugSample> DebugSamples;
+#endif
 
         public void ProcessAnimation(AnimationStream stream)
         {
@@ -37,6 +53,21 @@ namespace CGame.Animation
                 }
 
                 ReferenceInitialized = true;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                if (DebugSamples.IsCreated)
+                {
+                    DebugSamples[0] = new AttachHandDebugSample
+                    {
+                        WeaponPosition = weaponReference.Position,
+                        HandPosition = handReference.Position,
+                        IkWeaponPosition = AnimationLayerJobUtility.GetTransform(stream, IkWeapon).Position,
+                        IkHandPosition = AnimationLayerJobUtility.GetTransform(stream, IkHand).Position,
+                        RelativeHandPosition = RelativeHandPose.Position,
+                        RelativeHandRotationAngle = Quaternion.Angle(Quaternion.identity, RelativeHandPose.Rotation),
+                        Captured = 1
+                    };
+                }
+#endif
             }
 
             if (!KCurves.IsWeightRelevant(Weight)) return;

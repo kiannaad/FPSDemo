@@ -9,16 +9,30 @@ namespace CGame.Animation
         private KTransform blendOutStart;
         private float blendOutElapsed;
         private bool isBlendingOut;
+        private bool hasResult;
+        private bool hasCompleted;
+        private bool hasReachedEnd;
         public bool IsPlaying { get; private set; }
+        public bool IsBlendingOut => isBlendingOut;
+        public bool HasReachedEnd => hasReachedEnd;
+        public bool IsComplete => hasCompleted && !IsPlaying && !isBlendingOut;
         public float Playback { get; private set; }
         public KTransform Result { get; private set; }
 
         public void Play()
         {
+            if (!hasResult)
+            {
+                Result = KTransform.Identity;
+                hasResult = true;
+            }
+
             playStart = Result;
             Playback = 0f;
             blendOutElapsed = 0f;
             isBlendingOut = false;
+            hasCompleted = false;
+            hasReachedEnd = false;
             IsPlaying = true;
         }
 
@@ -28,8 +42,10 @@ namespace CGame.Animation
             if (blendTime <= 0f)
             {
                 Result = KTransform.Identity;
+                hasResult = true;
                 IsPlaying = false;
                 isBlendingOut = false;
+                hasCompleted = true;
                 return;
             }
             blendOutStart = Result;
@@ -48,7 +64,9 @@ namespace CGame.Animation
                 if (blendOutElapsed >= settings.BlendTime)
                 {
                     Result = KTransform.Identity;
+                    hasResult = true;
                     isBlendingOut = false;
+                    hasCompleted = true;
                 }
                 return;
             }
@@ -60,9 +78,13 @@ namespace CGame.Animation
                 Quaternion.Euler(Vector3.Scale(settings.RotationCurves.Evaluate(Playback), settings.RotationScale)));
             float blend = settings.BlendTime <= 0f ? 1f : Mathf.Clamp01(Playback / settings.BlendTime);
             Result = KTransform.Lerp(playStart, curvePose, blend);
-            if (Playback >= settings.Duration && settings.AutoBlendOut)
+            if (Playback >= settings.Duration)
             {
-                Stop(settings.BlendTime);
+                hasReachedEnd = true;
+                if (settings.AutoBlendOut)
+                {
+                    Stop(settings.BlendTime);
+                }
             }
         }
     }
@@ -76,7 +98,8 @@ namespace CGame.Animation
 
         public void ProcessAnimation(AnimationStream stream)
         {
-            if (!KCurves.IsWeightRelevant(Weight)) return;
+            if (!KCurves.IsWeightRelevant(Weight)
+                || Motion.Rotation.Equals(default(Quaternion))) return;
             AnimationLayerJobUtility.ModifyTransform(stream, Root, Target, new KPose
             {
                 Pose = Motion,

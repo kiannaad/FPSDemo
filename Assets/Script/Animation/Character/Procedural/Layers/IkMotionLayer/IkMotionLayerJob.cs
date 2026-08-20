@@ -13,6 +13,7 @@ namespace CGame.Animation
 
         public Type SettingsType => typeof(IkMotionLayerSettings);
         public bool IsPlaying => state.IsPlaying;
+        public bool IsComplete => state.IsComplete;
         public float Playback => state.Playback;
         public void Play() => state.Play();
         public void Stop() => state.Stop(settings.BlendTime);
@@ -24,7 +25,32 @@ namespace CGame.Animation
             settings.Validate(jobData.RigComponent.Rig);
             root = jobData.CharacterRootHandle;
             target = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.TargetBone, settings.name);
+        }
+
+        public bool TryPlay(IkMotionLayerSettings motion)
+        {
+            if (motion == null || !motion.TargetBone.Equals(settings.TargetBone))
+            {
+                return false;
+            }
+
+            settings = motion;
             state.Play();
+            return true;
+        }
+
+        public bool IsCompleteFor(IkMotionLayerSettings motion)
+        {
+            return motion != null
+                && motion.TargetBone.Equals(settings.TargetBone)
+                && state.IsComplete;
+        }
+
+        public bool HasReachedEndFor(IkMotionLayerSettings motion)
+        {
+            return motion != null
+                && motion.TargetBone.Equals(settings.TargetBone)
+                && state.HasReachedEnd;
         }
 
         public AnimationScriptPlayable CreatePlayable(PlayableGraph graph) => AnimationScriptPlayable.Create(graph, new IkMotionJob

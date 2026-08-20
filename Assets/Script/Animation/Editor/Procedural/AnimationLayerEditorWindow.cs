@@ -8,6 +8,9 @@ namespace CGame.Animation.Editor
     {
         [SerializeField] private AnimationLayerSettings layer;
         private SerializedObject serializedLayer;
+        private Vector2 scrollPosition;
+        private string validationMessage;
+        private MessageType validationMessageType;
 
         public static void Open(AnimationLayerSettings settings)
         {
@@ -44,6 +47,7 @@ namespace CGame.Animation.Editor
                 serializedLayer = new SerializedObject(layer);
             }
 
+            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
             serializedLayer.Update();
             EditorGUILayout.LabelField(layer.name, EditorStyles.boldLabel);
             EditorGUI.BeginChangeCheck();
@@ -71,13 +75,32 @@ namespace CGame.Animation.Editor
                 EditorUtility.SetDirty(layer);
             }
 
+            EditorGUILayout.Space();
+            if (GUILayout.Button("Validate Layer"))
+            {
+                ValidateLayer();
+            }
+
+            if (!string.IsNullOrEmpty(validationMessage))
+            {
+                EditorGUILayout.HelpBox(validationMessage, validationMessageType);
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void ValidateLayer()
+        {
             try
             {
                 layer.Validate(layer.Rig);
+                validationMessage = "Animation Layer validation passed.";
+                validationMessageType = MessageType.Info;
             }
             catch (Exception exception)
             {
-                EditorGUILayout.HelpBox(exception.Message, MessageType.Error);
+                validationMessage = exception.Message;
+                validationMessageType = MessageType.Error;
             }
         }
     }

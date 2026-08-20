@@ -27,6 +27,24 @@ namespace CGame.Animation
         public float Duration => Mathf.Max(rotationCurves.Length, translationCurves.Length);
         public override IAnimationLayerJob CreateAnimationJob() => new IkMotionLayerJob();
 
+        public void Configure(
+            KRig rig,
+            KRigElement target,
+            VectorCurve rotation,
+            VectorCurve translation,
+            float motionBlendTime,
+            float motionPlayRate = 1f,
+            bool shouldAutoBlendOut = true)
+        {
+            targetBone = target;
+            Configure(rig);
+            rotationCurves = rotation;
+            translationCurves = translation;
+            blendTime = Mathf.Max(0f, motionBlendTime);
+            playRate = Mathf.Max(0.0001f, motionPlayRate);
+            autoBlendOut = shouldAutoBlendOut;
+        }
+
         public override void Validate(KRig expectedRig)
         {
             base.Validate(expectedRig);

@@ -71,6 +71,32 @@ namespace CGame.Animation
         internal int SlotActiveSlotCount => slotMixer?.ActiveSlotCount ?? 0;
         internal int OverrideActiveSlotCount => overrideMixer?.ActiveSlotCount ?? 0;
 
+        internal bool TryGetAnimatorControllerLayerState(
+            int layerIndex,
+            out AnimatorStateInfo currentState,
+            out AnimatorStateInfo nextState,
+            out bool isInTransition)
+        {
+            currentState = default;
+            nextState = default;
+            isInTransition = false;
+            if (!animatorControllerSource.IsValid()
+                || layerIndex < 0
+                || layerIndex >= animatorControllerSource.GetLayerCount())
+            {
+                return false;
+            }
+
+            currentState = animatorControllerSource.GetCurrentAnimatorStateInfo(layerIndex);
+            isInTransition = animatorControllerSource.IsInTransition(layerIndex);
+            if (isInTransition)
+            {
+                nextState = animatorControllerSource.GetNextAnimatorStateInfo(layerIndex);
+            }
+
+            return true;
+        }
+
         internal bool TrySetTrigger(string triggerName)
         {
             if (string.IsNullOrWhiteSpace(triggerName) || !animatorControllerSource.IsValid())
@@ -78,8 +104,33 @@ namespace CGame.Animation
                 return false;
             }
 
-            animatorControllerSource.SetTrigger(Animator.StringToHash(triggerName));
+            int triggerHash = Animator.StringToHash(triggerName);
+            if (!HasTriggerParameter(triggerHash))
+            {
+                Debug.LogWarning(
+                    $"Animator Controller '{runtimeController.name}' does not define trigger '{triggerName}'.",
+                    animator);
+                return false;
+            }
+
+            animatorControllerSource.SetTrigger(triggerHash);
             return true;
+        }
+
+        private bool HasTriggerParameter(int triggerHash)
+        {
+            AnimatorControllerParameter[] parameters = animator.parameters;
+            for (int index = 0; index < parameters.Length; index++)
+            {
+                AnimatorControllerParameter parameter = parameters[index];
+                if (parameter.nameHash == triggerHash
+                    && parameter.type == AnimatorControllerParameterType.Trigger)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
 public bool IsValid()

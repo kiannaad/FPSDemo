@@ -12,6 +12,7 @@ namespace CGame.Animation
         private readonly CharacterPlayablesController playablesController;
         private readonly CharacterBoneController boneController;
         private bool isDisposed;
+        private int completedAnimationEvaluationCount;
 
         public CharacterAnimInstance(
             Pawn pawn,
@@ -39,7 +40,37 @@ namespace CGame.Animation
         }
 
         public AnimationUpdateContext UpdateContext => updateContext;
-        public CharacterBoneController BoneController => boneController;
+
+        public int CompletedAnimationEvaluationCount => completedAnimationEvaluationCount;
+
+
+        public bool TryPlayWeaponIkMotion(IkMotionLayerSettings motion)
+        {
+            return !isDisposed && boneController.TryPlayWeaponIkMotion(motion);
+        }
+
+        public bool IsWeaponIkMotionComplete(IkMotionLayerSettings motion)
+        {
+            return !isDisposed && boneController.IsWeaponIkMotionComplete(motion);
+        }
+
+        public bool HasWeaponIkMotionReachedEnd(IkMotionLayerSettings motion)
+        {
+            return !isDisposed && boneController.HasWeaponIkMotionReachedEnd(motion);
+        }
+public CharacterBoneController BoneController => boneController;
+
+        public bool TryGetWeaponCollisionProbe(
+            out Vector3 origin,
+            out Vector3 direction,
+            out float distance)
+        {
+            origin = Vector3.zero;
+            direction = Vector3.forward;
+            distance = 0f;
+            return !isDisposed
+                && boneController.TryGetWeaponCollisionProbe(out origin, out direction, out distance);
+        }
         public float GetCurveValue(string curveName)
         {
             if (string.IsNullOrWhiteSpace(curveName))
@@ -145,6 +176,10 @@ namespace CGame.Animation
             {
                 boneController.PostAnimationUpdate();
                 playablesController.DispatchNotifies();
+                if (boneController.IsValid() && playablesController.IsValid())
+                {
+                    completedAnimationEvaluationCount++;
+                }
             }
         }
 

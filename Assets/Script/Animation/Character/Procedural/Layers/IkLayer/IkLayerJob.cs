@@ -1,15 +1,20 @@
 using System;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
 
 namespace CGame.Animation
 {
-    public sealed class IkLayerJob : IAnimationLayerJob
+public sealed class IkLayerJob : IAnimationLayerJob
     {
         private AnimationUpdateContext updateContext;
         private IkLayerSettings settings;
         private IkJob job;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private NativeArray<IkDebugSample> debugSamples;
+        private float debugElapsed;
+#endif
 
         public Type SettingsType => typeof(IkLayerSettings);
 
@@ -31,6 +36,10 @@ namespace CGame.Animation
                 RightFootWeight = settings.RightFootWeight,
                 LeftFootWeight = settings.LeftFootWeight
             };
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            debugSamples = new NativeArray<IkDebugSample>(4, Allocator.Persistent);
+            job.DebugSamples = debugSamples;
+#endif
         }
 
         public AnimationScriptPlayable CreatePlayable(PlayableGraph graph) => AnimationScriptPlayable.Create(graph, job, 1);
@@ -52,8 +61,46 @@ namespace CGame.Animation
             playable.SetJobData(job);
         }
 
-        public void OnPostAnimationUpdate() { }
-        public void Dispose() { }
+        public void OnPostAnimationUpdate()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (!debugSamples.IsCreated) return;
+
+            debugElapsed += Time.unscaledDeltaTime;
+            if (debugElapsed < 0.25f) return;
+
+            debugElapsed = 0f;
+            // Debug.Log(
+            //     "[IkDebug] "
+            //     + DescribeSample("RightHand", debugSamples[0]) + "; "
+            //     + DescribeSample("LeftHand", debugSamples[1]) + "; "
+            //     + DescribeSample("RightFoot", debugSamples[2]) + "; "
+            //     + DescribeSample("LeftFoot", debugSamples[3]));
+#endif
+        }
+
+        public void Dispose()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (debugSamples.IsCreated) debugSamples.Dispose();
+#endif
+        }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private static string DescribeSample(string label, IkDebugSample sample)
+        {
+            float rotationError = Quaternion.Angle(
+                sample.TargetRotation,
+                sample.PostSolveTipRotation);
+            float preSolveRotationError = Quaternion.Angle(
+                sample.TargetRotation,
+                sample.PreSolveTipRotation);
+            return $"{label}[Solved={sample.WasSolved}; Target={sample.TargetPosition:F3}; "
+                + $"Hint={sample.HintPosition:F3}; PreTip={sample.PreSolveTipPosition:F3}; "
+                + $"PostTip={sample.PostSolveTipPosition:F3}; RootTarget={sample.RootToTargetDistance:F3}; "
+                + $"PreRotError={preSolveRotationError:F3}; PostRotError={rotationError:F3}]";
+        }
+#endif
 
         private static IkHandle CreateHandle(
             LayerJobData data,

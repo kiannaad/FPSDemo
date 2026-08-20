@@ -17,6 +17,7 @@ namespace CGame.Animation
         public Type SettingsType => typeof(CollisionLayerSettings);
         public Vector3 ProbeOrigin { get; private set; }
         public Vector3 ProbeDirection { get; private set; }
+        public float ProbeLength => settings == null ? 0f : settings.ProbeLength;
 
         public void Initialize(LayerJobData jobData, AnimationLayerSettings layerSettings)
         {

@@ -14,6 +14,10 @@ namespace CGame.Animation
         private AttachHandLayerSettings settings;
         private NativeArray<AttachHandPoseData> chain;
         private AttachHandJob job;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private NativeArray<AttachHandDebugSample> debugSamples;
+        private bool hasLoggedDebugSample;
+#endif
 
         public Type SettingsType => typeof(AttachHandLayerSettings);
 
@@ -43,16 +47,41 @@ namespace CGame.Animation
             playable.SetJobData(job);
         }
 
-        public void OnPostAnimationUpdate() { }
+        public void OnPostAnimationUpdate()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (hasLoggedDebugSample || !debugSamples.IsCreated || debugSamples[0].Captured == 0)
+            {
+                return;
+            }
+
+            AttachHandDebugSample sample = debugSamples[0];
+            Debug.Log(
+                $"[WeaponIkProbe][AttachHand] Layer={settings.name}; "
+                + $"Weapon={sample.WeaponPosition:F3}; Hand={sample.HandPosition:F3}; "
+                + $"IkWeapon={sample.IkWeaponPosition:F3}; IkHandBeforeAttach={sample.IkHandPosition:F3}; "
+                + $"RelativeHandPos={sample.RelativeHandPosition:F3}; "
+                + $"RelativeHandRotAngle={sample.RelativeHandRotationAngle:F2}; Weight={job.Weight:F3}");
+            hasLoggedDebugSample = true;
+#endif
+        }
 
         public void Dispose()
         {
             if (chain.IsCreated) chain.Dispose();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (debugSamples.IsCreated) debugSamples.Dispose();
+            hasLoggedDebugSample = false;
+#endif
         }
 
         private void Rebuild()
         {
             if (chain.IsCreated) chain.Dispose();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (debugSamples.IsCreated) debugSamples.Dispose();
+            hasLoggedDebugSample = false;
+#endif
             Transform hand = RigHandleUtility.ResolveTransform(jobData.RigComponent, settings.HandBone, settings.name);
             Transform weapon = RigHandleUtility.ResolveTransform(jobData.RigComponent, settings.WeaponBone, settings.name);
             Transform ikWeapon = RigHandleUtility.ResolveTransform(jobData.RigComponent, settings.IkWeaponBone, settings.name);
@@ -111,6 +140,14 @@ namespace CGame.Animation
                 Chain = chain,
                 ReferenceInitialized = referenceInitialized
             };
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            debugSamples = new NativeArray<AttachHandDebugSample>(1, Allocator.Persistent);
+            job.DebugSamples = debugSamples;
+            Debug.Log(
+                $"[WeaponIkProbe][AttachHandInit] Layer={settings.name}; "
+                + $"CustomHandPose={(settings.CustomHandPose != null ? settings.CustomHandPose.name : "<stream-first-frame>")}; "
+                + $"ReferenceInitialized={referenceInitialized}; HandPoseOffset={settings.HandPoseOffset.Position:F3}");
+#endif
         }
 
         private KTransform[] CaptureHierarchyPose()

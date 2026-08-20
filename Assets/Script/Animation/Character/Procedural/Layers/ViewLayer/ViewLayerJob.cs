@@ -1,4 +1,6 @@
 using System;
+using Unity.Collections;
+using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
 
@@ -8,6 +10,10 @@ namespace CGame.Animation
     {
         private ViewLayerSettings settings;
         private ViewJob job;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private NativeArray<ViewDebugSample> debugSamples;
+        private bool hasLoggedDebugSample;
+#endif
 
         public Type SettingsType => typeof(ViewLayerSettings);
 
@@ -24,6 +30,14 @@ namespace CGame.Animation
                 RightHandPose = new PoseOffsetJobData(settings.IkRightHand),
                 LeftHandPose = new PoseOffsetJobData(settings.IkLeftHand)
             };
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            debugSamples = new NativeArray<ViewDebugSample>(1, Allocator.Persistent);
+            job.DebugSamples = debugSamples;
+            Debug.Log(
+                $"[WeaponIkProbe][ViewInit] Layer={settings.name}; "
+                + $"WeaponPose={settings.IkWeaponBone.Pose.Position:F3}; "
+                + $"Space={settings.IkWeaponBone.Space}; Mode={settings.IkWeaponBone.ModifyMode}");
+#endif
         }
 
         public AnimationScriptPlayable CreatePlayable(PlayableGraph graph)
@@ -40,8 +54,30 @@ namespace CGame.Animation
             playable.SetJobData(job);
         }
 
-        public void OnPostAnimationUpdate() { }
-        public void Dispose() { }
+        public void OnPostAnimationUpdate()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (hasLoggedDebugSample || !debugSamples.IsCreated || debugSamples[0].Captured == 0)
+            {
+                return;
+            }
+
+            ViewDebugSample sample = debugSamples[0];
+            Debug.Log(
+                $"[WeaponIkProbe][View] Layer={settings.name}; "
+                + $"WeaponBefore={sample.WeaponBefore:F3}; WeaponAfter={sample.WeaponAfter:F3}; "
+                + $"Delta={(sample.WeaponAfter - sample.WeaponBefore):F3}; Weight={sample.Weight:F3}");
+            hasLoggedDebugSample = true;
+#endif
+        }
+
+        public void Dispose()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (debugSamples.IsCreated) debugSamples.Dispose();
+            hasLoggedDebugSample = false;
+#endif
+        }
 
         private static ViewLayerSettings RequireSettings(AnimationLayerSettings value)
         {
