@@ -7,6 +7,7 @@ namespace CGame.Animation
 {
     public sealed class TurnLayerJob : IAnimationLayerJob
     {
+        private const float LocomotionHandoffDuration = 0.15f;
         private TurnLayerSettings settings;
         private AnimationUpdateContext context;
         private CharacterAnimInstance owner;
@@ -21,6 +22,10 @@ namespace CGame.Animation
         private int triggerDiagnosticFrame = -1;
         private string triggerDiagnosticName;
         private bool triggerWasAccepted;
+        private bool hasTurnProbeState;
+        private bool lastIsMoving;
+        private bool lastIsTurning;
+        private int lastTurnProbeFrame = -1;
 #endif
 
         public Type SettingsType => typeof(TurnLayerSettings);
@@ -58,9 +63,9 @@ namespace CGame.Animation
         public AnimationLayerSettings GetSettings() => settings;
         public void OnPreAnimationUpdate(float deltaTime, float weight)
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            UpdateTriggerDiagnostics();
-#endif
+// #if UNITY_EDITOR || DEVELOPMENT_BUILD
+//             UpdateTriggerDiagnostics();
+// #endif
             if (!KCurves.IsWeightRelevant(weight))
             {
                 context.SetTurnOffsetDegrees(0f);
@@ -74,9 +79,13 @@ namespace CGame.Animation
                 && !context.CharacterState.IsMoving;
             if (!canTurnInPlace)
             {
-                state.Cancel();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                WriteTurnProbe("cancel-before", TurnRequest.None, weight);
+#endif
+                state.BeginLocomotionHandoff();
+                state.AdvanceLocomotionHandoff(deltaTime, LocomotionHandoffDuration);
                 pendingRequest = TurnRequest.None;
-                context.SetTurnOffsetDegrees(0f);
+                context.SetTurnOffsetDegrees(TurnOffsetDegrees * weight);
                 return;
             }
 
@@ -87,6 +96,9 @@ namespace CGame.Animation
                 settings.TurnSpeed,
                 settings.TurnCurve);
             state.ClampForLookYaw(context.ViewAnglesDegrees.x, 90f);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            WriteTurnProbe("advance", request, weight);
+#endif
 // #if UNITY_EDITOR || DEVELOPMENT_BUILD
 //             if (Mathf.Abs(context.ViewDeltaDegrees.x) > 0.01f
 //                 && Mathf.Abs(state.AppliedAngle) >= settings.AngleThreshold - 20f)
@@ -128,12 +140,49 @@ namespace CGame.Animation
         public void Dispose() { }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private void WriteTurnProbe(string phase, TurnRequest request, float weight)
+        {
+            bool moving = context.CharacterState.IsMoving;
+            bool stateChanged = !hasTurnProbeState
+                || moving != lastIsMoving
+                || state.IsTurning != lastIsTurning
+                || request != TurnRequest.None;
+            float rootYaw = context.RootRotation.eulerAngles.y;
+            float controlYaw = context.ControlRotation.eulerAngles.y;
+            float relativeYaw = context.ViewAnglesDegrees.x;
+            bool largeOffset = Mathf.Abs(TurnOffsetDegrees) > 8f;
+            if (!stateChanged && !largeOffset && phase != "cancel-before")
+            {
+                return;
+            }
+
+            int frame = Time.frameCount;
+            if (frame == lastTurnProbeFrame)
+            {
+                return;
+            }
+
+            lastTurnProbeFrame = frame;
+            hasTurnProbeState = true;
+            lastIsMoving = moving;
+            lastIsTurning = state.IsTurning;
+            Debug.Log(
+                $"[TurnProbe] frame={frame}; moving={moving}; grounded={context.CharacterState.IsGrounded}; "
+                + $"phase={phase}; "
+                + $"viewDeltaYaw={context.ViewDeltaDegrees.x:F2}; viewYaw={relativeYaw:F2}; "
+                + $"rootYaw={rootYaw:F2}; controlYaw={controlYaw:F2}; "
+                + $"angle={state.AppliedAngle:F2}; turnOffset={TurnOffsetDegrees:F2}; "
+                + $"turning={state.IsTurning}; "
+                + $"request={request}; weight={weight:F2}",
+                owner.AnimatorController.Animator);
+        }
+
         private void BeginTriggerDiagnostics(string triggerName, bool triggerAccepted)
         {
             triggerDiagnosticFrame = 0;
             triggerDiagnosticName = triggerName;
             triggerWasAccepted = triggerAccepted;
-            WriteTriggerDiagnostic("request");
+            //WriteTriggerDiagnostic("request");
         }
 
         private void UpdateTriggerDiagnostics()

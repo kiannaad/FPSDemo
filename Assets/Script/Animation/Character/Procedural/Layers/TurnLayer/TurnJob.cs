@@ -50,6 +50,7 @@ namespace CGame.Animation
         private float playback;
         public float Angle { get; private set; }
         public bool IsTurning { get; private set; }
+        public bool IsLocomotionHandoff { get; private set; }
 
         // This is the continuous visual ModelRoot offset. The threshold controls
         // only the one-shot turn animation and when this offset is eased back to
@@ -62,6 +63,32 @@ namespace CGame.Animation
             playback = 0f;
             Angle = 0f;
             IsTurning = false;
+            IsLocomotionHandoff = false;
+        }
+
+        public void BeginLocomotionHandoff()
+        {
+            IsLocomotionHandoff = Mathf.Abs(Angle) > Mathf.Epsilon;
+            IsTurning = false;
+            playback = 0f;
+        }
+
+        public void AdvanceLocomotionHandoff(float deltaTime, float duration)
+        {
+            if (!IsLocomotionHandoff)
+            {
+                return;
+            }
+
+            Angle = Mathf.MoveTowards(
+                Angle,
+                0f,
+                MaxVisualOffsetDegrees * deltaTime / Mathf.Max(0.001f, duration));
+            if (Mathf.Abs(Angle) <= 0.01f)
+            {
+                Angle = 0f;
+                IsLocomotionHandoff = false;
+            }
         }
 
         public void ClampForLookYaw(float viewYawDegrees, float maximumLookYawDegrees)
@@ -80,6 +107,7 @@ namespace CGame.Animation
 
         public TurnRequest Advance(float viewDeltaDegrees, float deltaTime, float threshold, float speed, AnimationCurve curve)
         {
+            IsLocomotionHandoff = false;
             // Look can aim the upper body through at most +/- 90 degrees.  A wider
             // visual ModelRoot offset leaves an uncompensated yaw gap between the
             // weapon and camera after a high-rate input frame.
