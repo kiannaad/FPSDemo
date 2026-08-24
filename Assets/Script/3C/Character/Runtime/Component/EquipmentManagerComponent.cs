@@ -19,7 +19,6 @@ namespace CGame
         private PendingEquipmentRequest pendingRequest;
         private GameplayTagGrantHandle switchTagGrant;
         private long switchGeneration;
-        private float fireCooldownRemaining;
         private EquipmentSwitchPhase lastSwitchPhase = EquipmentSwitchPhase.Idle;
 
         private readonly Dictionary<ItemInstanceHandle, WeaponInstance> preparedWeapons = new Dictionary<ItemInstanceHandle, WeaponInstance>();
@@ -113,36 +112,6 @@ protected override void OnShutdown()
             CurrentEquipment = null;
         }
 
-public bool Fire() => !IsSwitchInProgress && CurrentWeapon?.Fire() == true;
-
-public void UpdateFireInput(bool fireHeld, float deltaTime)
-        {
-            if (IsSwitchInProgress)
-            {
-                fireCooldownRemaining = 0f;
-                return;
-            }
-
-            if (!fireHeld)
-            {
-                fireCooldownRemaining = 0f;
-                return;
-            }
-
-            fireCooldownRemaining = Mathf.Max(0f, fireCooldownRemaining - Mathf.Max(0f, deltaTime));
-            if (fireCooldownRemaining > 0f || CurrentWeapon == null)
-            {
-                return;
-            }
-
-            if (Fire())
-            {
-                fireCooldownRemaining = Mathf.Max(0.001f, CurrentWeapon.Definition.FireInterval);
-            }
-        }
-
-public bool Melee() => !IsSwitchInProgress && CurrentWeapon?.Melee() == true;
-
 public bool CanAcceptDirectSlotSelection(int slotIndex)
         {
             if (IsSwitchInProgress || IsReloading() || controller == null
@@ -171,7 +140,6 @@ public bool CanAcceptDirectSlotSelection(int slotIndex)
 
             PendingEquipmentRequest request = pendingRequest;
             pendingRequest = null;
-            fireCooldownRemaining = 0f;
             CompleteRequest(request);
         }
 
@@ -590,7 +558,6 @@ private void WaitForSwitchPhaseOrRollback(string failure, float deltaTime)
 
         private void StopContinuousWeaponActions()
         {
-            fireCooldownRemaining = 0f;
             AbilitySystemComponent abilitySystem = controller?.PlayerState?.AbilitySystem;
             if (abilitySystem == null)
             {

@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using CGame.Ability;
-using CGame.GameplayTags;
 using UnityEngine;
 
 namespace CGame
@@ -119,19 +117,6 @@ namespace CGame
                 return;
             }
 
-            PlayerInputState inputState = inputSource.InputHandle.GetState<PlayerInputState>();
-            bool aimHeld = inputState.AimHeld || UnityEngine.InputSystem.InputSystem.devices
-                .OfType<UnityEngine.InputSystem.Mouse>()
-                .Any(mouse => mouse.rightButton.isPressed);
-            bool fireHeld = inputState.FireHeld || UnityEngine.InputSystem.InputSystem.devices
-                .OfType<UnityEngine.InputSystem.Mouse>()
-                .Any(mouse => mouse.leftButton.isPressed);
-            if (PossessedPawn != null && PossessedPawn.TryGetComponent(out PawnHeroComponent hero))
-            {
-                hero.UpdateAimInput(aimHeld);
-            }
-            equipmentActionTarget?.UpdateFireInput(fireHeld, elapsedSeconds);
-
             Vector2 lookDelta = inputSource.ReadLookDelta(elapsedSeconds);
             ControlPitch = Mathf.Clamp(ControlPitch - lookDelta.y, -89f, 89f);
             ControlYaw += lookDelta.x;
@@ -141,11 +126,6 @@ namespace CGame
             PossessedPawn?.SubmitControlIntent(inputSource.ReadControlIntent());
             int requestedSlot = inputSource.RequestedQuickBarSlot;
             if (requestedSlot >= 0) TryRequestQuickBarSlot(requestedSlot);
-            if (inputState.ReloadPressed
-                && GameplayTagManager.Instance.TryRequestTag("InputTag.Weapon.Reload", out GameplayTag reloadInputTag))
-            {
-                PlayerState?.AbilitySystem.AbilityInputTagPressed(reloadInputTag);
-            }
             PlayerState?.AbilitySystem.ProcessAbilityInput();
             PlayerState?.AbilitySystem.Tick(elapsedSeconds);
             PossessedPawn?.AdvanceRecoil(elapsedSeconds);

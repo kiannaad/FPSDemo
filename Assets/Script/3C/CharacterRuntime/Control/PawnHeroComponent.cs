@@ -1,8 +1,8 @@
-using System.Linq;
 using System;
 using System.Collections.Generic;
 using CGame.Ability;
 using CGame.GameplayTags;
+using UnityEngine;
 
 namespace CGame
 {
@@ -12,7 +12,6 @@ namespace CGame
         private readonly List<IDisposable> bindings = new List<IDisposable>();
         private AbilitySystemComponent abilitySystem;
         private Pawn pawn;
-        private bool aimInputHeld;
 
         public PawnHeroComponent(InputProfile inputProfile)
         {
@@ -21,31 +20,6 @@ namespace CGame
 
         public bool IsBound => abilitySystem != null;
         public bool HasInputProfile => inputProfile != null;
-
-        public void UpdateAimInput(bool isHeld)
-        {
-            if (!IsBound || aimInputHeld == isHeld)
-            {
-                return;
-            }
-
-            InputTagBinding aimBinding = inputProfile.InputTagConfig.Bindings.FirstOrDefault(binding =>
-                string.Equals(binding.ActionReference?.action?.name, "Aim", StringComparison.Ordinal));
-            if (aimBinding == null)
-            {
-                return;
-            }
-
-            aimInputHeld = isHeld;
-            if (isHeld)
-            {
-                abilitySystem.AbilityInputTagPressed(aimBinding.InputTag);
-            }
-            else
-            {
-                abilitySystem.AbilityInputTagReleased(aimBinding.InputTag);
-            }
-        }
 
         public void Bind(InputHandle inputHandle, AbilitySystemComponent abilitySystem, Pawn pawn = null)
         {
@@ -60,8 +34,12 @@ namespace CGame
             {
                 foreach (InputTagBinding binding in inputProfile.InputTagConfig.Bindings)
                 {
-                    bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Performed, _ =>
+                    bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Started, _ =>
                     {
+                        if (binding.InputTag.ToString() == "InputTag.Weapon.Reload")
+                        {
+                            Debug.Log("[ReloadTrace] Input Started -> InputTag.Weapon.Reload");
+                        }
                         abilitySystem.AbilityInputTagPressed(binding.InputTag);
                     }));
                     bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Canceled, _ =>
@@ -87,7 +65,6 @@ namespace CGame
             abilitySystem?.ClearAbilityInput();
             abilitySystem = null;
             pawn = null;
-            aimInputHeld = false;
         }
 
         protected override void OnShutdown() => Unbind();
