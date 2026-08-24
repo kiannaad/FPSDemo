@@ -50,7 +50,6 @@ namespace CGame
                 ? null
                 : gameModeDefinition.CreateGameMode(world, player);
         }
-    
 
 public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
         {

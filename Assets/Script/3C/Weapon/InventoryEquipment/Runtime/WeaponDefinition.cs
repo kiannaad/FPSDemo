@@ -29,6 +29,7 @@ namespace CGame.InventoryEquipment
         [SerializeField, Min(0.001f)] private float fireInterval = 0.1f;
         [SerializeField] private int loadTicks = 1;
         [SerializeField] private bool simulateLoadFailure;
+        [SerializeField] private RuntimeAnimatorController weaponAnimatorController;
         [NonSerialized] private AbilitySet runtimeAbilitySet;
 
         public GameplayTag WeaponTag => weaponTag;
@@ -50,6 +51,7 @@ namespace CGame.InventoryEquipment
         public float FireInterval => fireInterval;
         public override int LoadTicks => Math.Max(0, loadTicks);
         public override bool SimulateLoadFailure => simulateLoadFailure;
+        public RuntimeAnimatorController WeaponAnimatorController => weaponAnimatorController;
 
         public override EquipmentInstance CreateInstance(EquipmentCreateContext context)
         {

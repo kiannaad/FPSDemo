@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.Animation;
 using CGame.GameplayTags;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -72,7 +73,27 @@ namespace CGame.InventoryEquipment
         }
     }
     [Serializable] public sealed class RecoilWeaponAbilityDefinition : WeaponAbilityDefinition { protected override WeaponAction Action => WeaponAction.Recoil; }
-    [Serializable] public sealed class MeleeWeaponAbilityDefinition : WeaponAbilityDefinition { protected override WeaponAction Action => WeaponAction.Melee; }
+    [Serializable]
+    public sealed class MeleeWeaponAbilityDefinition : WeaponAbilityDefinition
+    {
+        [SerializeField] private AnimationClipAsset attackClip;
+        public AnimationClipAsset AttackClip => attackClip;
+        protected override WeaponAction Action => WeaponAction.Melee;
+
+        public void ConfigureAttackClip(AnimationClipAsset clip) => attackClip = clip;
+
+        public override AbilityGrantDefinition CreateGrant(WeaponReloadDefinition reloadDefinition = null)
+        {
+            return CreateGrant(new WeaponActionAbilityDefinition(
+                abilityTag,
+                Action,
+                InputActivationPolicy,
+                GetActivationOwnedTags(),
+                BlockedOwnedTags,
+                CancelAbilityTags,
+                attackClip));
+        }
+    }
     [Serializable]
     public sealed class AimWeaponAbilityDefinition : WeaponAbilityDefinition
     {
@@ -92,25 +113,136 @@ namespace CGame.InventoryEquipment
     internal sealed class WeaponActionAbilityDefinition : RuntimeAbilityDefinition
     {
         private readonly WeaponAction action;
-        public WeaponActionAbilityDefinition(GameplayTag tag, WeaponAction action, AbilityInputActivationPolicy policy, IEnumerable<GameplayTag> activationTags, IEnumerable<GameplayTag> blockedTags, IEnumerable<GameplayTag> cancelTags) : base(tag, activationTags, null, blockedTags, policy, null, cancelTags) { this.action = action; }
-        protected override AbilityInstance CreateInstance() => new WeaponActionAbilityInstance(action);
+        private readonly AnimationClipAsset attackClip;
+        public WeaponActionAbilityDefinition(GameplayTag tag, WeaponAction action, AbilityInputActivationPolicy policy, IEnumerable<GameplayTag> activationTags, IEnumerable<GameplayTag> blockedTags, IEnumerable<GameplayTag> cancelTags, AnimationClipAsset attackClip = null) : base(tag, activationTags, null, blockedTags, policy, null, cancelTags) { this.action = action; this.attackClip = attackClip; }
+        protected override AbilityInstance CreateInstance() => new WeaponActionAbilityInstance(action, attackClip);
     }
     internal sealed class WeaponActionAbilityInstance : AbilityInstance
     {
         private readonly WeaponAction action;
-        public WeaponActionAbilityInstance(WeaponAction action) { this.action = action; }
+        private readonly AnimationClipAsset attackClip;
+        private CharacterAnimInstance characterAnimation;
+        private AnimationPlaybackHandle characterPlayback;
+        public WeaponActionAbilityInstance(WeaponAction action, AnimationClipAsset attackClip) { this.action = action; this.attackClip = attackClip; }
         protected override void OnActivate()
         {
             if (!(ActivationContext.Spec.SourceObject is WeaponInstance weapon)) { EndAbility(AbilityEndReason.Failed); return; }
             switch (action)
             {
-                case WeaponAction.Fire: if (weapon.TryFire().Succeeded) StartTask(new RepeatFireTask(weapon, weapon.Definition.FireInterval)); else EndAbility(AbilityEndReason.Failed); break;
+                case WeaponAction.Fire:
+                    if (TryPerformShot(weapon).Succeeded)
+                    {
+                        StartTask(new RepeatFireTask(
+                            () => TryPerformShot(weapon),
+                            _ => EndAbility(AbilityEndReason.Failed),
+                            weapon.Definition.FireInterval));
+                    }
+                    else
+                    {
+                        EndAbility(AbilityEndReason.Failed);
+                    }
+                    break;
                 case WeaponAction.Reload: EndAbility(AbilityEndReason.Failed); break;
-                case WeaponAction.Melee: weapon.Melee(); EndAbility(AbilityEndReason.Completed); break;
+                case WeaponAction.Melee:
+                    if (ActivationContext.AbilitySystem.Avatar is Pawn meleePawn
+                        && weapon.IsArmed
+                        && attackClip != null
+                        && weapon.TryGetCharacterAnimation(out CharacterAnimInstance characterAnimation))
+                    {
+                        characterPlayback = characterAnimation.PlayAbilityAnimation(attackClip, 0);
+                        if (characterPlayback == null || characterPlayback.State == AnimationPlaybackState.Failed)
+                        {
+                            EndAbility(AbilityEndReason.Failed);
+                            return;
+                        }
+
+                        meleePawn.NotifyMeleeActivated();
+                        StartTask(new WaitWeaponAnimationTask(
+                            characterAnimation,
+                            characterPlayback,
+                            state => EndAbility(state == AnimationPlaybackState.Completed
+                                ? AbilityEndReason.Completed
+                                : AbilityEndReason.Failed)));
+                    }
+                    else
+                    {
+                        EndAbility(AbilityEndReason.Failed);
+                    }
+                    break;
                 case WeaponAction.Aim: if (ActivationContext.AbilitySystem.Avatar is Pawn pawn) pawn.SetAimingFromAbility(true); else EndAbility(AbilityEndReason.Failed); break;
             }
         }
+
+        protected override void OnEnd(AbilityEndReason reason)
+        {
+            if (characterPlayback != null && !characterPlayback.IsTerminal)
+            {
+                characterAnimation?.StopAbilityAnimation(characterPlayback);
+            }
+
+            characterPlayback = null;
+            characterAnimation = null;
+            if (action == WeaponAction.Aim && ActivationContext?.AbilitySystem.Avatar is Pawn pawn)
+            {
+                pawn.SetAimingFromAbility(false);
+            }
+        }
         protected override void OnInputReleased() { if (action == WeaponAction.Fire || action == WeaponAction.Aim) EndAbility(AbilityEndReason.Cancelled); }
-        protected override void OnEnd(AbilityEndReason reason) { if (action == WeaponAction.Aim && ActivationContext?.AbilitySystem.Avatar is Pawn pawn) pawn.SetAimingFromAbility(false); }
+
+        private FireResult TryPerformShot(WeaponInstance weapon)
+        {
+            if (!weapon.IsArmed)
+            {
+                return FireResult.Failed("Weapon is not armed.", 0);
+            }
+
+            if (weapon.Definition.RecoilProfile == null)
+            {
+                return FireResult.Failed("Weapon does not have a RecoilProfile.", 0);
+            }
+
+            if (!weapon.Item.TryConsumeMagazineAmmo())
+            {
+                return FireResult.Failed("Weapon has no ammunition.", 0);
+            }
+
+            if (!(ActivationContext?.AbilitySystem.Avatar is Pawn pawn))
+            {
+                return FireResult.Failed("Weapon Ability requires a Pawn avatar.", 0);
+            }
+
+            return pawn.ApplySuccessfulShot(weapon.Definition.RecoilProfile);
+        }
     }
+
+    internal sealed class WaitWeaponAnimationTask : AbilityTask
+    {
+        private readonly CharacterAnimInstance characterAnimation;
+        private readonly AnimationPlaybackHandle playback;
+        private readonly Action<AnimationPlaybackState> callback;
+
+        public WaitWeaponAnimationTask(
+            CharacterAnimInstance characterAnimation,
+            AnimationPlaybackHandle playback,
+            Action<AnimationPlaybackState> callback)
+        {
+            this.characterAnimation = characterAnimation ?? throw new ArgumentNullException(nameof(characterAnimation));
+            this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
+            this.callback = callback ?? throw new ArgumentNullException(nameof(callback));
+        }
+
+        protected override void OnTick(float deltaTime)
+        {
+            if (!playback.IsTerminal) return;
+            AnimationPlaybackState state = playback.State;
+            CompleteTask();
+            callback(state);
+        }
+
+        protected override void OnCancelled()
+        {
+            if (!playback.IsTerminal) characterAnimation.StopAbilityAnimation(playback);
+        }
+    }
+
 }

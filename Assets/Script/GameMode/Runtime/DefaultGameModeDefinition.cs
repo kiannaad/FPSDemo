@@ -23,7 +23,6 @@ namespace CGame
             {
                 throw new InvalidOperationException("GameModeDefinition has no PawnData.");
             }
-
             return new DefaultGameMode(world, player, pawnDefinition, initialInventorySet);
         }
     }

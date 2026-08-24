@@ -36,18 +36,23 @@ namespace CGame.InventoryEquipment.Tests
             }
 
             string animationDirectory = $"Assets/Art/Weapon/Profile/{name}/";
-            BoneProfile profile = AssetDatabase.LoadAssetAtPath<BoneProfile>(animationDirectory + name + "BoneProfile.asset");
+            string profileName = name == "AK12" ? "AK12ProceduralBoneProfile.asset" : "KnifeBoneProfile.asset";
+            BoneProfile profile = AssetDatabase.LoadAssetAtPath<BoneProfile>(animationDirectory + profileName);
             KRig rig = AssetDatabase.LoadAssetAtPath<KRig>(
                 "Assets/Settings/Gameplay/SampleScene/PawnConfig/KinemationVisualCharacterRig.asset");
             Assert.That(profile, Is.Not.Null);
             profile.Validate(rig);
-            Assert.That(profile.Layers.Select(layer => layer.GetType()), Is.EqualTo(new[]
+            if (name == "AK12")
             {
-                typeof(PoseSamplerLayerSettings),
-                typeof(IkLayerSettings)
-            }));
-            Assert.That(AssetDatabase.LoadAssetAtPath<WeaponIkMotion>(animationDirectory + name + "EquipIkMotion.asset"), Is.Not.Null);
-            Assert.That(AssetDatabase.LoadAssetAtPath<WeaponIkMotion>(animationDirectory + name + "UnequipIkMotion.asset"), Is.Not.Null);
+                WeaponBoneProfileValidator.ValidateAk12(profile);
+            }
+            else
+            {
+                WeaponBoneProfileValidator.ValidateKnife(profile);
+            }
+            Assert.That(profile.Layers.OfType<IkMotionLayerSettings>().Any(layer => layer.name == "WeaponSwitchIkMotionReceiver"), Is.True);
+            Assert.That(AssetDatabase.LoadAssetAtPath<IkMotionLayerSettings>("Assets/Art/Weapon/Profile/Shared/WeaponEquipIkMotion.asset"), Is.Not.Null);
+            Assert.That(AssetDatabase.LoadAssetAtPath<IkMotionLayerSettings>("Assets/Art/Weapon/Profile/Shared/WeaponUnequipIkMotion.asset"), Is.Not.Null);
 
             WeaponDefinition definition = AssetDatabase.LoadAssetAtPath<WeaponDefinition>(
                 $"Assets/Settings/Gameplay/WeaponDefinition/{name}/{name}WeaponDefinition.asset");

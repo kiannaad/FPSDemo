@@ -62,6 +62,8 @@ public RecoilComponent Recoil => recoilComponent;
 
         public int RecoilShotSequence { get; private set; }
 
+        public int MeleeActivationSequence { get; private set; }
+
 
         public Transform Transform { get; }
 
@@ -199,9 +201,24 @@ public RecoilComponent Recoil => recoilComponent;
             recoilComponent.Advance(deltaTime);
         }
 
-        public FireResult NotifySuccessfulShot()
+        public FireResult ApplySuccessfulShot(RecoilProfile profile)
         {
+            if (profile == null)
+            {
+                return FireResult.Failed("Recoil profile is not configured.", recoilComponent.ShotSequence);
+            }
+
+            if (!ReferenceEquals(RecoilProfile, profile))
+            {
+                BindRecoilProfile(profile);
+            }
+
             return recoilComponent.ApplySuccessfulShot(IsAiming);
+        }
+
+        public void NotifyMeleeActivated()
+        {
+            MeleeActivationSequence++;
         }
 
         internal void SetRecoilFrameData(RecoilFrameData frameData)

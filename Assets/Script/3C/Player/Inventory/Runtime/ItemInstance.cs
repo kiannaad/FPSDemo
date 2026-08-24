@@ -21,8 +21,6 @@ namespace CGame
 
         public int ReserveAmmo { get; private set; }
 
-        public float Durability { get; private set; } = 1f;
-
         public IReadOnlyList<string> AttachmentIds => attachmentIds;
 
         public void SetAmmo(int magazineAmmo, int reserveAmmo)
@@ -54,11 +52,6 @@ namespace CGame
             MagazineAmmo += loaded;
             ReserveAmmo -= loaded;
             return loaded;
-        }
-
-        public void SetDurability(float durability)
-        {
-            Durability = Math.Max(0f, Math.Min(1f, durability));
         }
 
         public void SetAttachments(IEnumerable<string> attachments)

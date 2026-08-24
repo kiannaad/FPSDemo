@@ -1,16 +1,19 @@
+using System;
 using CGame.Ability;
 
 namespace CGame.InventoryEquipment
 {
     public sealed class RepeatFireTask : AbilityTask
     {
-        private readonly WeaponInstance weapon;
+        private readonly Func<FireResult> fire;
+        private readonly Action<FireResult> onFireFailed;
         private readonly float fireInterval;
         private float elapsed;
 
-        public RepeatFireTask(WeaponInstance weapon, float fireInterval)
+        public RepeatFireTask(Func<FireResult> fire, Action<FireResult> onFireFailed, float fireInterval)
         {
-            this.weapon = weapon ?? throw new System.ArgumentNullException(nameof(weapon));
+            this.fire = fire ?? throw new ArgumentNullException(nameof(fire));
+            this.onFireFailed = onFireFailed ?? throw new ArgumentNullException(nameof(onFireFailed));
             if (fireInterval <= 0f)
             {
                 throw new System.ArgumentOutOfRangeException(nameof(fireInterval));
@@ -32,9 +35,14 @@ namespace CGame.InventoryEquipment
             elapsed -= fireInterval;
             // One task tick can produce at most one shot. This keeps the fire
             // timeline deterministic when a frame arrives late.
-            if (weapon.TryFire().Succeeded)
+            FireResult result = fire();
+            if (result.Succeeded)
             {
                 FiredShotCount++;
+            }
+            else
+            {
+                onFireFailed(result);
             }
         }
     }

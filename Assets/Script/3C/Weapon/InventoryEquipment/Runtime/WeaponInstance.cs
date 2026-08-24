@@ -19,6 +19,10 @@ namespace CGame.InventoryEquipment
         private Transform weaponAimPoint;
         private PlayableGraph reloadPresentationGraph;
         private AnimationClipPlayable reloadPresentationPlayable;
+        private bool reloadControllerPlaying;
+        private bool reloadTraceLogged;
+        private static readonly int ReloadState = Animator.StringToHash("Reload");
+        private static readonly int IdleState = Animator.StringToHash("Idle");
 
         internal WeaponInstance(EquipmentCreateContext context, WeaponDefinition definition)
             : base(context)
@@ -31,13 +35,7 @@ namespace CGame.InventoryEquipment
         public WeaponDefinition Definition => definition;
         public int MagazineCapacity { get; }
 
-        public int FireCount { get; private set; }
-
         public int ReloadCount { get; private set; }
-
-        public int RecoilCount { get; private set; }
-
-        public int MeleeCount { get; private set; }
 
         public bool IsArmed { get; private set; }
 
@@ -58,7 +56,7 @@ namespace CGame.InventoryEquipment
             return !IsDisposed && value != null;
         }
 
-        public bool IsReloadPresentationActive => reloadPresentationGraph.IsValid();
+        public bool IsReloadPresentationActive => reloadControllerPlaying || reloadPresentationGraph.IsValid();
 
         public bool CanBeginReloadPresentation =>
             !IsDisposed
@@ -66,11 +64,17 @@ namespace CGame.InventoryEquipment
             && presentationAnimator != null
             && Definition.ReloadDefinition?.WeaponAnimation != null;
 
+        private bool HasWeaponReloadController =>
+            presentationAnimator != null
+            && presentationAnimator.runtimeAnimatorController != null
+            && presentationAnimator.HasState(0, ReloadState);
+
         public bool IsReloadPresentationComplete =>
-            reloadPresentationGraph.IsValid()
-            && reloadPresentationPlayable.IsValid()
-            && Definition.ReloadDefinition?.WeaponAnimation != null
-            && reloadPresentationPlayable.GetTime() >= Definition.ReloadDefinition.WeaponAnimation.length;
+            reloadControllerPlaying ||
+            (reloadPresentationGraph.IsValid()
+             && reloadPresentationPlayable.IsValid()
+             && Definition.ReloadDefinition?.WeaponAnimation != null
+             && reloadPresentationPlayable.GetTime() >= Definition.ReloadDefinition.WeaponAnimation.length);
 
         public void PreparePresentation(GameObject root)
         {
@@ -79,10 +83,13 @@ namespace CGame.InventoryEquipment
             if (presentationRoot != null) throw new System.InvalidOperationException("Weapon presentation is already prepared.");
             presentationRoot = root;
             weaponAimPoint = FindWeaponAimPoint(root.transform);
-            BindAimPointToPawn();
             presentationAnimator = root.GetComponentInChildren<Animator>(true);
             if (presentationAnimator != null)
             {
+                if (Definition.WeaponAnimatorController != null)
+                {
+                    presentationAnimator.runtimeAnimatorController = Definition.WeaponAnimatorController;
+                }
                 presentationAnimator.enabled = true;
             }
             foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true)) renderer.enabled = false;
@@ -123,6 +130,7 @@ namespace CGame.InventoryEquipment
             }
             GrantAbilitySets(new[] { abilitySet }, replacedAbilityReceipts);
             IsArmed = true;
+            BindAimPointToPawn();
         }
 
         public void Disarm()
@@ -139,37 +147,6 @@ namespace CGame.InventoryEquipment
             ClearAimPointFromPawn();
         }
 
-
-
-        public bool Fire()
-        {
-            return TryFire().Succeeded;
-        }
-
-        public FireResult TryFire()
-        {
-            if (IsDisposed || !IsArmed || !Item.TryConsumeMagazineAmmo())
-            {
-                return FireResult.Failed("Weapon is not armed or has no ammunition.", 0);
-            }
-
-            FireCount++;
-            RecoilCount++;
-            Item.SetDurability(Item.Durability - 0.001f);
-            Pawn pawn = AbilitySystem.Avatar as Pawn;
-            if (pawn != null && Definition.RecoilProfile != null)
-            {
-                if (!ReferenceEquals(pawn.RecoilProfile, Definition.RecoilProfile))
-                {
-                    pawn.BindRecoilProfile(Definition.RecoilProfile);
-                }
-
-                return pawn.NotifySuccessfulShot();
-            }
-
-            return new FireResult(true, FireCount);
-        }
-
         public bool BeginReloadPresentation()
         {
             if (!CanBeginReloadPresentation)
@@ -177,7 +154,18 @@ namespace CGame.InventoryEquipment
                 return false;
             }
 
+            if (HasWeaponReloadController)
+            {
+                Debug.Log($"[ReloadTrace] Weapon controller path: animator={presentationAnimator.name}, root={presentationAnimator.transform.root.name}, controller={presentationAnimator.runtimeAnimatorController.name}, reloadState=true, clip={Definition.ReloadDefinition.WeaponAnimation.name}, mag={FindHierarchyPath(presentationAnimator.transform, "Mag")}");
+                StopReloadPresentation();
+                presentationAnimator.Rebind();
+                presentationAnimator.Play(ReloadState, 0, 0f);
+                reloadControllerPlaying = true;
+                return true;
+            }
+
             StopReloadPresentation();
+            Debug.LogWarning($"[ReloadTrace] Weapon controller fallback: animator={presentationAnimator.name}, controller={(presentationAnimator.runtimeAnimatorController != null ? presentationAnimator.runtimeAnimatorController.name : "<null>")}, reloadState=false, clip={Definition.ReloadDefinition.WeaponAnimation.name}, mag={FindHierarchyPath(presentationAnimator.transform, "Mag")}");
             reloadPresentationGraph = PlayableGraph.Create($"{presentationAnimator.name}.ReloadPresentation");
             AnimationPlayableOutput output = AnimationPlayableOutput.Create(
                 reloadPresentationGraph,
@@ -193,6 +181,19 @@ namespace CGame.InventoryEquipment
 
         public bool StopReloadPresentation()
         {
+            if (reloadControllerPlaying)
+            {
+                reloadControllerPlaying = false;
+                if (presentationAnimator != null && presentationAnimator.runtimeAnimatorController != null)
+                {
+                    presentationAnimator.Rebind();
+                    if (presentationAnimator.HasState(0, IdleState))
+                    {
+                        presentationAnimator.Play(IdleState, 0, 0f);
+                    }
+                }
+            }
+
             if (!reloadPresentationGraph.IsValid())
             {
                 return false;
@@ -219,18 +220,6 @@ namespace CGame.InventoryEquipment
             {
                 ReloadCount++;
             }
-        }
-
-        public bool Melee()
-        {
-            if (IsDisposed || !IsArmed)
-            {
-                return false;
-            }
-
-            MeleeCount++;
-            Item.SetDurability(Item.Durability - 0.01f);
-            return true;
         }
 
         public override void Dispose()
@@ -286,6 +275,40 @@ namespace CGame.InventoryEquipment
             }
 
             return null;
+        }
+
+        private static string FindHierarchyPath(Transform root, string targetName)
+        {
+            foreach (Transform candidate in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (candidate.name != targetName)
+                {
+                    continue;
+                }
+
+                return AnimationUtilityPath(candidate, root);
+            }
+
+            return "<missing>";
+        }
+
+        private static string AnimationUtilityPath(Transform target, Transform root)
+        {
+            List<string> names = new List<string>();
+            Transform current = target;
+            while (current != null && current != root)
+            {
+                names.Add(current.name);
+                current = current.parent;
+            }
+
+            if (current == root)
+            {
+                names.Add(root.name);
+            }
+
+            names.Reverse();
+            return string.Join("/", names);
         }
 
         public void HidePresentation()

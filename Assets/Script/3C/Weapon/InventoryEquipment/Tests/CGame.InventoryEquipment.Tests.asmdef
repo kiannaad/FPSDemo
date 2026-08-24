@@ -5,6 +5,7 @@
     "CGame.InventoryEquipment",
     "CGame.Inventory",
     "CGame.Ability",
+    "CGame.Ability.Animation",
     "CGame.CharacterRuntime",
     "CGame.Animation",
     "CGame.GameplayTags",
