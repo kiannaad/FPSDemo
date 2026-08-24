@@ -34,6 +34,8 @@ namespace CGame
         {
             Root = root;
             Transform = root != null ? root.transform : null;
+            ControlRotation = NormalizeControlRotation(
+                Transform != null ? Transform.rotation : Quaternion.identity);
             recoilComponent = new RecoilComponent(this);
 
             declaredComponents = components == null
@@ -69,24 +71,11 @@ public RecoilComponent Recoil => recoilComponent;
 
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
 
-
-
-        public Quaternion EffectivePresentationRotation =>
-            PresentationRotation * Quaternion.Euler(
-                -RecoilRotationOffsetDegrees.x,
-                RecoilRotationOffsetDegrees.y,
-                0f);
-public Quaternion PresentationRotation { get; private set; } = Quaternion.identity;
-
-        public Quaternion SimulatedRotation { get; private set; } = Quaternion.identity;
-
         public bool IsAiming { get; private set; }
 
         public Pose AimPointOffset { get; private set; } = new Pose(Vector3.zero, Quaternion.identity);
 
         public Transform CurrentWeaponAimPoint { get; private set; }
-
-        public Vector2 ViewAnglesDegrees { get; private set; }
 
         public Vector2 ViewDeltaDegrees { get; private set; }
 
@@ -142,26 +131,13 @@ public Quaternion PresentationRotation { get; private set; } = Quaternion.identi
 
         public virtual void ApplyingControlRotation(Quaternion controlRotation)
         {
-            ControlRotation = controlRotation;
+            ControlRotation = NormalizeControlRotation(controlRotation);
         }
 
-        public void ApplyingPresentationRotation(Quaternion presentationRotation)
+        public void ResetRotationState()
         {
-            PresentationRotation = IsFinite(presentationRotation)
-                ? Quaternion.Normalize(presentationRotation)
-                : Quaternion.identity;
-        }
-
-        private void LatchSimulatedRotation(float deltaTime)
-        {
-            SimulatedRotation = PresentationRotation;
-        }
-
-public void ResetRotationState()
-        {
-            ControlRotation = Quaternion.identity;
-            PresentationRotation = Quaternion.identity;
-            SimulatedRotation = Quaternion.identity;
+            ControlRotation = NormalizeControlRotation(
+                Transform != null ? Transform.rotation : Quaternion.identity);
         }
 
         public void ApplyingViewDelta(Vector2 viewDeltaDegrees)
@@ -196,12 +172,10 @@ public void ResetRotationState()
 
 
         public void SetViewAnimationFacts(
-            Vector2 viewAnglesDegrees,
             Vector2 viewDeltaDegrees,
             float leanAngleDegrees,
             bool useFreeAim)
         {
-            ViewAnglesDegrees = viewAnglesDegrees;
             ViewDeltaDegrees = viewDeltaDegrees;
             LeanAngleDegrees = leanAngleDegrees;
             UseFreeAim = useFreeAim;
@@ -361,7 +335,6 @@ public void ResetRotationState()
             IsAiming = false;
             AimPointOffset = new Pose(Vector3.zero, Quaternion.identity);
             CurrentWeaponAimPoint = null;
-            ViewAnglesDegrees = Vector2.zero;
             ViewDeltaDegrees = Vector2.zero;
             LookLayerWeight = 1f;
             LeanAngleDegrees = 0f;
@@ -379,6 +352,25 @@ public void ResetRotationState()
                 && !float.IsNaN(value.z) && !float.IsInfinity(value.z)
                 && !float.IsNaN(value.w) && !float.IsInfinity(value.w)
                 && value.x * value.x + value.y * value.y + value.z * value.z + value.w * value.w > Mathf.Epsilon;
+        }
+
+        private static Quaternion NormalizeControlRotation(Quaternion value)
+        {
+            if (!IsFinite(value))
+            {
+                return Quaternion.identity;
+            }
+
+            Vector3 euler = Quaternion.Normalize(value).eulerAngles;
+            return Quaternion.Euler(
+                NormalizeSignedAngle(euler.x),
+                NormalizeSignedAngle(euler.y),
+                0f);
+        }
+
+        private static float NormalizeSignedAngle(float angle)
+        {
+            return Mathf.DeltaAngle(0f, angle);
         }
 
         private static GameplayTag CreateTag(string value)

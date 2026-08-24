@@ -30,7 +30,9 @@ namespace CGame.Animation
         public KTransform AimPointOffset { get; private set; } = KTransform.Identity;
         public Vector2 ViewAnglesDegrees { get; private set; }
         public Vector2 ViewDeltaDegrees { get; private set; }
-        public Quaternion PresentationRotation { get; private set; } = Quaternion.identity;
+        public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
+        public Quaternion RootRotation { get; private set; } = Quaternion.identity;
+        public Quaternion ViewRotation { get; private set; } = Quaternion.identity;
         public float LookLayerWeight { get; private set; }
         public float TurnOffsetDegrees { get; private set; }
         public float LeanAngleDegrees { get; private set; }
@@ -126,11 +128,14 @@ namespace CGame.Animation
         private void UpdateProceduralData()
         {
             IsAiming = pawn.IsAiming;
-            PresentationRotation = IsFinite(pawn.PresentationRotation)
-                ? pawn.PresentationRotation
+            ControlRotation = NormalizeOrIdentity(pawn.ControlRotation);
+            RootRotation = pawn.Transform != null
+                ? NormalizeOrIdentity(pawn.Transform.rotation)
                 : Quaternion.identity;
             AimPointOffset = SanitizePose(pawn.AimPointOffset);
             ViewAnglesDegrees = CalculateViewAnglesDegrees();
+            float controlPitch = NormalizeSignedAngle(ControlRotation.eulerAngles.x);
+            ViewRotation = RootRotation * Quaternion.Euler(controlPitch, 0f, 0f);
             ViewDeltaDegrees = SanitizeVector(pawn.ViewDeltaDegrees);
             LookLayerWeight = IsFinite(pawn.LookLayerWeight)
                 ? Mathf.Clamp01(pawn.LookLayerWeight)
@@ -176,13 +181,13 @@ namespace CGame.Animation
 
         private Vector2 CalculateViewAnglesDegrees()
         {
-            if (pawn.Transform == null || !IsFinite(pawn.PresentationRotation))
+            if (!IsFinite(ControlRotation) || !IsFinite(RootRotation))
             {
                 return Vector2.zero;
             }
 
-            Quaternion relativeControlRotation = Quaternion.Inverse(pawn.Transform.rotation)
-                * pawn.PresentationRotation;
+            Quaternion relativeControlRotation = Quaternion.Inverse(RootRotation)
+                * ControlRotation;
             Vector3 localControlForward = relativeControlRotation * Vector3.forward;
             if (!IsFinite(localControlForward))
             {
@@ -212,9 +217,40 @@ namespace CGame.Animation
                 && IsFinite(value.w);
         }
 
+        private static Quaternion NormalizeOrIdentity(Quaternion value)
+        {
+            if (!IsFinite(value))
+            {
+                return Quaternion.identity;
+            }
+
+            float squareMagnitude = value.x * value.x
+                + value.y * value.y
+                + value.z * value.z
+                + value.w * value.w;
+            return squareMagnitude > Mathf.Epsilon
+                ? Quaternion.Normalize(value)
+                : Quaternion.identity;
+        }
+
         private static bool IsFinite(float value)
         {
             return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        private static float NormalizeSignedAngle(float angle)
+        {
+            angle %= 360f;
+            if (angle > 180f)
+            {
+                angle -= 360f;
+            }
+            else if (angle < -180f)
+            {
+                angle += 360f;
+            }
+
+            return angle;
         }
     }
 }

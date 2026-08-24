@@ -17,7 +17,7 @@ namespace CGame.Animation
         public void Initialize(LayerJobData jobData, AnimationLayerSettings layerSettings)
         {
             settings = RequireSettings(layerSettings);
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             Allocate(jobData, settings);
         }
 

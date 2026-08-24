@@ -25,7 +25,7 @@ namespace CGame.Animation
                 ?? throw new ArgumentException("Look job requires LookLayerSettings.", nameof(layerSettings));
             settings.Validate(jobData.RigComponent.Rig);
             context = jobData.UpdateContext;
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             try
             {
                 pitch = Allocate(jobData, settings.PitchElements, "pitch");
@@ -56,7 +56,7 @@ namespace CGame.Animation
             // leaves the camera ahead of the muzzle during fast input.
             if (settings.UseTurnOffset)
             {
-                // ViewAngles compensates PresentationRotation relative to the physical root;
+                // ViewAngles expresses ControlRotation relative to the physical root;
                 // TurnOffset compensates that root relative to ModelRoot. Both are
                 // required to aim the upper body at the camera without moving mounts.
                 target.x += context.TurnOffsetDegrees;

@@ -200,6 +200,8 @@ namespace CGame
 
         public void UpdateTick(float deltaTime) => ExecuteTick(TickDomain.Update, deltaTime);
 
+        public void PreAnimationTick(float deltaTime) => ExecuteTick(TickDomain.PreAnimation, deltaTime);
+
         public void LateTick(float deltaTime) => ExecuteTick(TickDomain.Late, deltaTime);
 
         public Task ShutdownAsync()

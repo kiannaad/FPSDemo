@@ -22,7 +22,7 @@ namespace CGame.Animation
             settings = RequireSettings(layerSettings);
             job = new ViewJob
             {
-                Root = jobData.CharacterRootHandle,
+                Root = jobData.VisualRootHandle,
                 Weapon = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.IkWeaponBone.Element, settings.name),
                 RightHand = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.IkRightHand.Element, settings.name),
                 LeftHand = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.IkLeftHand.Element, settings.name),

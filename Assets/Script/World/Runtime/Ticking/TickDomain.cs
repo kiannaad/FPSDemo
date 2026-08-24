@@ -4,6 +4,7 @@ namespace CGame
     {
         Fixed,
         Update,
+        PreAnimation,
         Late
     }
 }

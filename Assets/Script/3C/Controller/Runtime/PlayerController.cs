@@ -76,8 +76,10 @@ namespace CGame
             PlayerState.SetAvatar(pawn);
             AttachPossessedActor(pawn);
             pawn.SettingController(this);
+            SynchronizeDesiredRotation(pawn.Transform != null
+                ? pawn.Transform.rotation
+                : Quaternion.identity);
             pawn.ApplyingControlRotation(DesiredRotation);
-            pawn.ApplyingPresentationRotation(DesiredRotation);
             try
             {
                 if (pawn.TryGetComponent(out PawnHeroComponent hero) && hero.HasInputProfile)
@@ -135,7 +137,6 @@ namespace CGame
             ControlYaw += lookDelta.x;
             DesiredRotation = Quaternion.Euler(ControlPitch, ControlYaw, 0f);
             PossessedPawn?.ApplyingControlRotation(DesiredRotation);
-            PossessedPawn?.ApplyingPresentationRotation(DesiredRotation);
             PossessedPawn?.ApplyingViewDelta(lookDelta);
             PossessedPawn?.SubmitControlIntent(inputSource.ReadControlIntent());
             int requestedSlot = inputSource.RequestedQuickBarSlot;
@@ -248,6 +249,14 @@ public bool TryRequestQuickBarSlot(int slotIndex)
             ControlYaw = 0f;
             ControlPitch = 0f;
             DesiredRotation = Quaternion.identity;
+        }
+
+        private void SynchronizeDesiredRotation(Quaternion rotation)
+        {
+            Vector3 euler = rotation.eulerAngles;
+            ControlPitch = Mathf.Clamp(Mathf.DeltaAngle(0f, euler.x), -89f, 89f);
+            ControlYaw = Mathf.DeltaAngle(0f, euler.y);
+            DesiredRotation = Quaternion.Euler(ControlPitch, ControlYaw, 0f);
         }
     }
 }

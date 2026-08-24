@@ -23,7 +23,7 @@ namespace CGame.Animation
             settings = layerSettings as IkMotionLayerSettings
                 ?? throw new ArgumentException("IK motion job requires IkMotionLayerSettings.", nameof(layerSettings));
             settings.Validate(jobData.RigComponent.Rig);
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             target = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.TargetBone, settings.name);
         }
 

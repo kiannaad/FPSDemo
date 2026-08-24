@@ -25,7 +25,7 @@ namespace CGame.Animation
                 ?? throw new ArgumentException("Collision job requires CollisionLayerSettings.", nameof(layerSettings));
             settings.Validate(jobData.RigComponent.Rig);
             context = jobData.UpdateContext;
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             weapon = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.WeaponIkBone, settings.name);
         }
 

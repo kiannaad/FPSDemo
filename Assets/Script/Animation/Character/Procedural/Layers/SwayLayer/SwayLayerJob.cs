@@ -23,7 +23,7 @@ namespace CGame.Animation
                 ?? throw new ArgumentException("Sway job requires SwayLayerSettings.", nameof(layerSettings));
             settings.Validate(jobData.RigComponent.Rig);
             context = jobData.UpdateContext;
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             weapon = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.WeaponIkBone, settings.name);
             head = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.HeadBone, settings.name);
             weaponData.Initialize(jobData, settings);

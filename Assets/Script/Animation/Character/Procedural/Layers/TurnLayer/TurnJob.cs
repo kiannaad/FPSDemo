@@ -15,7 +15,7 @@ namespace CGame.Animation
         {
             if (!KCurves.IsWeightRelevant(Weight)) return;
 
-            // The physical root follows SimulatedRotation. Counter-rotate
+            // The physical root follows ControlRotation. Counter-rotate
             // the visual ModelRoot in the AnimationStream so its Hips/feet inherit
             // the turn offset. Look consumes the same offset and owns the upper
             // body aim correction; do not restore UpperBodyRoot here.

@@ -27,10 +27,15 @@ namespace CGame
                 settings.name = "RuntimeCharacterPhysicsSettings";
             }
 
+            // Character physics is stepped once per rendered frame from
+            // GameInstance.Update. Fixed-step render interpolation would restore
+            // the previous transform before Camera reads the current frame.
+            settings.Interpolate = false;
+
             physicsWorld = new CharacterPhysicsWorld(settings, ownsSettings);
-            AddTickTask("CharacterPhysics.Step", TickGroup.TG_PhysicsMovement, Step);
+            AddTickTask("CharacterPhysics.Step", TickGroup.TG_PrePhysics, Step);
             AddTickTask("CharacterPhysics.Events", TickGroup.TG_PostPhysics, ConsumeEvents);
-            AddTickTask("CharacterPhysics.Present", TickGroup.TG_CharacterPresentation, Present);
+            AddTickTask("CharacterPhysics.Present", TickGroup.TG_PhysicsMovement, Present);
             return Task.CompletedTask;
         }
 

@@ -24,7 +24,7 @@ public sealed class IkLayerJob : IAnimationLayerJob
             updateContext = jobData.UpdateContext;
             job = new IkJob
             {
-                Root = jobData.CharacterRootHandle,
+                Root = jobData.VisualRootHandle,
                 RightHand = CreateHandle(jobData, settings.RightHand, settings.RightHandIk, settings.RightHandHint, "right hand"),
                 LeftHand = CreateHandle(jobData, settings.LeftHand, settings.LeftHandIk, settings.LeftHandHint, "left hand"),
                 RightFoot = CreateHandle(jobData, settings.RightFoot, settings.RightFootIk, settings.RightFootHint, "right foot"),

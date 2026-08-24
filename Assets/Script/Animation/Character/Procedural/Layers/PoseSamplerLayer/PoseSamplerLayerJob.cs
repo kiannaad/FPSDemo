@@ -83,7 +83,7 @@ namespace CGame.Animation
             bool hasValidRoot = pelvis.parent != null && pelvis.parent != root;
             job = new PoseSamplerJob
             {
-                CharacterRoot = jobData.CharacterRootHandle,
+                CharacterRoot = jobData.VisualRootHandle,
                 SpineRoot = Bind(jobData, settings.SpineRoot, "spine root"),
                 Pelvis = Bind(jobData, settings.Pelvis, "pelvis"),
                 PelvisParent = settings.OverwriteRoot && hasValidRoot

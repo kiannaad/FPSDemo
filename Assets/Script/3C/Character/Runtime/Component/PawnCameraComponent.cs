@@ -11,9 +11,6 @@ public sealed class PawnCameraComponent : ActorComponent
         private readonly Camera camera;
         private readonly bool requireCamera;
         private float defaultFieldOfView;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        private float diagnosticElapsed;
-#endif
 
         public PawnCameraComponent(Camera camera, bool requireCamera)
         {
@@ -75,9 +72,10 @@ public sealed class PawnCameraComponent : ActorComponent
             AdsLayerSettings ads = animation?.AnimInstance?.BoneController.ActiveProfile?.Layers
                 .OfType<AdsLayerSettings>()
                 .FirstOrDefault();
+            Transform animationCamera = null;
             if (ads != null && animation.RigComponent != null)
             {
-                Transform animationCamera = RigHandleUtility.ResolveTransform(
+                animationCamera = RigHandleUtility.ResolveTransform(
                     animation.RigComponent,
                     ads.AimTargetBone,
                     nameof(PawnCameraComponent));
@@ -89,46 +87,27 @@ public sealed class PawnCameraComponent : ActorComponent
                 ? equipment.CurrentWeapon.Definition.AimFov
                 : defaultFieldOfView;
             camera.fieldOfView = Mathf.MoveTowards(camera.fieldOfView, targetFieldOfView, 90f * deltaTime);
-            camera.transform.rotation = pawn.EffectivePresentationRotation
-                * Quaternion.Euler(0f, 0f, pawn.CameraShakeSample);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            LogPresentationPose(pawn, deltaTime);
-#endif
+            float controlPitch = Mathf.DeltaAngle(0f, pawn.ControlRotation.eulerAngles.x);
+            Vector2 recoilOffset = IsFinite(pawn.RecoilRotationOffsetDegrees)
+                ? pawn.RecoilRotationOffsetDegrees
+                : Vector2.zero;
+            float cameraShake = IsFinite(pawn.CameraShakeSample)
+                ? pawn.CameraShakeSample
+                : 0f;
+
+            Quaternion finalRotation = pawn.Transform.rotation
+                * Quaternion.Euler(controlPitch, 0f, 0f)
+                * Quaternion.Euler(-recoilOffset.x, recoilOffset.y, 0f)
+                * Quaternion.Euler(0f, 0f, cameraShake);
+            camera.transform.rotation = finalRotation;
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        private void LogPresentationPose(Pawn pawn, float deltaTime)
+        private static bool IsFinite(Vector2 value)
         {
-            diagnosticElapsed += Mathf.Max(0f, deltaTime);
-            if (diagnosticElapsed < 0.25f)
-            {
-                return;
-            }
-
-            diagnosticElapsed = 0f;
-            Transform weaponMount = null;
-            foreach (Transform transform in pawn.Root.GetComponentsInChildren<Transform>(true))
-            {
-                if (transform.name == "IK WeaponBone")
-                {
-                    weaponMount = transform;
-                    break;
-                }
-            }
-
-            if (weaponMount == null)
-            {
-                return;
-            }
-
-            Vector3 localPosition = camera.transform.InverseTransformPoint(weaponMount.position);
-            Quaternion localRotation = Quaternion.Inverse(camera.transform.rotation) * weaponMount.rotation;
-            Debug.Log(
-                $"[CameraPresentation] Presentation={pawn.PresentationRotation.eulerAngles}; "
-                + $"Camera={camera.transform.rotation.eulerAngles}; "
-                + $"IkWeaponInCamera={localPosition:F3}/{localRotation.eulerAngles:F3}",
-                camera);
+            return IsFinite(value.x) && IsFinite(value.y);
         }
-#endif
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
     }
 }

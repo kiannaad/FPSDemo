@@ -39,7 +39,7 @@ namespace CGame.Animation
             settings.Validate(jobData.RigComponent.Rig);
             context = jobData.UpdateContext;
             owner = jobData.Owner;
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             Transform model = RigHandleUtility.ResolveTransform(jobData.RigComponent, settings.CharacterRootBone, settings.name);
             Transform hip = RigHandleUtility.ResolveTransform(jobData.RigComponent, settings.CharacterHipBone, settings.name);
             modelRoot = jobData.Animator.BindStreamTransform(model);

@@ -17,7 +17,7 @@ namespace CGame
         /// 是否处理角色和 CharacterPhysicsMover 的插值
         /// </summary>
         [Tooltip("是否处理角色和移动平台的插值")]
-        public bool Interpolate = true;
+        public bool Interpolate = false;
         /// <summary>
 
         /// 系统 Motor 列表的初始容量（需要时会自动扩容，但较高的初始容量有助于减少 GC 分配）

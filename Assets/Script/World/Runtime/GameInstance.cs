@@ -25,12 +25,13 @@ namespace CGame
 
         protected virtual void FixedUpdate()
         {
-            RuntimeWorld?.FixedTick(Time.fixedDeltaTime);
         }
 
         protected virtual void Update()
         {
             RuntimeWorld?.UpdateTick(Time.deltaTime);
+            RuntimeWorld?.FixedTick(Time.deltaTime);
+            RuntimeWorld?.PreAnimationTick(Time.deltaTime);
         }
 
         protected virtual void LateUpdate()

@@ -25,7 +25,7 @@ namespace CGame.Animation
                 ?? throw new ArgumentException("ADS job requires AdsLayerSettings.", nameof(layerSettings));
             settings.Validate(jobData.RigComponent.Rig);
             context = jobData.UpdateContext;
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             weapon = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.WeaponIkBone, settings.name);
             aimTarget = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.AimTargetBone, settings.name);
             Transform rootTransform = jobData.Animator.transform;

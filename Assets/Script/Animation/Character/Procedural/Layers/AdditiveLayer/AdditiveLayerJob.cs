@@ -24,7 +24,7 @@ namespace CGame.Animation
             settings.Validate(jobData.RigComponent.Rig);
             owner = jobData.Owner;
             context = jobData.UpdateContext;
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             weapon = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.WeaponIkBone, settings.name);
             additiveBone = RigHandleUtility.Bind(jobData.Animator, jobData.RigComponent, settings.AdditiveBone, settings.name);
             weaponData.Initialize(jobData, settings);

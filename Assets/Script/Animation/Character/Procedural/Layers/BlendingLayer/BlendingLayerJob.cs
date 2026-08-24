@@ -18,7 +18,7 @@ namespace CGame.Animation
         {
             settings = RequireSettings(layerSettings);
             settings.Validate(jobData.RigComponent.Rig);
-            root = jobData.CharacterRootHandle;
+            root = jobData.VisualRootHandle;
             AllocateSampledPose(jobData);
         }
 

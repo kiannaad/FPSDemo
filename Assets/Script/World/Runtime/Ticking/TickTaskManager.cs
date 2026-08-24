@@ -424,6 +424,8 @@ namespace CGame
                     yield return TickGroup.TG_PostPhysics;
                     yield return TickGroup.TG_Input;
                     yield return TickGroup.TG_Gameplay;
+                    break;
+                case TickDomain.PreAnimation:
                     yield return TickGroup.TG_PreAnimation;
                     break;
                 case TickDomain.Late:
