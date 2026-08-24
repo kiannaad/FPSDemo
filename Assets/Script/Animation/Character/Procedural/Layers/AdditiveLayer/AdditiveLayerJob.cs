@@ -47,8 +47,11 @@ namespace CGame.Animation
             float curve = string.IsNullOrWhiteSpace(settings.AimingCurve)
                 ? 1f
                 : owner.GetCurveValue(settings.AimingCurve);
-            job.CurveScale = Mathf.Clamp01(curve) * Mathf.Lerp(1f, settings.AdsScalar, context.AimingWeight);
-            job.RecoilOffset = context.RecoilOffset;
+            job.CurveScale = Mathf.Clamp01(curve) * Mathf.Lerp(1f, settings.StaticPoseAdsScalar, context.AimingWeight);
+            job.RecoilOffset = KTransform.Lerp(
+                KTransform.Identity,
+                context.RecoilOffset,
+                Mathf.Lerp(1f, settings.AdsScalar, context.AimingWeight));
             job.Weight = weight;
             playable.SetJobData(job);
         }

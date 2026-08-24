@@ -75,8 +75,10 @@ namespace CGame.Animation
             // Movement already owns the physical root facing and the locomotion
             // pose. Turn-in-place must not counter-rotate Skeleton at the same
             // time, otherwise the feet are driven sideways by both systems.
+            bool hasMoveIntent = context.MoveInput.sqrMagnitude > 0.0001f;
             bool canTurnInPlace = context.CharacterState.IsGrounded
-                && !context.CharacterState.IsMoving;
+                && !context.CharacterState.IsMoving
+                && !hasMoveIntent;
             if (!canTurnInPlace)
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -168,6 +170,7 @@ namespace CGame.Animation
             lastIsTurning = state.IsTurning;
             Debug.Log(
                 $"[TurnProbe] frame={frame}; moving={moving}; grounded={context.CharacterState.IsGrounded}; "
+                + $"moveInput={context.MoveInput}; "
                 + $"phase={phase}; "
                 + $"viewDeltaYaw={context.ViewDeltaDegrees.x:F2}; viewYaw={relativeYaw:F2}; "
                 + $"rootYaw={rootYaw:F2}; controlYaw={controlYaw:F2}; "

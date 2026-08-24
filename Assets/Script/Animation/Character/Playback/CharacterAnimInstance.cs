@@ -87,6 +87,46 @@ public CharacterBoneController BoneController => boneController;
             return GetCurveValue(curveName, AnimationCurveBlendSource.Animator);
         }
 
+        public float GetCurveValueOrDefault(string curveName, float defaultValue)
+        {
+            if (string.IsNullOrWhiteSpace(curveName))
+            {
+                return defaultValue;
+            }
+
+            if (playablesController.TryGetCurveValue(curveName, out float playableValue))
+            {
+                return playableValue;
+            }
+
+            return HasFloatParameter(curveName) ? animator.GetFloat(curveName) : defaultValue;
+        }
+
+        internal float GetCurveValueOrDefault(
+            string curveName,
+            AnimationCurveBlendSource source,
+            float defaultValue)
+        {
+            if (string.IsNullOrWhiteSpace(curveName))
+            {
+                return defaultValue;
+            }
+
+            switch (source)
+            {
+                case AnimationCurveBlendSource.Playables:
+                    return playablesController.TryGetCurveValue(curveName, out float playableValue)
+                        ? playableValue
+                        : defaultValue;
+                case AnimationCurveBlendSource.Animator:
+                    return HasFloatParameter(curveName) ? animator.GetFloat(curveName) : defaultValue;
+                case AnimationCurveBlendSource.Context:
+                    return updateContext.GetCurveValue(curveName);
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(source), source, "Unknown curve blend source.");
+            }
+        }
+
         internal float GetCurveValue(string curveName, AnimationCurveBlendSource source)
         {
             if (string.IsNullOrWhiteSpace(curveName))

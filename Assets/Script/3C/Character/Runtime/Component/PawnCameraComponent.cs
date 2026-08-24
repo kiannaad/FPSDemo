@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace CGame
 {
-public sealed class PawnCameraComponent : ActorComponent
+    public sealed class PawnCameraComponent : ActorComponent
     {
         private readonly Camera camera;
         private readonly bool requireCamera;

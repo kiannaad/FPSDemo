@@ -58,7 +58,13 @@ namespace CGame.Animation
         public AnimationLayerSettings GetSettings() => settings;
         public void OnPreAnimationUpdate(float deltaTime, float weight)
         {
-            state.Advance(context.IsAiming, context.AimPointOffset, deltaTime, settings.AimingSpeed, settings.AimPointSpeed, settings.AimPointEaseMode);
+            state.Advance(
+                context.IsAiming,
+                context.AimPointOffset,
+                deltaTime,
+                settings.AimingSpeed * 0.5f,
+                settings.AimPointSpeed * 0.5f,
+                settings.AimPointEaseMode);
             context.SetAimingWeight(state.AimingWeight);
         }
 

@@ -379,6 +379,17 @@ public AnimationPlaybackHandle PlayPoseImmediate(
             return slotMixer != null ? slotMixer.GetCurveValue(curveName) : 0f;
         }
 
+        internal bool TryGetCurveValue(string curveName, out float value)
+        {
+            if (slotMixer != null)
+            {
+                return slotMixer.TryGetCurveValue(curveName, out value);
+            }
+
+            value = 0f;
+            return false;
+        }
+
 public void Update(float deltaTime)
         {
             if (!IsValid() || deltaTime <= 0f)

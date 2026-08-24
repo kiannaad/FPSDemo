@@ -9,6 +9,7 @@ namespace CGame.Animation
     public sealed class ViewLayerJob : IAnimationLayerJob
     {
         private ViewLayerSettings settings;
+        private AnimationUpdateContext context;
         private ViewJob job;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private NativeArray<ViewDebugSample> debugSamples;
@@ -20,6 +21,7 @@ namespace CGame.Animation
         public void Initialize(LayerJobData jobData, AnimationLayerSettings layerSettings)
         {
             settings = RequireSettings(layerSettings);
+            context = jobData.UpdateContext;
             job = new ViewJob
             {
                 Root = jobData.VisualRootHandle,
@@ -51,6 +53,7 @@ namespace CGame.Animation
         public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight)
         {
             job.Weight = weight;
+            job.AimingWeight = context.IsAiming ? 1f : 0f;
             playable.SetJobData(job);
         }
 

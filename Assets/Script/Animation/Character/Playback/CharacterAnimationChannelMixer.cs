@@ -34,6 +34,7 @@ namespace CGame.Animation
         private Slot activeSlot;
         private bool isDisposed;
         private bool isUpdating;
+        private float lastMaskAttachHandLog = float.NaN;
 
         public CharacterAnimationChannelMixer(
             PlayableGraph graph,
@@ -299,11 +300,39 @@ namespace CGame.Animation
                 Slot slot = slots[i];
                 if (slot.Animation.TryEvaluateCurve(curveName, out float rawValue))
                 {
-                    value += rawValue * mixer.GetInputWeight(slot.InputIndex);
+                    float inputWeight = mixer.GetInputWeight(slot.InputIndex);
+                    value += rawValue * inputWeight;
+                    if (curveName == "MaskAttachHand")
+                    {
+                        float resolved = rawValue * inputWeight;
+                        if (float.IsNaN(lastMaskAttachHandLog)
+                            || Mathf.Abs(resolved - lastMaskAttachHandLog) > 0.02f)
+                        {
+                            lastMaskAttachHandLog = resolved;
+                            Debug.Log($"[ReloadTrace] MaskAttachHand source: clip={slot.Animation.Handle.Clip?.name}, raw={rawValue:F2}, inputWeight={inputWeight:F2}, resolved={resolved:F2}");
+                        }
+                    }
                 }
             }
 
             return value;
+        }
+
+        public bool TryGetCurveValue(string curveName, out float value)
+        {
+            value = 0f;
+            bool found = false;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                Slot slot = slots[i];
+                if (slot.Animation.TryEvaluateCurve(curveName, out float rawValue))
+                {
+                    value += rawValue * mixer.GetInputWeight(slot.InputIndex);
+                    found = true;
+                }
+            }
+
+            return found;
         }
 
         public bool TrySetPlaybackTime(AnimationPlaybackHandle handle, double time)

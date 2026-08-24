@@ -41,7 +41,8 @@ namespace CGame.Animation
                 throw new ArgumentNullException(nameof(owner));
             }
 
-            return Evaluate(owner.GetCurveValue(curveName, source));
+            float defaultValue = curveName == "MaskAttachHand" ? 1f : 0f;
+            return Evaluate(owner.GetCurveValueOrDefault(curveName, source, defaultValue));
         }
 
         public float Evaluate(float curveValue)

@@ -11,11 +11,13 @@ namespace CGame.Animation
         [SerializeField, Min(0f)] private float interpolationSpeed;
         [SerializeField] private string aimingCurve;
         [SerializeField, Range(0f, 1f)] private float adsScalar = 1f;
+        [SerializeField, Range(0f, 1f)] private float staticPoseAdsScalar = 1f;
 
         public KRigElement AdditiveBone => additiveBone;
         public float InterpolationSpeed => interpolationSpeed;
         public string AimingCurve => aimingCurve;
         public float AdsScalar => adsScalar;
+        public float StaticPoseAdsScalar => staticPoseAdsScalar;
         public override IAnimationLayerJob CreateAnimationJob() => new AdditiveLayerJob();
 
         public override void Validate(KRig expectedRig)

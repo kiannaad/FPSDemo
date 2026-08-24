@@ -81,7 +81,8 @@ namespace CGame.Editor
             if (rifle)
             {
                 layers.Add(CreateLookLayer(profile, rig, sourcePath));
-                layers.Add(CreateLayer<TurnLayerSettings>(profile, rig, sourcePath));
+                BoneProfile cameraSafeProfile = Require<BoneProfile>(Ak12ProfilePath);
+                layers.Add(CloneProjectLayer<TurnLayerSettings>(profile, rig, cameraSafeProfile));
             }
             else
             {

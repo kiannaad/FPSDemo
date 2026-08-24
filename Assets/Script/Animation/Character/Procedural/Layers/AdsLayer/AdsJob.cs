@@ -7,6 +7,7 @@ namespace CGame.Animation
     {
         private KTransform previousAimPoint;
         private KTransform targetAimPoint;
+        private bool aimPointInitialized;
         private float aimPointPlayback;
         public float AimingWeight { get; private set; }
         public KTransform AimPoint { get; private set; }
@@ -14,7 +15,15 @@ namespace CGame.Animation
         public void Advance(bool isAiming, KTransform aimPoint, float deltaTime, float aimingSpeed, float aimPointSpeed, EaseMode ease)
         {
             AimingWeight = Mathf.MoveTowards(AimingWeight, isAiming ? 1f : 0f, Mathf.Max(0f, aimingSpeed) * Mathf.Max(0f, deltaTime));
-            if (!targetAimPoint.Equals(aimPoint, false))
+            if (!aimPointInitialized)
+            {
+                previousAimPoint = aimPoint;
+                targetAimPoint = aimPoint;
+                AimPoint = aimPoint;
+                aimPointPlayback = 1f;
+                aimPointInitialized = true;
+            }
+            else if (!targetAimPoint.Equals(aimPoint, false))
             {
                 previousAimPoint = AimPoint;
                 targetAimPoint = aimPoint;
@@ -46,10 +55,6 @@ namespace CGame.Animation
             float weight = KCurves.EvaluateEase(AimingWeight, AimingEase) * Weight;
             if (!KCurves.IsWeightRelevant(weight)) return;
             WeaponData.Cache(stream);
-            if (CameraBlend > 0f)
-            {
-                AimTarget.SetLocalPosition(stream, AimTargetDefaultLocalPosition);
-            }
 
             KTransform root = AnimationLayerJobUtility.GetTransform(stream, Root);
             KTransform weapon = root.GetRelativeTransform(AnimationLayerJobUtility.GetTransform(stream, Weapon), false);
@@ -68,22 +73,13 @@ namespace CGame.Animation
                 Pose = new KTransform(pose.Position, Quaternion.identity),
                 Space = TransformSpace.ComponentSpace,
                 ModifyMode = TransformModifyMode.Add
-            }, weight * (1f - CameraBlend));
+            }, weight);
             AnimationLayerJobUtility.ModifyTransform(stream, Root, Weapon, new KPose
             {
                 Pose = new KTransform(Vector3.zero, pose.Rotation),
                 Space = TransformSpace.ComponentSpace,
                 ModifyMode = TransformModifyMode.Add
             }, weight);
-            if (CameraBlend > 0f)
-            {
-                AnimationLayerJobUtility.ModifyTransform(stream, Root, AimTarget, new KPose
-                {
-                    Pose = new KTransform(-pose.Position, Quaternion.identity),
-                    Space = TransformSpace.ComponentSpace,
-                    ModifyMode = TransformModifyMode.Add
-                }, weight * CameraBlend);
-            }
             WeaponData.PostProcessPose(stream, weight);
         }
 

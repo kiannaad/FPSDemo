@@ -24,6 +24,7 @@ namespace CGame.Animation
         public PoseOffsetJobData RightHandPose;
         public PoseOffsetJobData LeftHandPose;
         public float Weight;
+        public float AimingWeight;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         public NativeArray<ViewDebugSample> DebugSamples;
 #endif
@@ -32,7 +33,12 @@ namespace CGame.Animation
         {
             if (!KCurves.IsWeightRelevant(Weight)) return;
             KTransform weaponBefore = AnimationLayerJobUtility.GetTransform(stream, Weapon);
-            AnimationLayerJobUtility.ModifyTransform(stream, Root, Weapon, WeaponPose.ToPose(), Weight);
+            AnimationLayerJobUtility.ModifyTransform(
+                stream,
+                Root,
+                Weapon,
+                WeaponPose.ToPose(),
+                Weight * (1f - AimingWeight));
             AnimationLayerJobUtility.ModifyTransform(stream, Root, RightHand, RightHandPose.ToPose(), Weight);
             AnimationLayerJobUtility.ModifyTransform(stream, Root, LeftHand, LeftHandPose.ToPose(), Weight);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
