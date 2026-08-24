@@ -14,7 +14,7 @@ namespace CGame
         public float Mass { get; set; } = 100f;
         public float JumpSpeed { get; set; } = 7f;
         public float Gravity { get; set; } = 20f;
-        public float SprintAccelerationMultiplier { get; set; } = 1.7f;
+        public float SprintAccelerationMultiplier { get; set; } = 1.85f;
 
         public void BindingMotor(CharacterPhysicsMotor characterMotor)
         {
