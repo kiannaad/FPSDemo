@@ -55,8 +55,8 @@ namespace CGame.Animation
 
         public void ProcessAnimation(AnimationStream stream)
         {
-            if (!KCurves.IsWeightRelevant(Weight)) return;
-
+            // Layer weight may fade visual stabilization out, but downstream IK still requires
+            // the weapon mount and hand targets to be rebuilt from the current weapon every frame.
             KTransform savedRoot = KTransform.Identity;
             KTransform worldPelvis = AnimationLayerJobUtility.GetTransform(stream, Pelvis);
             if (OverwriteRoot && HasValidRoot)
