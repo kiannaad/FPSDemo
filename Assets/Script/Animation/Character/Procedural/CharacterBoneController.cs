@@ -1025,9 +1025,23 @@ public void Add(AnimationLayer layer)
                     weights[index] = layers[index].Settings.EvaluateWeight(owner);
                 }
 
+                // Turn produces the shared offset consumed by Look. Its playable must remain after
+                // Look so ModelRoot is rotated last, but its update must run first to avoid Look
+                // caching the previous frame's offset.
                 for (int index = 0; index < layers.Count; index++)
                 {
-                    layers[index].PreUpdate(deltaTime, weights[index]);
+                    if (layers[index].Job is TurnLayerJob)
+                    {
+                        layers[index].PreUpdate(deltaTime, weights[index]);
+                    }
+                }
+
+                for (int index = 0; index < layers.Count; index++)
+                {
+                    if (layers[index].Job is not TurnLayerJob)
+                    {
+                        layers[index].PreUpdate(deltaTime, weights[index]);
+                    }
                 }
 
                 for (int index = 0; index < layers.Count; index++)
