@@ -15,6 +15,11 @@ namespace CGame.Animation
         public bool IsPlaying => state.IsPlaying;
         public bool IsComplete => state.IsComplete;
         public float Playback => state.Playback;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        public bool IsBlendingOut => state.IsBlendingOut;
+        public string ActiveMotionName => settings != null ? settings.name : "<none>";
+        public KTransform CurrentMotion => state.Result;
+#endif
         public void Play() => state.Play();
         public void Stop() => state.Stop(settings.BlendTime);
 

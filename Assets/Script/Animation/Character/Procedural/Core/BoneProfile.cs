@@ -58,6 +58,7 @@ namespace CGame.Animation
             }
 
             HashSet<AnimationLayerSettings> uniqueSettings = new HashSet<AnimationLayerSettings>();
+            bool hasTurnLayer = false;
             foreach (AnimationLayerSettings settings in layers)
             {
                 if (settings == null)
@@ -68,6 +69,16 @@ namespace CGame.Animation
                 if (!uniqueSettings.Add(settings))
                 {
                     throw new InvalidOperationException("Bone Profile contains a duplicate layer setting reference.");
+                }
+
+                if (settings is TurnLayerSettings)
+                {
+                    if (hasTurnLayer)
+                    {
+                        throw new InvalidOperationException("Bone Profile cannot contain more than one Turn Layer.");
+                    }
+
+                    hasTurnLayer = true;
                 }
 
                 settings.Validate(expectedRig);

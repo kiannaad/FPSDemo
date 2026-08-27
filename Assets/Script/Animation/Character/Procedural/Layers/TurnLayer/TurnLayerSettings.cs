@@ -9,11 +9,7 @@ namespace CGame.Animation
     {
         [SerializeField] private KRigElement characterRootBone = new KRigElement(-1, "Skeleton", -1);
         [SerializeField] private KRigElement characterHipBone = new KRigElement(-1, "Hips", -1);
-        [SerializeField] private KRigElement upperBodyRootBone = new KRigElement(-1, "Spine", -1);
-        // TurnRuntimeState clamps the accumulated free-look angle to +/-90 degrees.
-        // Keep the trigger threshold strictly inside that range: the request uses a
-        // strict comparison, so a threshold of 90 can never produce a turn request.
-        [SerializeField, Range(0f, 89.9f)] private float angleThreshold = 70f;
+        [SerializeField, Range(0f, 90f)] private float angleThreshold = 90f;
         [SerializeField] private AnimationCurve turnCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
         [SerializeField, Min(0.0001f)] private float turnSpeed = 1f;
         [SerializeField] private string animatorTurnRightTrigger = "TurnRight";
@@ -21,7 +17,6 @@ namespace CGame.Animation
 
         public KRigElement CharacterRootBone => characterRootBone;
         public KRigElement CharacterHipBone => characterHipBone;
-        public KRigElement UpperBodyRootBone => upperBodyRootBone;
         public float AngleThreshold => angleThreshold;
         public AnimationCurve TurnCurve => turnCurve;
         public float TurnSpeed => turnSpeed;
@@ -34,11 +29,10 @@ namespace CGame.Animation
             base.Validate(expectedRig);
             RigHandleUtility.ResolveElement(expectedRig, characterRootBone, name + " root bone");
             RigHandleUtility.ResolveElement(expectedRig, characterHipBone, name + " hip bone");
-            RigHandleUtility.ResolveElement(expectedRig, upperBodyRootBone, name + " upper body root bone");
             if (turnCurve == null) throw new InvalidOperationException(name + " turn curve is missing.");
-            if (angleThreshold < 0f || angleThreshold >= 90f)
+            if (angleThreshold < 0f || angleThreshold > 90f)
             {
-                throw new InvalidOperationException(name + " turn threshold must be in [0, 90).");
+                throw new InvalidOperationException(name + " turn threshold must be in [0, 90].");
             }
             if (turnSpeed <= 0f) throw new InvalidOperationException(name + " turn speed must be positive.");
             if (string.IsNullOrWhiteSpace(animatorTurnRightTrigger)
@@ -52,7 +46,6 @@ namespace CGame.Animation
         {
             SynchronizeRigElement(ref characterRootBone);
             SynchronizeRigElement(ref characterHipBone);
-            SynchronizeRigElement(ref upperBodyRootBone);
         }
     }
 }

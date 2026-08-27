@@ -50,18 +50,11 @@ namespace CGame.Animation
         public AnimationLayerSettings GetSettings() => settings;
         public void OnPreAnimationUpdate(float deltaTime, float weight)
         {
-            Vector2 target = context.ViewAnglesDegrees;
-            // This layer defines the weapon/hand aiming pose, so it must consume the
-            // current control view in the same evaluation frame.  Smoothing here
-            // leaves the camera ahead of the muzzle during fast input.
+            filteredViewAnglesDegrees = context.ViewAnglesDegrees;
             if (settings.UseTurnOffset)
             {
-                // ViewAngles expresses ControlRotation relative to the physical root;
-                // TurnOffset compensates that root relative to ModelRoot. Both are
-                // required to aim the upper body at the camera without moving mounts.
-                target.x += context.TurnOffsetDegrees;
+                filteredViewAnglesDegrees.x = context.TurnOffsetDegrees;
             }
-            filteredViewAnglesDegrees = target;
         }
 
         public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight)

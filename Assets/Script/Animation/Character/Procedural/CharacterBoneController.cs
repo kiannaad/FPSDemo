@@ -14,6 +14,7 @@ namespace CGame.Animation
         private readonly Animator animator;
         private readonly KRigComponent rigComponent;
         private readonly AnimationUpdateContext updateContext;
+        private readonly TurnPresentationState turnState = new TurnPresentationState();
         private NativeArray<VirtualElementHandle> virtualElementHandles;
         private NativeArray<TransformStreamPose> blendingPoses;
         private NativeArray<int> cacheCompletionMarker;
@@ -27,7 +28,17 @@ namespace CGame.Animation
         private bool shouldLinkProfile;
         private bool isDisposed;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private const int ProfileSwitchProbeFrameCount = 24;
+        private const int LayerPoseProbeStageCount = 11;
+        private const int LayerPoseProbeBoneCount = 5;
         private float diagnosticElapsed;
+        private int profileSwitchProbeFramesRemaining;
+        private NativeArray<Quaternion> layerPoseProbeRotations;
+        private NativeArray<Quaternion> layerPoseProbeLocalRotations;
+        private NativeArray<int> layerPoseProbeMarkers;
+        private AnimationScriptPlayable inputPoseProbePlayable;
+        private AnimationScriptPlayable finalPoseProbePlayable;
+        private bool firstTurnProcessProbePending;
 #endif
 
         public CharacterBoneController(
@@ -43,6 +54,7 @@ namespace CGame.Animation
 
         public CharacterAnimInstance Owner { get; }
 
+        public TurnPresentationState TurnState => turnState;
 
         public bool TryPlayWeaponIkMotion(IkMotionLayerSettings motion)
         {
@@ -104,7 +116,11 @@ public BoneProfile ActiveProfile => activeProfile;
                 CreateBasePipeline();
                 output = AnimationPlayableOutput.Create(graph, nameof(CharacterBoneController), animator);
                 output.SetAnimationStreamSource(AnimationStreamSource.PreviousInputs);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                output.SetSourcePlayable(finalPoseProbePlayable);
+#else
                 output.SetSourcePlayable(blendingPlayable);
+#endif
 
                 if (shouldLinkProfile)
                 {
@@ -130,6 +146,10 @@ public BoneProfile ActiveProfile => activeProfile;
             profile.Validate(rigComponent.Rig);
             nextProfile = profile;
             shouldLinkProfile = true;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            profileSwitchProbeFramesRemaining = ProfileSwitchProbeFrameCount;
+            WriteProfileSwitchProbe("link-request", activeProfile, profile);
+#endif
             if (IsValid())
             {
                 RequestPoseCache();
@@ -141,6 +161,10 @@ public BoneProfile ActiveProfile => activeProfile;
             ThrowIfDisposed();
             nextProfile = null;
             shouldLinkProfile = activeProfile != null;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            profileSwitchProbeFramesRemaining = ProfileSwitchProbeFrameCount;
+            WriteProfileSwitchProbe("unlink-request", activeProfile, null);
+#endif
             if (shouldLinkProfile && IsValid())
             {
                 RequestPoseCache();
@@ -156,6 +180,12 @@ public BoneProfile ActiveProfile => activeProfile;
 
             UpdateRuntime(activeRuntime, deltaTime);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+            ClearLayerPoseProbeMarkers();
+            if (profileSwitchProbeFramesRemaining > 0)
+            {
+                WriteProfileSwitchProbe("pre-animation", activeProfile, nextProfile);
+                profileSwitchProbeFramesRemaining--;
+            }
             LogMotionDiagnostics(deltaTime);
 #endif
         }
@@ -168,6 +198,13 @@ public BoneProfile ActiveProfile => activeProfile;
             }
 
             activeRuntime?.PostUpdate();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (profileSwitchProbeFramesRemaining > 0)
+            {
+                WriteLayerPoseProbe();
+                WriteFirstTurnProcessProbe();
+            }
+#endif
             if (shouldLinkProfile && cacheCompletionMarker[0] != 0)
             {
                 ApplyProfileRequest();
@@ -187,6 +224,10 @@ public BoneProfile ActiveProfile => activeProfile;
             DisposeRuntime(activeRuntime);
             activeRuntime = null;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            DestroyPlayable(finalPoseProbePlayable);
+            DestroyPlayable(inputPoseProbePlayable);
+#endif
             DestroyPlayable(blendingPlayable);
             DestroyPlayable(virtualElementPlayable);
 
@@ -198,6 +239,10 @@ public BoneProfile ActiveProfile => activeProfile;
             output = AnimationPlayableOutput.Null;
             virtualElementPlayable = AnimationScriptPlayable.Null;
             blendingPlayable = AnimationScriptPlayable.Null;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            inputPoseProbePlayable = AnimationScriptPlayable.Null;
+            finalPoseProbePlayable = AnimationScriptPlayable.Null;
+#endif
             graph = default;
         }
 
@@ -234,7 +279,22 @@ public BoneProfile ActiveProfile => activeProfile;
                     EaseMode = EaseMode.Linear
                 },
                 1);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            layerPoseProbeRotations = new NativeArray<Quaternion>(
+                LayerPoseProbeStageCount * LayerPoseProbeBoneCount,
+                Allocator.Persistent);
+            layerPoseProbeLocalRotations = new NativeArray<Quaternion>(
+                LayerPoseProbeStageCount * LayerPoseProbeBoneCount,
+                Allocator.Persistent);
+            layerPoseProbeMarkers = new NativeArray<int>(LayerPoseProbeStageCount, Allocator.Persistent);
+            inputPoseProbePlayable = CreateLayerPoseProbePlayable(0);
+            inputPoseProbePlayable.ConnectInput(0, virtualElementPlayable, 0, 1f);
+            finalPoseProbePlayable = CreateLayerPoseProbePlayable(10);
+            finalPoseProbePlayable.ConnectInput(0, blendingPlayable, 0, 1f);
+            blendingPlayable.ConnectInput(0, inputPoseProbePlayable, 0, 1f);
+#else
             blendingPlayable.ConnectInput(0, virtualElementPlayable, 0, 1f);
+#endif
         }
 
         private NativeArray<VirtualElementHandle> CreateVirtualElementHandles()
@@ -311,7 +371,7 @@ public BoneProfile ActiveProfile => activeProfile;
             return poses;
         }
 
-        private ProfileRuntime BuildRuntime(BoneProfile profile)
+        private ProfileRuntime BuildRuntime(BoneProfile profile, TurnRuntimeState? inheritedTurnState = null)
         {
             profile.Validate(rigComponent.Rig);
             ProfileRuntime runtime = new ProfileRuntime();
@@ -335,6 +395,21 @@ public BoneProfile ActiveProfile => activeProfile;
                     try
                     {
                         job.Initialize(jobData, layerSettings);
+                        if (inheritedTurnState.HasValue && job is TurnLayerJob turnLayer)
+                        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                            float initializedAngle = turnLayer.Angle;
+#endif
+                            turnLayer.RestoreRuntimeState(inheritedTurnState.Value);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                            Debug.Log(
+                                $"[TurnProfileTransfer] phase=restore; profile={profile.name}; "
+                                + $"initializedAngle={initializedAngle:F2}; "
+                                + $"restoredAngle={turnLayer.Angle:F2}; "
+                                + $"restoredTurning={turnLayer.IsTurning}",
+                                rigComponent);
+#endif
+                        }
                         playable = job.CreatePlayable(graph);
                         if (!playable.IsValid())
                         {
@@ -347,7 +422,20 @@ public BoneProfile ActiveProfile => activeProfile;
                         }
 
                         runtime.Add(new AnimationLayer(graph, layerSettings, job, playable));
-                        previousLayerPlayable = playable;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                        int probeStage = ResolveLayerPoseProbeStage(layerSettings);
+                        if (probeStage >= 0)
+                        {
+                            AnimationScriptPlayable probePlayable = CreateLayerPoseProbePlayable(probeStage);
+                            probePlayable.ConnectInput(0, playable, 0, 1f);
+                            runtime.AddDiagnosticPlayable(probePlayable);
+                            previousLayerPlayable = probePlayable;
+                        }
+                        else
+#endif
+                        {
+                            previousLayerPlayable = playable;
+                        }
                     }
                     catch
                     {
@@ -361,6 +449,7 @@ public BoneProfile ActiveProfile => activeProfile;
                     }
                 }
 
+                runtime.SetFinalPlayable(previousLayerPlayable);
                 return runtime;
             }
             catch
@@ -373,21 +462,29 @@ public BoneProfile ActiveProfile => activeProfile;
         private void ApplyProfileRequest()
         {
             BoneProfile requestedProfile = nextProfile;
-            ProfileRuntime requestedRuntime = requestedProfile != null
-                ? BuildRuntime(requestedProfile)
-                : null;
             ProfileRuntime previousRuntime = activeRuntime;
             BoneProfile previousProfile = activeProfile;
+            TurnRuntimeState? inheritedTurnState = previousRuntime != null
+                && previousRuntime.TryGetTurnRuntimeState(out TurnRuntimeState turnRuntimeState)
+                ? turnRuntimeState
+                : null;
+            ProfileRuntime requestedRuntime = requestedProfile != null
+                ? BuildRuntime(requestedProfile, inheritedTurnState)
+                : null;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            WriteProfileSwitchProbe("apply-before", previousProfile, requestedProfile);
+#endif
 
             previousRuntime?.DisconnectSource();
             if (blendingPlayable.GetInput(0).IsValid())
             {
                 blendingPlayable.DisconnectInput(0);
             }
-            requestedRuntime?.ConnectSource(virtualElementPlayable);
+            Playable profileSource = ResolveProfileSourcePlayable();
+            requestedRuntime?.ConnectSource(profileSource);
             ConnectBlendingSource(
-                requestedRuntime?.ResolveFinalPlayable(virtualElementPlayable)
-                ?? virtualElementPlayable);
+                requestedRuntime?.ResolveFinalPlayable(profileSource)
+                ?? profileSource);
 
             float blendDuration = requestedProfile != null
                 ? requestedProfile.BlendIn
@@ -401,6 +498,11 @@ public BoneProfile ActiveProfile => activeProfile;
             activeProfile = requestedProfile;
             shouldLinkProfile = false;
             DisposeRuntime(previousRuntime);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            profileSwitchProbeFramesRemaining = ProfileSwitchProbeFrameCount;
+            firstTurnProcessProbePending = inheritedTurnState.HasValue && requestedRuntime != null;
+            WriteProfileSwitchProbe("apply-after", previousProfile, activeProfile);
+#endif
         }
 
         private void RebuildRequestedProfileWithoutBlend()
@@ -414,10 +516,11 @@ public BoneProfile ActiveProfile => activeProfile;
                 blendingPlayable.DisconnectInput(0);
             }
 
-            requestedRuntime?.ConnectSource(virtualElementPlayable);
+            Playable profileSource = ResolveProfileSourcePlayable();
+            requestedRuntime?.ConnectSource(profileSource);
             ConnectBlendingSource(
-                requestedRuntime?.ResolveFinalPlayable(virtualElementPlayable)
-                ?? virtualElementPlayable);
+                requestedRuntime?.ResolveFinalPlayable(profileSource)
+                ?? profileSource);
             ConfigureBlend(0f, requestedProfile?.EaseMode ?? EaseMode.Linear);
             activeRuntime = requestedRuntime;
             activeProfile = requestedProfile;
@@ -454,6 +557,15 @@ public BoneProfile ActiveProfile => activeProfile;
             blendingPlayable.ConnectInput(0, source, 0, 1f);
         }
 
+        private Playable ResolveProfileSourcePlayable()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            return inputPoseProbePlayable;
+#else
+            return virtualElementPlayable;
+#endif
+        }
+
         private void UpdateRuntime(ProfileRuntime runtime, float deltaTime)
         {
             if (runtime == null)
@@ -465,6 +577,185 @@ public BoneProfile ActiveProfile => activeProfile;
         }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private AnimationScriptPlayable CreateLayerPoseProbePlayable(int stage)
+        {
+            return AnimationScriptPlayable.Create(
+                graph,
+                new LayerPoseProbeJob
+                {
+                    Rotations = layerPoseProbeRotations,
+                    LocalRotations = layerPoseProbeLocalRotations,
+                    Markers = layerPoseProbeMarkers,
+                    Stage = stage,
+                    ModelRoot = animator.BindStreamTransform(FindRigTransform("Skeleton")),
+                    Spine = animator.BindStreamTransform(FindRigTransform("Spine")),
+                    UpperChest = animator.BindStreamTransform(FindRigTransform("UpperChest")),
+                    WeaponBone = animator.BindStreamTransform(FindRigTransform("WeaponBone")),
+                    IkWeaponBone = animator.BindStreamTransform(FindRigTransform("IK WeaponBone"))
+                },
+                1);
+        }
+
+        private static int ResolveLayerPoseProbeStage(AnimationLayerSettings settings)
+        {
+            if (settings is PoseSamplerLayerSettings) return 1;
+            if (settings is IkMotionLayerSettings) return 2;
+            if (settings is AttachHandLayerSettings) return 3;
+            if (settings is ViewLayerSettings) return 4;
+            if (settings is AdsLayerSettings) return 5;
+            if (settings is AdditiveLayerSettings) return 6;
+            if (settings is LookLayerSettings) return 7;
+            if (settings is TurnLayerSettings) return 8;
+            if (settings is IkLayerSettings) return 9;
+            return -1;
+        }
+
+        private void ClearLayerPoseProbeMarkers()
+        {
+            if (!layerPoseProbeMarkers.IsCreated)
+            {
+                return;
+            }
+
+            for (int index = 0; index < layerPoseProbeMarkers.Length; index++)
+            {
+                layerPoseProbeMarkers[index] = 0;
+            }
+        }
+
+        private void WriteLayerPoseProbe()
+        {
+            if (!layerPoseProbeRotations.IsCreated
+                || !layerPoseProbeLocalRotations.IsCreated
+                || !layerPoseProbeMarkers.IsCreated)
+            {
+                return;
+            }
+
+            string[] stageNames =
+            {
+                "InputPose", "PoseSampler", "IkMotion", "AttachHand", "View", "Ads",
+                "Additive", "Look", "Turn", "IK", "ProfileBlend"
+            };
+            string ikMotionState = activeRuntime?.DescribeIkMotionState() ?? "none";
+            for (int stage = 0; stage < LayerPoseProbeStageCount; stage++)
+            {
+                if (layerPoseProbeMarkers[stage] == 0)
+                {
+                    continue;
+                }
+
+                int offset = stage * LayerPoseProbeBoneCount;
+                Debug.Log(
+                    $"[LayerFacingProbe] frame={Time.frameCount}; stage={stageNames[stage]}; "
+                    + $"profile={(activeProfile != null ? activeProfile.name : "<none>")}; "
+                    + $"modelRootYaw={ExtractYaw(layerPoseProbeRotations[offset]):F2}; "
+                    + $"modelRootLocalYaw={ExtractYaw(layerPoseProbeLocalRotations[offset]):F2}; "
+                    + $"spineYaw={ExtractYaw(layerPoseProbeRotations[offset + 1]):F2}; "
+                    + $"spineLocalYaw={ExtractYaw(layerPoseProbeLocalRotations[offset + 1]):F2}; "
+                    + $"upperChestYaw={ExtractYaw(layerPoseProbeRotations[offset + 2]):F2}; "
+                    + $"upperChestLocalYaw={ExtractYaw(layerPoseProbeLocalRotations[offset + 2]):F2}; "
+                    + $"weaponBoneYaw={ExtractYaw(layerPoseProbeRotations[offset + 3]):F2}; "
+                    + $"weaponBoneLocalYaw={ExtractYaw(layerPoseProbeLocalRotations[offset + 3]):F2}; "
+                    + $"ikWeaponBoneYaw={ExtractYaw(layerPoseProbeRotations[offset + 4]):F2}; "
+                    + $"ikWeaponBoneLocalYaw={ExtractYaw(layerPoseProbeLocalRotations[offset + 4]):F2}; "
+                    + $"controlYaw={NormalizeSignedYaw(updateContext.ControlRotation.eulerAngles.y):F2}; "
+                    + $"ikMotion={ikMotionState}",
+                    rigComponent);
+            }
+        }
+
+        private void WriteFirstTurnProcessProbe()
+        {
+            if (!firstTurnProcessProbePending)
+            {
+                return;
+            }
+
+            firstTurnProcessProbePending = false;
+            const int lookStage = 7;
+            const int turnStage = 8;
+            if (layerPoseProbeMarkers[lookStage] == 0 || layerPoseProbeMarkers[turnStage] == 0)
+            {
+                Debug.LogWarning("[TurnProcessProbe] first post-switch frame has no Look/Turn stream samples.", rigComponent);
+                return;
+            }
+
+            int lookOffset = lookStage * LayerPoseProbeBoneCount;
+            int turnOffset = turnStage * LayerPoseProbeBoneCount;
+            float lookWorldYaw = ExtractYaw(layerPoseProbeRotations[lookOffset]);
+            float turnWorldYaw = ExtractYaw(layerPoseProbeRotations[turnOffset]);
+            float lookLocalYaw = ExtractYaw(layerPoseProbeLocalRotations[lookOffset]);
+            float turnLocalYaw = ExtractYaw(layerPoseProbeLocalRotations[turnOffset]);
+            float runtimeAngle = activeRuntime != null
+                && activeRuntime.TryGetTurnRuntimeState(out TurnRuntimeState turnRuntimeState)
+                ? turnRuntimeState.Angle
+                : 0f;
+            Debug.Log(
+                $"[TurnProcessProbe] frame={Time.frameCount}; profile={activeProfile.name}; "
+                + $"stateAngle={runtimeAngle:F2}; contextTurnOffset={updateContext.TurnOffsetDegrees:F2}; "
+                + $"lookWorldYaw={lookWorldYaw:F2}; turnWorldYaw={turnWorldYaw:F2}; "
+                + $"processWorldDelta={Mathf.DeltaAngle(lookWorldYaw, turnWorldYaw):F2}; "
+                + $"lookLocalYaw={lookLocalYaw:F2}; turnLocalYaw={turnLocalYaw:F2}; "
+                + $"processLocalDelta={Mathf.DeltaAngle(lookLocalYaw, turnLocalYaw):F2}",
+                rigComponent);
+        }
+
+        private static float ExtractYaw(Quaternion rotation)
+        {
+            Vector3 forward = rotation * Vector3.forward;
+            Vector3 planarForward = Vector3.ProjectOnPlane(forward, Vector3.up);
+            return planarForward.sqrMagnitude > 0.000001f
+                ? Mathf.Atan2(planarForward.x, planarForward.z) * Mathf.Rad2Deg
+                : 0f;
+        }
+
+        private void WriteProfileSwitchProbe(
+            string phase,
+            BoneProfile fromProfile,
+            BoneProfile toProfile)
+        {
+            float controlYaw = NormalizeSignedYaw(updateContext.ControlRotation.eulerAngles.y);
+            string activeName = activeProfile != null ? activeProfile.name : "<none>";
+            string fromName = fromProfile != null ? fromProfile.name : "<none>";
+            string toName = toProfile != null ? toProfile.name : "<none>";
+            Debug.Log(
+                $"[ProfileFacingProbe] frame={Time.frameCount}; phase={phase}; "
+                + $"active={activeName}; from={fromName}; to={toName}; "
+                + $"activeLayers={DescribeLayers(activeProfile)}; "
+                + $"hasLook={HasLayer<LookLayerSettings>(activeProfile)}; "
+                + $"hasTurn={HasLayer<TurnLayerSettings>(activeProfile)}; "
+                + $"controlYaw={controlYaw:F2}; "
+                + $"viewYaw={updateContext.ViewAnglesDegrees.x:F2}; "
+                + $"turnOffset={updateContext.TurnOffsetDegrees:F2}; "
+                + $"linkPending={shouldLinkProfile}",
+                rigComponent);
+        }
+
+        private static bool HasLayer<TLayer>(BoneProfile profile)
+            where TLayer : AnimationLayerSettings
+        {
+            if (profile == null)
+            {
+                return false;
+            }
+
+            foreach (AnimationLayerSettings layer in profile.Layers)
+            {
+                if (layer is TLayer)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static float NormalizeSignedYaw(float yaw)
+        {
+            return Mathf.DeltaAngle(0f, yaw);
+        }
+
         private void LogMotionDiagnostics(float deltaTime)
         {
             if (activeProfile == null || !HasMotionDiagnosticsLayer(activeProfile))
@@ -526,10 +817,16 @@ public BoneProfile ActiveProfile => activeProfile;
 
         private static string DescribeLayers(BoneProfile profile)
         {
+            if (profile == null)
+            {
+                return "<none>";
+            }
+
             string[] names = new string[profile.Layers.Count];
             for (int index = 0; index < profile.Layers.Count; index++)
             {
-                names[index] = profile.Layers[index].GetType().Name;
+                AnimationLayerSettings layer = profile.Layers[index];
+                names[index] = layer != null ? layer.GetType().Name : "<null>";
             }
 
             return string.Join(" -> ", names);
@@ -579,6 +876,11 @@ public BoneProfile ActiveProfile => activeProfile;
 
         private void DisposeNativeArrays()
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (layerPoseProbeMarkers.IsCreated) layerPoseProbeMarkers.Dispose();
+            if (layerPoseProbeLocalRotations.IsCreated) layerPoseProbeLocalRotations.Dispose();
+            if (layerPoseProbeRotations.IsCreated) layerPoseProbeRotations.Dispose();
+#endif
             if (cacheCompletionMarker.IsCreated) cacheCompletionMarker.Dispose();
             if (blendingPoses.IsCreated) blendingPoses.Dispose();
             if (virtualElementHandles.IsCreated) virtualElementHandles.Dispose();
@@ -600,6 +902,11 @@ public BoneProfile ActiveProfile => activeProfile;
         private sealed class ProfileRuntime : IDisposable
         {
             private readonly List<AnimationLayer> layers = new List<AnimationLayer>();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            private readonly List<AnimationScriptPlayable> diagnosticPlayables =
+                new List<AnimationScriptPlayable>();
+#endif
+            private Playable finalPlayable = Playable.Null;
             private bool isDisposed;
 
 
@@ -632,14 +939,58 @@ public BoneProfile ActiveProfile => activeProfile;
 
                 return false;
             }
+
+            public bool TryGetTurnRuntimeState(out TurnRuntimeState turnRuntimeState)
+            {
+                foreach (AnimationLayer layer in layers)
+                {
+                    if (layer.Job is TurnLayerJob turnLayer)
+                    {
+                        turnRuntimeState = turnLayer.CaptureRuntimeState();
+                        return true;
+                    }
+                }
+
+                turnRuntimeState = default;
+                return false;
+            }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            public string DescribeIkMotionState()
+            {
+                foreach (AnimationLayer layer in layers)
+                {
+                    if (layer.Job is IkMotionLayerJob job)
+                    {
+                        return $"name={job.ActiveMotionName}; playing={job.IsPlaying}; "
+                            + $"blendingOut={job.IsBlendingOut}; complete={job.IsComplete}; "
+                            + $"playback={job.Playback:F3}; rotation={job.CurrentMotion.Rotation.eulerAngles:F2}";
+                    }
+                }
+
+                return "missing";
+            }
+#endif
 public void Add(AnimationLayer layer)
             {
                 layers.Add(layer ?? throw new ArgumentNullException(nameof(layer)));
             }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            public void AddDiagnosticPlayable(AnimationScriptPlayable playable)
+            {
+                diagnosticPlayables.Add(playable);
+            }
+#endif
+
+            public void SetFinalPlayable(Playable playable)
+            {
+                finalPlayable = playable;
+            }
+
             public Playable ResolveFinalPlayable(Playable emptySource)
             {
-                return layers.Count == 0 ? emptySource : layers[layers.Count - 1].Playable;
+                return finalPlayable.IsValid() ? finalPlayable : emptySource;
             }
 
             public void ConnectSource(Playable source)
@@ -674,23 +1025,9 @@ public void Add(AnimationLayer layer)
                     weights[index] = layers[index].Settings.EvaluateWeight(owner);
                 }
 
-                // Turn produces the visual ModelRoot offset that Look consumes.
-                // Prepare that cross-layer input first without changing the
-                // Playable evaluation order (Look must still write before Turn).
                 for (int index = 0; index < layers.Count; index++)
                 {
-                    if (layers[index].Settings is TurnLayerSettings)
-                    {
-                        layers[index].PreUpdate(deltaTime, weights[index]);
-                    }
-                }
-
-                for (int index = 0; index < layers.Count; index++)
-                {
-                    if (!(layers[index].Settings is TurnLayerSettings))
-                    {
-                        layers[index].PreUpdate(deltaTime, weights[index]);
-                    }
+                    layers[index].PreUpdate(deltaTime, weights[index]);
                 }
 
                 for (int index = 0; index < layers.Count; index++)
@@ -739,6 +1076,18 @@ public void Add(AnimationLayer layer)
                 }
 
                 DisconnectSource();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                for (int index = diagnosticPlayables.Count - 1; index >= 0; index--)
+                {
+                    AnimationScriptPlayable playable = diagnosticPlayables[index];
+                    if (playable.IsValid())
+                    {
+                        playable.GetGraph().DestroyPlayable(playable);
+                    }
+                }
+
+                diagnosticPlayables.Clear();
+#endif
                 for (int index = layers.Count - 1; index >= 0; index--)
                 {
                     layers[index].Dispose();
@@ -748,5 +1097,40 @@ public void Add(AnimationLayer layer)
                 isDisposed = true;
             }
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private struct LayerPoseProbeJob : IAnimationJob
+        {
+            public NativeArray<Quaternion> Rotations;
+            public NativeArray<Quaternion> LocalRotations;
+            public NativeArray<int> Markers;
+            public TransformStreamHandle ModelRoot;
+            public TransformStreamHandle Spine;
+            public TransformStreamHandle UpperChest;
+            public TransformStreamHandle WeaponBone;
+            public TransformStreamHandle IkWeaponBone;
+            public int Stage;
+
+            public void ProcessAnimation(AnimationStream stream)
+            {
+                int offset = Stage * LayerPoseProbeBoneCount;
+                Rotations[offset] = ModelRoot.GetRotation(stream);
+                Rotations[offset + 1] = Spine.GetRotation(stream);
+                Rotations[offset + 2] = UpperChest.GetRotation(stream);
+                Rotations[offset + 3] = WeaponBone.GetRotation(stream);
+                Rotations[offset + 4] = IkWeaponBone.GetRotation(stream);
+                LocalRotations[offset] = ModelRoot.GetLocalRotation(stream);
+                LocalRotations[offset + 1] = Spine.GetLocalRotation(stream);
+                LocalRotations[offset + 2] = UpperChest.GetLocalRotation(stream);
+                LocalRotations[offset + 3] = WeaponBone.GetLocalRotation(stream);
+                LocalRotations[offset + 4] = IkWeaponBone.GetLocalRotation(stream);
+                Markers[Stage] = 1;
+            }
+
+            public void ProcessRootMotion(AnimationStream stream)
+            {
+            }
+        }
+#endif
     }
 }

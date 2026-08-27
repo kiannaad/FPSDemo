@@ -13,26 +13,111 @@ namespace CGame.Animation
 
         public void ProcessAnimation(AnimationStream stream)
         {
-            if (!KCurves.IsWeightRelevant(Weight)) return;
+            if (!KCurves.IsWeightRelevant(Weight))
+            {
+                return;
+            }
 
-            // The physical root follows ControlRotation. Counter-rotate
-            // the visual ModelRoot in the AnimationStream so its Hips/feet inherit
-            // the turn offset. Look consumes the same offset and owns the upper
-            // body aim correction; do not restore UpperBodyRoot here.
-            Quaternion yaw = Quaternion.AngleAxis(TurnAngleDegrees, Vector3.up);
-            Vector3 pivot = Root.GetPosition(stream);
-            Vector3 currentPosition = ModelRoot.GetPosition(stream);
-            Quaternion currentRotation = ModelRoot.GetRotation(stream);
-            Quaternion targetRotation = yaw * currentRotation;
+            Quaternion yaw = Quaternion.Euler(0f, TurnAngleDegrees, 0f);
+            AnimationLayerJobUtility.ModifyTransform(
+                stream,
+                Root,
+                ModelRoot,
+                new KPose
+                {
+                    Pose = new KTransform(Vector3.zero, yaw),
+                    Space = TransformSpace.ComponentSpace,
+                    ModifyMode = TransformModifyMode.Add
+                },
+                Weight);
 
-            ModelRoot.SetRotation(stream, Quaternion.Slerp(currentRotation, targetRotation, Weight));
-            if (!OffsetPosition) return;
+            if (!OffsetPosition)
+            {
+                return;
+            }
 
-            Vector3 targetPosition = pivot + yaw * (currentPosition - pivot);
-            ModelRoot.SetPosition(stream, Vector3.Lerp(currentPosition, targetPosition, Weight));
+            Vector3 localPosition = ModelRoot.GetLocalPosition(stream);
+            localPosition = yaw * localPosition - localPosition;
+            AnimationLayerJobUtility.ModifyTransform(
+                stream,
+                Root,
+                ModelRoot,
+                new KPose
+                {
+                    Pose = new KTransform(localPosition, Quaternion.identity),
+                    Space = TransformSpace.ComponentSpace,
+                    ModifyMode = TransformModifyMode.Add
+                },
+                Weight);
         }
 
         public void ProcessRootMotion(AnimationStream stream) { }
+
+        public static float CalculateYawCorrection(
+            Quaternion currentRotation,
+            float targetVisualYawDegrees,
+            float fallbackCorrectionDegrees)
+        {
+            Vector3 planarForward = Vector3.ProjectOnPlane(currentRotation * Vector3.forward, Vector3.up);
+            if (planarForward.sqrMagnitude <= 0.000001f)
+            {
+                return fallbackCorrectionDegrees;
+            }
+
+            float currentYaw = Mathf.Atan2(planarForward.x, planarForward.z) * Mathf.Rad2Deg;
+            return Mathf.DeltaAngle(currentYaw, targetVisualYawDegrees);
+        }
+    }
+
+    public struct TurnRuntimeState
+    {
+        private float playback;
+        private float turnAngle;
+        private float cachedTurnAngle;
+
+        public float Angle
+        {
+            get => turnAngle;
+            set => turnAngle = value;
+        }
+        public bool IsTurning { get; private set; }
+
+        public TurnRequest Advance(
+            float viewDeltaDegrees,
+            float deltaTime,
+            float threshold,
+            float speed,
+            AnimationCurve curve,
+            float weight)
+        {
+            Debug.Log($"viewDeltaDegrees : {viewDeltaDegrees} degrees");
+            turnAngle -= viewDeltaDegrees;
+            turnAngle *= Mathf.Clamp01(weight);
+            Debug.Log($"turnAngle : {turnAngle} degrees");
+            TurnRequest request = TurnRequest.None;
+            if (!IsTurning && Mathf.Abs(turnAngle) > threshold)
+            {
+                cachedTurnAngle = turnAngle;
+                IsTurning = true;
+                playback = 0f;
+                request = turnAngle < 0f ? TurnRequest.Right : TurnRequest.Left;
+            }
+
+            if (!IsTurning)
+            {
+                return request;
+            }
+
+            playback = Mathf.Clamp01(playback + Mathf.Max(0f, deltaTime) * speed);
+            float alpha = curve.Evaluate(playback);
+            turnAngle = Mathf.Lerp(cachedTurnAngle, 0f, alpha);
+            if (Mathf.Approximately(playback, 1f))
+            {
+                IsTurning = false;
+            }
+
+            return request;
+        }
     }
 
     public enum TurnRequest
@@ -40,98 +125,5 @@ namespace CGame.Animation
         None,
         Left,
         Right
-    }
-
-    public struct TurnRuntimeState
-    {
-        private const float MaxVisualOffsetDegrees = 90f;
-
-        private float cachedAngle;
-        private float playback;
-        public float Angle { get; private set; }
-        public bool IsTurning { get; private set; }
-        public bool IsLocomotionHandoff { get; private set; }
-
-        // This is the continuous visual ModelRoot offset. The threshold controls
-        // only the one-shot turn animation and when this offset is eased back to
-        // zero; gating it here would make the lower body snap at the threshold.
-        public float AppliedAngle => Angle;
-
-        public void Cancel()
-        {
-            cachedAngle = 0f;
-            playback = 0f;
-            Angle = 0f;
-            IsTurning = false;
-            IsLocomotionHandoff = false;
-        }
-
-        public void BeginLocomotionHandoff()
-        {
-            IsLocomotionHandoff = Mathf.Abs(Angle) > Mathf.Epsilon;
-            IsTurning = false;
-            playback = 0f;
-        }
-
-        public void AdvanceLocomotionHandoff(float deltaTime, float duration)
-        {
-            if (!IsLocomotionHandoff)
-            {
-                return;
-            }
-
-            Angle = Mathf.MoveTowards(
-                Angle,
-                0f,
-                MaxVisualOffsetDegrees * deltaTime / Mathf.Max(0.001f, duration));
-            if (Mathf.Abs(Angle) <= 0.01f)
-            {
-                Angle = 0f;
-                IsLocomotionHandoff = false;
-            }
-        }
-
-        public void ClampForLookYaw(float viewYawDegrees, float maximumLookYawDegrees)
-        {
-            float maximum = Mathf.Max(0f, maximumLookYawDegrees);
-            float minimumAngle = Mathf.Max(-MaxVisualOffsetDegrees, viewYawDegrees - maximum);
-            float maximumAngle = Mathf.Min(MaxVisualOffsetDegrees, viewYawDegrees + maximum);
-
-            // TurnOffset is -Angle, so Look receives viewYawDegrees - Angle.
-            // Clamp the visual counter-offset to the yaw range the spine chain can
-            // actually express; otherwise a fast input frame leaves an aim gap.
-            Angle = minimumAngle <= maximumAngle
-                ? Mathf.Clamp(Angle, minimumAngle, maximumAngle)
-                : Mathf.Clamp(Angle, -MaxVisualOffsetDegrees, MaxVisualOffsetDegrees);
-        }
-
-        public TurnRequest Advance(float viewDeltaDegrees, float deltaTime, float threshold, float speed, AnimationCurve curve)
-        {
-            IsLocomotionHandoff = false;
-            // Look can aim the upper body through at most +/- 90 degrees.  A wider
-            // visual ModelRoot offset leaves an uncompensated yaw gap between the
-            // weapon and camera after a high-rate input frame.
-            Angle = Mathf.Clamp(Angle - viewDeltaDegrees, -MaxVisualOffsetDegrees, MaxVisualOffsetDegrees);
-            TurnRequest request = TurnRequest.None;
-            if (!IsTurning && Mathf.Abs(Angle) > threshold)
-            {
-                cachedAngle = Angle;
-                playback = 0f;
-                IsTurning = true;
-                request = Angle < 0f ? TurnRequest.Right : TurnRequest.Left;
-            }
-
-            if (IsTurning && deltaTime > 0f)
-            {
-                playback = Mathf.Clamp01(playback + deltaTime * Mathf.Max(0f, speed));
-                Angle = Mathf.Lerp(cachedAngle, 0f, curve.Evaluate(playback));
-                if (playback >= 1f)
-                {
-                    Angle = 0f;
-                    IsTurning = false;
-                }
-            }
-            return request;
-        }
     }
 }

@@ -33,7 +33,6 @@ namespace CGame.Animation
         [SerializeField, Range(0f, 1f)] private float stabilizationWeight = 1f;
         [SerializeField] private string weaponBoneWeightCurve = "WeaponBoneWeight";
         [SerializeField, Range(-1f, 1f)] private float defaultWeaponBoneWeight;
-        [SerializeField] private bool useReferenceHandTargets;
 
         public AnimationClip ReferencePose => referencePose;
         public KTransform DefaultWeaponPose => Normalize(defaultWeaponPose);
@@ -53,7 +52,6 @@ namespace CGame.Animation
         public float StabilizationWeight => stabilizationWeight;
         public string WeaponBoneWeightCurve => weaponBoneWeightCurve;
         public float DefaultWeaponBoneWeight => defaultWeaponBoneWeight;
-        public bool UseReferenceHandTargets => useReferenceHandTargets;
 
         public override IAnimationLayerJob CreateAnimationJob() => new PoseSamplerLayerJob();
 

@@ -8,6 +8,7 @@ namespace CGame.Animation
         private readonly Pawn pawn;
         private readonly IAnimationCharacterSource source;
         private bool discontinuityPending = true;
+        private uint discontinuityVersion = 1;
 
         public AnimationUpdateContext(Pawn pawn, IAnimationCharacterSource source)
         {
@@ -41,6 +42,7 @@ namespace CGame.Animation
         public KTransform RecoilOffset { get; private set; } = KTransform.Identity;
         public bool WeaponCollisionHasHit { get; private set; }
         public float WeaponCollisionDistance { get; private set; }
+        internal uint DiscontinuityVersion => discontinuityVersion;
         internal Pawn Pawn => pawn;
 
         internal void Update(float deltaTime)
@@ -74,6 +76,10 @@ namespace CGame.Animation
         internal void MarkDiscontinuity()
         {
             discontinuityPending = true;
+            unchecked
+            {
+                discontinuityVersion++;
+            }
         }
 
         internal void SetAimingWeight(float value)
