@@ -1,0 +1,13 @@
+{
+  "name": "CGame.World.CoreServices",
+  "rootNamespace": "CGame",
+  "references": [
+    "CGame.World",
+    "CGame.Input",
+    "CGame.CharacterRuntime",
+    "CGame.GameplayTags",
+    "Unity.InputSystem",
+    "YooAsset"
+  ],
+  "autoReferenced": true
+}

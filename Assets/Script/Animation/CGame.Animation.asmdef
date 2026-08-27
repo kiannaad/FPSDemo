@@ -2,8 +2,10 @@
     "name": "CGame.Animation",
     "rootNamespace": "CGame.Animation",
     "references": [
-        "CGame.Weapon",
-        "Kybernetik.Animancer"
+        "CGame.World",
+        "CGame.CharacterRuntime",
+        "CGame.Ability",
+        "CGame.Weapon"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

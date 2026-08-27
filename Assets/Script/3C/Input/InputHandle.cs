@@ -96,6 +96,14 @@ namespace CGame
             }
         }
 
+        public IDisposable RegisterActionCallback(
+            InputActionReference actionReference,
+            InputCallbackPhase phase,
+            Action<InputAction.CallbackContext> callback)
+        {
+            return container.RegisterActionCallback(actionReference, phase, callback);
+        }
+
         /// <summary>
         /// 刷新输入状态快照。
         /// </summary>

@@ -1,0 +1,9 @@
+{
+  "name": "CGame.CharacterPhysics",
+  "rootNamespace": "CGame",
+  "references": [
+    "CGame.World",
+    "CGame.CharacterRuntime"
+  ],
+  "autoReferenced": true
+}

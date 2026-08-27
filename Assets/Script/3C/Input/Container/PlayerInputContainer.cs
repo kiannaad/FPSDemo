@@ -77,15 +77,37 @@ namespace CGame
         {
             State = new PlayerInputState
             {
-                MoveInput = input.Player.Move.ReadValue<Vector2>(),
+                MoveInput = readMoveInput(),
                 LookInput = ReadLookInput(),
-                FirePressed = input.Player.Fire.WasPressedThisFrame(),
-                FireHeld = input.Player.Fire.IsPressed(),
-                JumpPressed = input.Player.Jump.WasPressedThisFrame(),
-                SprintHeld = input.Player.Sprint.IsPressed(),
-                AimHeld = input.Player.Aim.IsPressed(),
-                ReloadPressed = input.Player.Reload.WasPressedThisFrame(),
+                FirePressed = input.Player.Fire.WasPressedThisFrame()
+                    || anyMouseButtonWasPressedThisFrame(false),
+                FireHeld = input.Player.Fire.IsPressed()
+                    || anyMouseButtonIsPressed(false),
+                JumpPressed = input.Player.Jump.WasPressedThisFrame()
+                    || Keyboard.current?.spaceKey.wasPressedThisFrame == true,
+                SprintHeld = input.Player.Sprint.IsPressed()
+                    || Keyboard.current?.leftShiftKey.isPressed == true,
+                AimHeld = input.Player.Aim.IsPressed()
+                    || anyMouseButtonIsPressed(true),
+                ReloadPressed = input.Player.Reload.WasPressedThisFrame()
+                    || Keyboard.current?.rKey.wasPressedThisFrame == true,
             };
+        }
+
+        private Vector2 readMoveInput()
+        {
+            Vector2 actionValue = input.Player.Move.ReadValue<Vector2>();
+            Keyboard keyboard = Keyboard.current;
+            if (actionValue.sqrMagnitude > 0f || keyboard == null)
+            {
+                return Vector2.ClampMagnitude(actionValue, 1f);
+            }
+
+            float horizontal = (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed ? 1f : 0f)
+                - (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed ? 1f : 0f);
+            float vertical = (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed ? 1f : 0f)
+                - (keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed ? 1f : 0f);
+            return Vector2.ClampMagnitude(new Vector2(horizontal, vertical), 1f);
         }
 
         /// <summary>
@@ -106,6 +128,15 @@ namespace CGame
             InputAction lookAction = input.Player.Look;
             Vector2 value = lookAction.ReadValue<Vector2>();
 
+            if (value.sqrMagnitude <= 0f && Mouse.current != null)
+            {
+                Vector2 mouseDelta = Mouse.current.delta.ReadValue();
+                if (mouseDelta.sqrMagnitude > 0f)
+                {
+                    return new LookInputValue(mouseDelta, LookInputTimeMode.Delta);
+                }
+            }
+
             if (lookAction.activeControl == null)
             {
                 return new LookInputValue(Vector2.zero, LookInputTimeMode.None);
@@ -115,6 +146,32 @@ namespace CGame
                 ? LookInputTimeMode.Delta
                 : LookInputTimeMode.Rate;
             return new LookInputValue(value, timeMode);
+        }
+
+        private static bool anyMouseButtonIsPressed(bool rightButton)
+        {
+            foreach (InputDevice device in InputSystem.devices)
+            {
+                if (device is Mouse mouse && (rightButton ? mouse.rightButton.isPressed : mouse.leftButton.isPressed))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool anyMouseButtonWasPressedThisFrame(bool rightButton)
+        {
+            foreach (InputDevice device in InputSystem.devices)
+            {
+                if (device is Mouse mouse && (rightButton ? mouse.rightButton.wasPressedThisFrame : mouse.leftButton.wasPressedThisFrame))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

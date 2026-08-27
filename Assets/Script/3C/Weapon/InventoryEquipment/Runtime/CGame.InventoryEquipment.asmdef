@@ -1,0 +1,13 @@
+{
+  "name": "CGame.InventoryEquipment",
+  "rootNamespace": "CGame.InventoryEquipment",
+  "references": [
+    "CGame.Inventory",
+    "CGame.Ability",
+    "CGame.GameplayTags",
+    "CGame.Animation",
+    "CGame.CharacterRuntime",
+    "CGame.World"
+  ],
+  "autoReferenced": true
+}

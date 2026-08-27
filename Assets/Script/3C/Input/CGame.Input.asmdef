@@ -2,9 +2,8 @@
     "name": "CGame.Input",
     "rootNamespace": "CGame",
     "references": [
-        "CGame.Character.Definition",
-        "YooAsset",
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "CGame.GameplayTags"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

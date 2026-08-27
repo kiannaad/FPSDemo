@@ -25,16 +25,8 @@ MonoBehaviour:
     AutoCollectShaders: 1
     IgnoreRuleName: NormalIgnoreRule
     Groups:
-    - GroupName: character-definition
-      GroupDesc: Runtime character definition assets
+    - GroupName: runtime-definitions
+      GroupDesc: Runtime character and weapon definition assets
       AssetTags:
       ActiveRuleName: EnableGroup
       Collectors:
-      - CollectPath: Assets/Resources/CharacterDefinition.asset
-        CollectorGUID: a5ee80a94ea73824298726dec63166aa
-        CollectorType: 0
-        AddressRuleName: AddressByFileName
-        PackRuleName: PackSeparately
-        FilterRuleName: CollectAll
-        AssetTags:
-        UserData:

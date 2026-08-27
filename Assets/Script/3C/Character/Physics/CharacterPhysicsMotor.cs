@@ -678,10 +678,19 @@ namespace CGame
 #pragma warning restore 0414
 
         private IPhysicsRegistration physicsRegistration;
+        private ICharacterPhysicsEventSink physicsEventSink;
 
         private void OnEnable()
         {
-            physicsRegistration = PhysicsManager.CurrentWorld?.Register(this)
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+
+            ICharacterPhysicsWorld physicsWorld = World.Current?
+                .GetSubSystem<CharacterPhysicsSubSystem>()?
+                .PhysicsWorld;
+            physicsRegistration = physicsWorld?.Register(this)
                 ?? throw new InvalidOperationException("Character physics world is not initialized.");
         }
 
@@ -690,6 +699,11 @@ namespace CGame
             // 当前 Motor 禁用后必须注销，否则系统会继续模拟失效对象。
             physicsRegistration?.Dispose();
             physicsRegistration = null;
+        }
+
+        internal void SetPhysicsEventSink(ICharacterPhysicsEventSink eventSink)
+        {
+            physicsEventSink = eventSink;
         }
 
         private void Reset()
@@ -1419,7 +1433,7 @@ namespace CGame
                 for (int i = 0; i < nbOverlaps; i++)
                 {
                     // 通知业务层当前最终位置仍与某些碰撞体存在离散重叠。
-                    CharacterController.OnDiscreteCollisionDetected(_internalProbedColliders[i]);
+                    physicsEventSink?.Enqueue(CharacterController, _internalProbedColliders[i]);
                 }
             }
 

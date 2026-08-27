@@ -1,0 +1,17 @@
+{
+  "name": "CGame.PlayerController",
+  "rootNamespace": "CGame",
+  "references": [
+    "CGame.World",
+    "CGame.PlayerState",
+    "CGame.Ability",
+    "CGame.GameplayTags",
+    "CGame.CharacterRuntime",
+    "CGame.Character.Definition",
+    "CGame.Inventory",
+    "CGame.Animation",
+    "Unity.InputSystem",
+    "CGame.Input"
+  ],
+  "autoReferenced": true
+}

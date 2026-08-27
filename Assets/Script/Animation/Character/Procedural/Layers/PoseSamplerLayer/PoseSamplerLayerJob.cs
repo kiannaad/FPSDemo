@@ -1,0 +1,220 @@
+using System;
+using Unity.Collections;
+using UnityEngine;
+using UnityEngine.Animations;
+using UnityEngine.Playables;
+
+namespace CGame.Animation
+{
+    public sealed class PoseSamplerLayerJob : IAnimationLayerJob
+    {
+        private Animator animator;
+        private CharacterAnimInstance owner;
+        private PoseSamplerLayerSettings settings;
+        private PoseSamplerJob job;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private NativeArray<PoseSamplerDebugSample> debugSamples;
+        private bool hasLoggedDebugSample;
+#endif
+
+        public Type SettingsType => typeof(PoseSamplerLayerSettings);
+
+        public void Initialize(LayerJobData jobData, AnimationLayerSettings layerSettings)
+        {
+            settings = RequireSettings(layerSettings);
+            animator = jobData.Animator;
+            owner = jobData.Owner;
+            Transform root = animator.transform;
+            Transform pelvis = Resolve(jobData, settings.Pelvis, "pelvis");
+            Transform spine = Resolve(jobData, settings.SpineRoot, "spine root");
+            Transform weapon = Resolve(jobData, settings.WeaponBone, "weapon bone");
+            Transform weaponRight = Resolve(jobData, settings.WeaponBoneRight, "right weapon bone");
+            Transform weaponLeft = Resolve(jobData, settings.WeaponBoneLeft, "left weapon bone");
+            Transform modelRoot = ResolveModelRoot(jobData);
+
+            KTransform defaultWeapon = settings.DefaultWeaponPose;
+            KTransform[] cachedHierarchyPose = CaptureHierarchyPose(jobData);
+            jobData.RigComponent.RestoreInitializedHierarchyPose();
+            Quaternion cachedPelvisPose;
+            KTransform componentPose;
+            KTransform spinePose;
+            KTransform rightReferencePose;
+            KTransform leftReferencePose;
+            Quaternion modelRootReferenceRotation = Quaternion.identity;
+            bool hasModelRootReferencePose = settings.ReferencePose != null;
+            try
+            {
+                weapon.position = root.TransformPoint(defaultWeapon.Position);
+                weapon.rotation = root.rotation * defaultWeapon.Rotation;
+                if (settings.ReferencePose != null)
+                {
+                    settings.ReferencePose.SampleAnimation(root.gameObject, 0f);
+                }
+                if (settings.OverwriteWeaponBone)
+                {
+                    weapon.position = root.TransformPoint(defaultWeapon.Position);
+                    weapon.rotation = root.rotation * defaultWeapon.Rotation;
+                }
+
+                weaponRight.SetPositionAndRotation(weapon.position, weapon.rotation);
+                weaponLeft.SetPositionAndRotation(weapon.position, weapon.rotation);
+                cachedPelvisPose = Quaternion.Inverse(root.rotation) * pelvis.rotation;
+                componentPose = new KTransform(root).GetRelativeTransform(new KTransform(weapon), false);
+                spinePose = new KTransform(spine).GetRelativeTransform(new KTransform(weapon), false);
+                rightReferencePose = new KTransform(weaponRight, false);
+                leftReferencePose = new KTransform(weaponLeft, false);
+                modelRootReferenceRotation = Quaternion.Inverse(jobData.RigComponent.transform.rotation)
+                    * modelRoot.rotation;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError($"PoseSampler 初始化失败。Layer={settings.name}");
+                Debug.LogException(exception);
+                throw;
+            }
+            finally
+            {
+                RestoreHierarchyPose(jobData, cachedHierarchyPose);
+            }
+
+            bool hasValidRoot = pelvis.parent != null && pelvis.parent != root;
+            job = new PoseSamplerJob
+            {
+                CharacterRoot = jobData.VisualRootHandle,
+                ModelRoot = animator.BindStreamTransform(modelRoot),
+                SpineRoot = Bind(jobData, settings.SpineRoot, "spine root"),
+                Pelvis = Bind(jobData, settings.Pelvis, "pelvis"),
+                PelvisParent = settings.OverwriteRoot && hasValidRoot
+                    ? animator.BindStreamTransform(pelvis.parent)
+                    : default,
+                WeaponBone = Bind(jobData, settings.WeaponBone, "weapon bone"),
+                WeaponBoneRight = Bind(jobData, settings.WeaponBoneRight, "right weapon bone"),
+                WeaponBoneLeft = Bind(jobData, settings.WeaponBoneLeft, "left weapon bone"),
+                IkWeaponBone = Bind(jobData, settings.IkWeaponBone, "IK weapon bone"),
+                IkRightHand = Bind(jobData, settings.IkRightHand, "IK right hand"),
+                IkLeftHand = Bind(jobData, settings.IkLeftHand, "IK left hand"),
+                IkRightHandHint = Bind(jobData, settings.IkRightHandHint, "IK right hint"),
+                IkLeftHandHint = Bind(jobData, settings.IkLeftHandHint, "IK left hint"),
+                CachedPelvisPose = cachedPelvisPose,
+                WeaponBoneComponentPose = componentPose,
+                WeaponBoneSpinePose = spinePose,
+                WeaponBoneRightLocalPose = rightReferencePose,
+                WeaponBoneLeftLocalPose = leftReferencePose,
+                WeaponBoneOffset = settings.WeaponBoneOffset,
+                HasValidRoot = hasValidRoot,
+                ModelRootReferenceRotation = modelRootReferenceRotation,
+                HasModelRootReferencePose = hasModelRootReferencePose
+            };
+// #if UNITY_EDITOR || DEVELOPMENT_BUILD
+//             debugSamples = new NativeArray<PoseSamplerDebugSample>(1, Allocator.Persistent);
+//             job.DebugSamples = debugSamples;
+//             Debug.Log(
+//                 $"[WeaponIkProbe][PoseSamplerInit] Layer={settings.name}; "
+//                 + $"ReferencePose={(settings.ReferencePose != null ? settings.ReferencePose.name : "<none>")}; "
+//                 + $"OverwriteWeaponBone={settings.OverwriteWeaponBone}; "
+//                 + $"DefaultWeaponBoneWeight={settings.DefaultWeaponBoneWeight:F3}; "
+//                 + $"Curve={settings.WeaponBoneWeightCurve}");
+// #endif
+        }
+
+        public AnimationScriptPlayable CreatePlayable(PlayableGraph graph) => AnimationScriptPlayable.Create(graph, job, 1);
+        public AnimationLayerSettings GetSettings() => settings;
+        public void OnPreAnimationUpdate(float deltaTime, float weight) { }
+
+        public void UpdatePlayableJobData(AnimationScriptPlayable playable, float weight)
+        {
+            job.Weight = weight;
+            job.OverwriteRoot = settings.OverwriteRoot;
+            job.OverwriteWeaponBone = settings.OverwriteWeaponBone;
+            job.DefaultWeaponPose = settings.DefaultWeaponPose;
+            job.WeaponBoneOffset = settings.WeaponBoneOffset;
+            job.StabilizationWeight = settings.StabilizationWeight;
+            job.WeaponBoneWeight = string.IsNullOrWhiteSpace(settings.WeaponBoneWeightCurve)
+                ? settings.DefaultWeaponBoneWeight
+                : owner.GetCurveValue(settings.WeaponBoneWeightCurve);
+            playable.SetJobData(job);
+        }
+
+        public void OnPostAnimationUpdate()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (hasLoggedDebugSample || !debugSamples.IsCreated || debugSamples[0].Captured == 0)
+            {
+                return;
+            }
+
+            PoseSamplerDebugSample sample = debugSamples[0];
+            Debug.Log(
+                $"[WeaponIkProbe][PoseSampler] Layer={settings.name}; "
+                + $"WeaponBone={sample.WeaponBonePosition:F3}; "
+                + $"RightReference={sample.RightReferencePosition:F3}; "
+                + $"LeftReference={sample.LeftReferencePosition:F3}; "
+                + $"ExpectedRightBlend={sample.ExpectedRightBlendPosition:F3}; "
+                + $"IkWeapon={sample.IkWeaponPosition:F3}; "
+                + $"WeaponBoneWeight={sample.WeaponBoneWeight:F3}");
+            hasLoggedDebugSample = true;
+#endif
+        }
+
+        public void Dispose()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (debugSamples.IsCreated) debugSamples.Dispose();
+            hasLoggedDebugSample = false;
+#endif
+        }
+
+        private static KTransform[] CaptureHierarchyPose(LayerJobData data)
+        {
+            int count = data.RigComponent.Rig.Hierarchy.Count;
+            var pose = new KTransform[count];
+            for (int index = 0; index < count; index++)
+            {
+                pose[index] = new KTransform(data.RigComponent.GetRigTransform(index), false);
+            }
+
+            return pose;
+        }
+
+        private static void RestoreHierarchyPose(LayerJobData data, KTransform[] pose)
+        {
+            for (int index = 0; index < pose.Length; index++)
+            {
+                Transform target = data.RigComponent.GetRigTransform(index);
+                target.localPosition = pose[index].Position;
+                target.localRotation = pose[index].Rotation;
+                target.localScale = pose[index].Scale;
+            }
+        }
+
+        private static PoseSamplerLayerSettings RequireSettings(AnimationLayerSettings value)
+        {
+            return value as PoseSamplerLayerSettings
+                ?? throw new ArgumentException("Pose sampler job requires PoseSamplerLayerSettings.", nameof(value));
+        }
+
+        private static Transform Resolve(LayerJobData data, CGame.Animation.Rig.KRigElement element, string label)
+        {
+            return RigHandleUtility.ResolveTransform(data.RigComponent, element, label);
+        }
+
+        private static TransformStreamHandle Bind(LayerJobData data, CGame.Animation.Rig.KRigElement element, string label)
+        {
+            return RigHandleUtility.Bind(data.Animator, data.RigComponent, element, label);
+        }
+
+        private static Transform ResolveModelRoot(LayerJobData data)
+        {
+            const string modelRootName = "Skeleton";
+            for (int index = 0; index < data.RigComponent.Rig.Hierarchy.Count; index++)
+            {
+                if (string.Equals(data.RigComponent.Rig.Hierarchy[index].Name, modelRootName, StringComparison.Ordinal))
+                {
+                    return data.RigComponent.GetRigTransform(index);
+                }
+            }
+
+            throw new InvalidOperationException($"Pose sampler requires rig element '{modelRootName}'.");
+        }
+    }
+}

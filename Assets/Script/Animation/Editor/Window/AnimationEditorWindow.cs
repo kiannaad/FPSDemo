@@ -9,7 +9,7 @@ namespace CGame.Animation.Editor
 {
     public partial class AnimationEditorWindow : EditorWindow
     {
-        private const string DefaultPreviewSourcePath = "Packages/com.kybernetik.animancer/Art/Animancer Humanoid/AnimancerHumanoid.prefab";
+        private const string DefaultPreviewSourcePath = "Assets/KINEMATION/ScriptableAnimationSystemDemo/Prefabs/Humanoid/FPSHumanoidPlayer.prefab";
 
         [SerializeField] private AnimationWindowState state = new AnimationWindowState();
         [SerializeField] private bool eventContextPanelOpen;
