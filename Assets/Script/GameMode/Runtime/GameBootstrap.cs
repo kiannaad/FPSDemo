@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using CGame.GameplayTags;
+using CGame.Ability.Cues;
 using CGame.InventoryEquipment;
 using UnityEngine;
 
@@ -15,6 +16,7 @@ namespace CGame
         [SerializeField] private GameModeDefinition gameModeDefinition;
         [SerializeField] private GameplayTagSource[] gameplayTagSources;
         [SerializeField] private WeaponDefinition[] weaponDefinitions;
+        [SerializeField] private GameplayCueSet[] gameplayCueSets;
 
         public override IReadOnlyList<WorldSubSystem> CreateWorldSubSystems()
         {
@@ -22,6 +24,7 @@ namespace CGame
             {
                 new CharacterPhysicsSubSystem(characterPhysicsSettings),
                 new GameplayTagWorldCoreService(gameplayTagSources),
+                new GameplayCueManager(gameplayCueSets),
                 new WeaponCatalogSubSystem(weaponDefinitions)
             };
             if (initializeResources)
@@ -64,6 +67,11 @@ public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
         public void ConfigureWeaponDefinitions(params WeaponDefinition[] definitions)
         {
             weaponDefinitions = definitions ?? System.Array.Empty<WeaponDefinition>();
+        }
+
+        public void ConfigureGameplayCueSets(params GameplayCueSet[] cueSets)
+        {
+            gameplayCueSets = cueSets ?? System.Array.Empty<GameplayCueSet>();
         }
 
 

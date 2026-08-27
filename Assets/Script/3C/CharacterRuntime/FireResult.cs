@@ -1,3 +1,5 @@
+using CGame.Ability.Cues;
+
 namespace CGame
 {
     public readonly struct FireResult
@@ -5,7 +7,7 @@ namespace CGame
         public FireResult(
             bool succeeded,
             int shotSequence,
-            WeaponHitResult? hitResult = null,
+            GameplayHitResult? hitResult = null,
             string failureReason = null)
         {
             Succeeded = succeeded;
@@ -16,7 +18,7 @@ namespace CGame
 
         public bool Succeeded { get; }
         public int ShotSequence { get; }
-        public WeaponHitResult? HitResult { get; }
+        public GameplayHitResult? HitResult { get; }
         public bool HasHitResult => HitResult.HasValue;
         public string FailureReason { get; }
 

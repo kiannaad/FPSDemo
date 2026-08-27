@@ -2,6 +2,7 @@ using System;
 using CGame;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.Ability.Cues;
 using UnityEngine;
 using CGame.Animation;
 using UnityEngine.Animations;
@@ -44,6 +45,7 @@ namespace CGame.InventoryEquipment
         public bool IsPrepared => presentationRoot != null;
 
         public GameObject PresentationRoot => presentationRoot;
+        public Transform MuzzlePoint => muzzlePoint;
 
         public bool IsPresentationVisible { get; private set; }
 
@@ -259,7 +261,7 @@ namespace CGame.InventoryEquipment
             base.Dispose();
         }
 
-        public WeaponHitResult QueryHit(Vector3 cameraOrigin, Vector3 cameraDirection)
+        public GameplayHitResult? QueryHit(Vector3 cameraOrigin, Vector3 cameraDirection)
         {
             if (!IsPrepared || muzzlePoint == null)
             {
@@ -279,15 +281,16 @@ namespace CGame.InventoryEquipment
             Vector3 muzzlePosition = muzzlePoint.position;
             Vector3 muzzleToCandidate = candidatePoint - muzzlePosition;
             float candidateDistance = muzzleToCandidate.magnitude;
-            if (candidateDistance <= 0.01f)
-            {
-                return new WeaponHitResult(cameraHasHit, cameraHit, cameraHasHit, cameraHit, candidatePoint, false, muzzlePosition, direction);
-            }
+            if (candidateDistance <= 0.01f) return cameraHasHit ? ToGameplayHitResult(cameraHit) : null;
 
             bool muzzleBlocked = TryGetNearestValidHit(muzzlePosition, muzzleToCandidate / candidateDistance, candidateDistance - 0.01f, bulletData.HitLayerMask, out RaycastHit muzzleHit);
-            return muzzleBlocked
-                ? new WeaponHitResult(cameraHasHit, cameraHit, true, muzzleHit, candidatePoint, true, muzzlePosition, direction)
-                : new WeaponHitResult(cameraHasHit, cameraHit, cameraHasHit, cameraHit, candidatePoint, false, muzzlePosition, direction);
+            if (muzzleBlocked) return ToGameplayHitResult(muzzleHit);
+            return cameraHasHit ? ToGameplayHitResult(cameraHit) : null;
+        }
+
+        private static GameplayHitResult ToGameplayHitResult(RaycastHit hit)
+        {
+            return new GameplayHitResult(hit.point, hit.normal, hit.collider);
         }
         private void BindAimPointToPawn()
         {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.Ability.Cues;
 using CGame.Animation;
 using CGame.GameplayTags;
 using UnityEngine;
@@ -121,11 +122,13 @@ namespace CGame.InventoryEquipment
     {
         private readonly WeaponAction action;
         private readonly AnimationClipAsset attackClip;
+        private AbilitySystemComponent abilitySystem;
         private CharacterAnimInstance characterAnimation;
         private AnimationPlaybackHandle characterPlayback;
         public WeaponActionAbilityInstance(WeaponAction action, AnimationClipAsset attackClip) { this.action = action; this.attackClip = attackClip; }
         protected override void OnActivate()
         {
+            abilitySystem = ActivationContext.AbilitySystem;
             if (!(ActivationContext.Spec.SourceObject is WeaponInstance weapon)) { EndAbility(AbilityEndReason.Failed); return; }
             switch (action)
             {
@@ -260,7 +263,7 @@ namespace CGame.InventoryEquipment
                 return FireResult.Failed("Queued shot weapon has no ammunition.", pawn.RecoilShotSequence);
             }
 
-            WeaponHitResult hitResult = weapon.QueryHit(origin, direction);
+            GameplayHitResult? hitResult = weapon.QueryHit(origin, direction);
             if (!weapon.Item.TryConsumeMagazineAmmo())
             {
                 return FireResult.Failed("Queued shot ammunition commit failed.", pawn.RecoilShotSequence);
@@ -272,12 +275,35 @@ namespace CGame.InventoryEquipment
                 return recoilResult;
             }
 
-            string hitObject = hitResult.HasHit && hitResult.Hit.collider != null
-                ? hitResult.Hit.collider.name
+            string hitObject = hitResult.HasValue && hitResult.Value.Collider != null
+                ? hitResult.Value.Collider.name
                 : "<none>";
-            Vector3 hitPosition = hitResult.HasHit ? hitResult.Hit.point : hitResult.CandidatePoint;
-            Debug.Log($"[WeaponFire] sequence={recoilResult.ShotSequence}, object={hitObject}, position=({hitPosition.x:F5},{hitPosition.y:F5},{hitPosition.z:F5}), direction=({hitResult.Direction.x:F5},{hitResult.Direction.y:F5},{hitResult.Direction.z:F5}), muzzleBlocked={hitResult.MuzzleBlocked}");
+            Vector3 hitPosition = hitResult.HasValue ? hitResult.Value.Location : origin;
+            Debug.Log($"[WeaponFire] sequence={recoilResult.ShotSequence}, object={hitObject}, position=({hitPosition.x:F5},{hitPosition.y:F5},{hitPosition.z:F5})");
+            DispatchGameplayCues(abilitySystem, weapon, pawn, hitResult);
             return new FireResult(true, recoilResult.ShotSequence, hitResult);
+        }
+
+        private static void DispatchGameplayCues(AbilitySystemComponent abilitySystem, WeaponInstance weapon, Pawn pawn, GameplayHitResult? hitResult)
+        {
+            if (abilitySystem == null)
+            {
+                Debug.LogWarning("[CueDebug] Weapon fire has no ability system.");
+                return;
+            }
+
+            if (!GameplayTagManager.Instance.TryRequestTag("GameplayCue.Weapon.Fire", out GameplayTag fireTag) ||
+                !GameplayTagManager.Instance.TryRequestTag("GameplayCue.Weapon.Impact", out GameplayTag impactTag))
+            {
+                return;
+            }
+
+            var fireContext = new GameplayEffectContext(pawn, weapon.PresentationRoot, weapon.Definition);
+            abilitySystem.ExecuteGameplayCue(fireTag, new GameplayCueParameters(fireContext, location: weapon.MuzzlePoint.position, hasLocation: true));
+            if (!hitResult.HasValue) return;
+            GameplayHitResult hit = hitResult.Value;
+            var impactContext = new GameplayEffectContext(pawn, weapon.PresentationRoot, weapon.Definition, hit);
+            abilitySystem.ExecuteGameplayCue(impactTag, new GameplayCueParameters(impactContext, location: hit.Location, hasLocation: true, normal: hit.Normal, hasNormal: true, physicMaterial: hit.PhysicMaterial));
         }
 
         private void OnQueuedShotCompleted(FireResult result)

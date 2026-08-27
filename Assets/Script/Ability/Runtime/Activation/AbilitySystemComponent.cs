@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CGame.Ability.Cues;
 using CGame.GameplayTags;
 
 namespace CGame.Ability
@@ -39,6 +40,7 @@ namespace CGame.Ability
                 return false;
             }
 
+            GameplayCueRouter.Current?.RemoveForTarget(Avatar);
             EndAllActiveAbilities(AbilityEndReason.AvatarChanged);
             Avatar = avatar;
             return true;
@@ -51,6 +53,7 @@ namespace CGame.Ability
                 return;
             }
 
+            GameplayCueRouter.Current?.RemoveForTarget(Avatar);
             foreach (AbilityGrantReceipt receipt in grantReceipts.ToArray())
             {
                 receipt.Revoke();
@@ -519,6 +522,21 @@ namespace CGame.Ability
         public bool CancelAbility(AbilitySpecHandle handle, AbilityEndReason reason)
         {
             return specs.TryGetValue(handle, out AbilitySpec spec) && spec.PrimaryInstance.EndAbility(reason);
+        }
+
+        public void ExecuteGameplayCue(GameplayTag cueTag, GameplayCueParameters parameters)
+        {
+            GameplayCueRouter.Current?.Execute(cueTag, parameters.WithTarget(Avatar));
+        }
+
+        public GameplayCueHandle AddGameplayCue(GameplayTag cueTag, GameplayCueParameters parameters)
+        {
+            return GameplayCueRouter.Current?.Add(cueTag, parameters.WithTarget(Avatar)) ?? default;
+        }
+
+        public bool RemoveGameplayCue(GameplayCueHandle handle)
+        {
+            return GameplayCueRouter.Current?.Remove(handle) ?? false;
         }
 
         public GameplayTagGrantHandle AddOwnedTag(GameplayTag tag)

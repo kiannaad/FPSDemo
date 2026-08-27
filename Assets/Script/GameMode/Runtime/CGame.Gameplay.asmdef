@@ -3,6 +3,7 @@
   "rootNamespace": "CGame",
     "references": [
     "CGame.GameplayTags",
+    "CGame.Ability",
     "CGame.World",
     "CGame.World.CoreServices",
     "CGame.PlayerController",
