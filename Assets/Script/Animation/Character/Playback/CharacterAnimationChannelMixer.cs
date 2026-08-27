@@ -35,6 +35,7 @@ namespace CGame.Animation
         private bool isDisposed;
         private bool isUpdating;
         private float lastMaskAttachHandLog = float.NaN;
+        private float lastReloadWeaponBoneWeightLog = float.NaN;
 
         public CharacterAnimationChannelMixer(
             PlayableGraph graph,
@@ -310,6 +311,23 @@ namespace CGame.Animation
                         {
                             lastMaskAttachHandLog = resolved;
                             Debug.Log($"[ReloadTrace] MaskAttachHand source: clip={slot.Animation.Handle.Clip?.name}, raw={rawValue:F2}, inputWeight={inputWeight:F2}, resolved={resolved:F2}");
+                        }
+                    }
+
+                    string clipName = slot.Animation.Handle.Clip?.name;
+                    if (curveName == "WeaponBoneWeight"
+                        && !string.IsNullOrEmpty(clipName)
+                        && clipName.IndexOf("Reload", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        float resolved = rawValue * inputWeight;
+                        if (float.IsNaN(lastReloadWeaponBoneWeightLog)
+                            || Mathf.Abs(resolved - lastReloadWeaponBoneWeightLog) > 0.20f)
+                        {
+                            lastReloadWeaponBoneWeightLog = resolved;
+                            float normalizedTime = Mathf.Approximately(slot.Animation.Length, 0f)
+                                ? 0f
+                                : Mathf.Clamp01(slot.Animation.LocalTime / slot.Animation.Length);
+                            Debug.Log($"[ReloadTrace] WeaponBoneWeight source: clip={clipName}, normalizedTime={normalizedTime:F3}, raw={rawValue:F2}, inputWeight={inputWeight:F2}, resolved={resolved:F2}");
                         }
                     }
                 }

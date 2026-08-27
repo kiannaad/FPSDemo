@@ -13,6 +13,7 @@ namespace CGame
     public sealed class EquipmentManagerComponent : ActorComponent, IEquipmentActionTarget
     {
         private const float MaxPhaseWaitSeconds = 2f;
+        private const float RunningSpeedThreshold = 3.2f;
         private PlayerController controller;
         private PawnBindingReceipt actionBinding;
         private PawnBindingReceipt quickBarBinding;
@@ -114,7 +115,7 @@ protected override void OnShutdown()
 
 public bool CanAcceptDirectSlotSelection(int slotIndex)
         {
-            if (IsSwitchInProgress || IsReloading() || controller == null
+            if (IsSwitchInProgress || IsReloading() || IsOwnerRunning() || controller == null
                 || slotIndex < 0 || slotIndex >= controller.QuickBar.Slots.Count)
             {
                 return false;
@@ -122,6 +123,30 @@ public bool CanAcceptDirectSlotSelection(int slotIndex)
 
             ItemInstanceHandle handle = controller.QuickBar.Slots[slotIndex];
             return CurrentWeapon?.ItemHandle == handle || preparedWeapons.ContainsKey(handle);
+        }
+
+        private bool IsOwnerRunning()
+        {
+            if (!(Owner is Pawn pawn))
+            {
+                return false;
+            }
+
+            if (pawn.HasRunningIntent)
+            {
+                return true;
+            }
+
+            if (!pawn.TryGetComponent(out PawnMovementComponent movement) || movement.Motor == null)
+            {
+                return false;
+            }
+
+            Vector3 horizontalVelocity = Vector3.ProjectOnPlane(
+                movement.Motor.Velocity,
+                Vector3.up);
+            return horizontalVelocity.sqrMagnitude
+                > RunningSpeedThreshold * RunningSpeedThreshold;
         }
 
 
@@ -143,7 +168,7 @@ public bool CanAcceptDirectSlotSelection(int slotIndex)
             CompleteRequest(request);
         }
 
-private void TryCompleteArming(float deltaTime)
+        private void TryCompleteArming(float deltaTime)
         {
             if (pendingArming == null)
             {
@@ -241,6 +266,11 @@ private void TryCompleteArming(float deltaTime)
                             return;
                         }
 
+                        if (!pending.Weapon.IsPresentationVisible)
+                        {
+                            pending.Weapon.ShowPresentation();
+                        }
+
                         if (!pending.EquipMotionStarted)
                         {
                             Debug.Log(
@@ -254,20 +284,6 @@ private void TryCompleteArming(float deltaTime)
 
                             pending.EquipMotionStarted = true;
                             pending.RequiredAnimationEvaluationCount = GetCompletedAnimationEvaluationCount();
-                            return;
-                        }
-
-                        if (!pending.Weapon.IsPresentationVisible)
-                        {
-                            if (GetCompletedAnimationEvaluationCount() <= pending.RequiredAnimationEvaluationCount)
-                            {
-                                WaitForSwitchPhaseOrRollback(
-                                    "The target weapon Equip motion did not receive an animation evaluation before presentation.",
-                                    deltaTime);
-                                return;
-                            }
-
-                            pending.Weapon.ShowPresentation();
                             return;
                         }
 
@@ -416,6 +432,19 @@ private void CompleteRequest(PendingEquipmentRequest request)
         {
             pending.Phase = phase;
             pending.RemainingPhaseSeconds = MaxPhaseWaitSeconds;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            string oldWeaponName = pending.OldWeapon?.Definition != null
+                ? pending.OldWeapon.Definition.name
+                : "<none>";
+            string targetWeaponName = pending.Weapon?.Definition != null
+                ? pending.Weapon.Definition.name
+                : "<none>";
+            Debug.Log(
+                $"[WeaponSwitchFacingProbe] frame={Time.frameCount}; phase={phase}; "
+                + $"old={oldWeaponName}; target={targetWeaponName}; "
+                + $"presentationHandedOff={pending.PresentationHandedOff}; "
+                + $"requiredEvaluation={pending.RequiredAnimationEvaluationCount}");
+#endif
         }
 
 private void WaitForSwitchPhaseOrRollback(string failure, float deltaTime)

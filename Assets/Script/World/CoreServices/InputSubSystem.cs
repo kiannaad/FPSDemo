@@ -21,9 +21,12 @@ namespace CGame
             get
             {
                 Keyboard keyboard = Keyboard.current;
-                if (keyboard?.digit1Key.wasPressedThisFrame == true) return 0;
-                if (keyboard?.digit2Key.wasPressedThisFrame == true) return 1;
-                if (keyboard?.digit3Key.wasPressedThisFrame == true) return 2;
+                if (keyboard?.digit1Key.wasPressedThisFrame == true
+                    || keyboard?.numpad1Key.wasPressedThisFrame == true) return 0;
+                if (keyboard?.digit2Key.wasPressedThisFrame == true
+                    || keyboard?.numpad2Key.wasPressedThisFrame == true) return 1;
+                if (keyboard?.digit3Key.wasPressedThisFrame == true
+                    || keyboard?.numpad3Key.wasPressedThisFrame == true) return 2;
                 return -1;
             }
         }

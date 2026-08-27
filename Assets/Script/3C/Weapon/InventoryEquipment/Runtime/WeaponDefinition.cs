@@ -23,6 +23,7 @@ namespace CGame.InventoryEquipment
         [SerializeField] private Vector3 presentationLocalScale = Vector3.one;
         [SerializeField] private WeaponAbilitySetDefinition abilitySet = new WeaponAbilitySetDefinition();
         [SerializeField] private WeaponReloadDefinition reloadDefinition = new WeaponReloadDefinition();
+        [SerializeField] private WeaponBulletData bulletData = new WeaponBulletData();
         [SerializeField] private int magazineCapacity = 30;
         [SerializeField] private RecoilProfile recoilProfile;
         [SerializeField, Range(1f, 179f)] private float aimFov = 40f;
@@ -45,6 +46,7 @@ namespace CGame.InventoryEquipment
         public Vector3 PresentationLocalScale => presentationLocalScale;
         public WeaponAbilitySetDefinition AbilitySet => abilitySet;
         public WeaponReloadDefinition ReloadDefinition => reloadDefinition;
+        public WeaponBulletData BulletData => bulletData;
         public int MagazineCapacity => magazineCapacity;
         public RecoilProfile RecoilProfile => recoilProfile;
         public float AimFov => aimFov;
@@ -121,6 +123,12 @@ namespace CGame.InventoryEquipment
             reloadDefinition = definition ?? throw new ArgumentNullException(nameof(definition));
         }
 
+        public void ConfigureBulletData(float maxShootDistance, LayerMask hitLayerMask)
+        {
+            bulletData ??= new WeaponBulletData();
+            bulletData.Configure(maxShootDistance, hitLayerMask);
+        }
+
         public static WeaponDefinition CreateRuntime(
             GameplayTag weaponTag,
             int magazineCapacity,
@@ -154,6 +162,13 @@ namespace CGame.InventoryEquipment
             {
                 throw new InvalidOperationException("Weapon Definition fire interval must be positive.");
             }
+
+            if (bulletData == null)
+            {
+                throw new InvalidOperationException("Weapon Definition requires BulletData.");
+            }
+
+            bulletData.Validate();
 
             if (aimFov <= 0f || aimFov >= 180f)
             {

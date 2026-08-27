@@ -29,16 +29,20 @@ namespace CGame.Animation
         private bool isDisposed;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private const int ProfileSwitchProbeFrameCount = 24;
+        private const int RotationProbeFrameCount = 16;
         private const int LayerPoseProbeStageCount = 11;
         private const int LayerPoseProbeBoneCount = 5;
         private float diagnosticElapsed;
         private int profileSwitchProbeFramesRemaining;
         private NativeArray<Quaternion> layerPoseProbeRotations;
         private NativeArray<Quaternion> layerPoseProbeLocalRotations;
+        private NativeArray<Vector3> layerPoseProbePositions;
         private NativeArray<int> layerPoseProbeMarkers;
         private AnimationScriptPlayable inputPoseProbePlayable;
         private AnimationScriptPlayable finalPoseProbePlayable;
         private bool firstTurnProcessProbePending;
+        private int rotationProbeFramesRemaining;
+        private bool rotationProbeArmed = true;
 #endif
 
         public CharacterBoneController(
@@ -186,6 +190,7 @@ public BoneProfile ActiveProfile => activeProfile;
                 WriteProfileSwitchProbe("pre-animation", activeProfile, nextProfile);
                 profileSwitchProbeFramesRemaining--;
             }
+            UpdateRotationProbeRequest();
             LogMotionDiagnostics(deltaTime);
 #endif
         }
@@ -204,6 +209,7 @@ public BoneProfile ActiveProfile => activeProfile;
                 WriteLayerPoseProbe();
                 WriteFirstTurnProcessProbe();
             }
+            WriteRotationProbe();
 #endif
             if (shouldLinkProfile && cacheCompletionMarker[0] != 0)
             {
@@ -284,6 +290,9 @@ public BoneProfile ActiveProfile => activeProfile;
                 LayerPoseProbeStageCount * LayerPoseProbeBoneCount,
                 Allocator.Persistent);
             layerPoseProbeLocalRotations = new NativeArray<Quaternion>(
+                LayerPoseProbeStageCount * LayerPoseProbeBoneCount,
+                Allocator.Persistent);
+            layerPoseProbePositions = new NativeArray<Vector3>(
                 LayerPoseProbeStageCount * LayerPoseProbeBoneCount,
                 Allocator.Persistent);
             layerPoseProbeMarkers = new NativeArray<int>(LayerPoseProbeStageCount, Allocator.Persistent);
@@ -585,6 +594,7 @@ public BoneProfile ActiveProfile => activeProfile;
                 {
                     Rotations = layerPoseProbeRotations,
                     LocalRotations = layerPoseProbeLocalRotations,
+                    Positions = layerPoseProbePositions,
                     Markers = layerPoseProbeMarkers,
                     Stage = stage,
                     ModelRoot = animator.BindStreamTransform(FindRigTransform("Skeleton")),
@@ -627,6 +637,7 @@ public BoneProfile ActiveProfile => activeProfile;
         {
             if (!layerPoseProbeRotations.IsCreated
                 || !layerPoseProbeLocalRotations.IsCreated
+                || !layerPoseProbePositions.IsCreated
                 || !layerPoseProbeMarkers.IsCreated)
             {
                 return;
@@ -699,6 +710,101 @@ public BoneProfile ActiveProfile => activeProfile;
                 + $"lookLocalYaw={lookLocalYaw:F2}; turnLocalYaw={turnLocalYaw:F2}; "
                 + $"processLocalDelta={Mathf.DeltaAngle(lookLocalYaw, turnLocalYaw):F2}",
                 rigComponent);
+        }
+
+        private void UpdateRotationProbeRequest()
+        {
+            const float minimumViewDeltaDegrees = 0.1f;
+            bool isRotating = Mathf.Abs(updateContext.ViewDeltaDegrees.x) >= minimumViewDeltaDegrees;
+            if (!isRotating)
+            {
+                rotationProbeArmed = true;
+                return;
+            }
+
+            if (!rotationProbeArmed)
+            {
+                return;
+            }
+
+            rotationProbeArmed = false;
+            rotationProbeFramesRemaining = RotationProbeFrameCount;
+        }
+
+        private void WriteRotationProbe()
+        {
+            if (rotationProbeFramesRemaining <= 0)
+            {
+                return;
+            }
+
+            rotationProbeFramesRemaining--;
+            const int inputStage = 0;
+            const int poseSamplerStage = 1;
+            const int lookStage = 7;
+            const int turnStage = 8;
+            const int ikStage = 9;
+            if (layerPoseProbeMarkers[inputStage] == 0
+                || layerPoseProbeMarkers[poseSamplerStage] == 0
+                || layerPoseProbeMarkers[lookStage] == 0
+                || layerPoseProbeMarkers[turnStage] == 0
+                || layerPoseProbeMarkers[ikStage] == 0)
+            {
+                Debug.LogWarning("[TurnRotationProbe] missing InputPose, PoseSampler, Look, Turn, or IK stream sample.", rigComponent);
+                return;
+            }
+
+            float runtimeAngle = activeRuntime != null
+                && activeRuntime.TryGetTurnRuntimeState(out TurnRuntimeState turnRuntimeState)
+                ? turnRuntimeState.Angle
+                : 0f;
+            bool isTurning = activeRuntime != null
+                && activeRuntime.TryGetTurnRuntimeState(out turnRuntimeState)
+                && turnRuntimeState.IsTurning;
+            int inputOffset = inputStage * LayerPoseProbeBoneCount;
+            int poseSamplerOffset = poseSamplerStage * LayerPoseProbeBoneCount;
+            int lookOffset = lookStage * LayerPoseProbeBoneCount;
+            int turnOffset = turnStage * LayerPoseProbeBoneCount;
+            int ikOffset = ikStage * LayerPoseProbeBoneCount;
+            float inputLocalYaw = ExtractYaw(layerPoseProbeLocalRotations[inputOffset]);
+            float poseSamplerLocalYaw = ExtractYaw(layerPoseProbeLocalRotations[poseSamplerOffset]);
+            float turnLocalYaw = ExtractYaw(layerPoseProbeLocalRotations[turnOffset]);
+            float ikLocalYaw = ExtractYaw(layerPoseProbeLocalRotations[ikOffset]);
+            Debug.Log(
+                $"[TurnRotationProbe] frame={Time.frameCount}; "
+                + $"viewDeltaYaw={updateContext.ViewDeltaDegrees.x:F2}; "
+                + $"rootYaw={NormalizeSignedYaw(updateContext.RootRotation.eulerAngles.y):F2}; "
+                + $"controlYaw={NormalizeSignedYaw(updateContext.ControlRotation.eulerAngles.y):F2}; "
+                + $"moving={updateContext.CharacterState.IsMoving}; "
+                + $"stateAngle={runtimeAngle:F2}; isTurning={isTurning}; "
+                + $"inputLocalYaw={inputLocalYaw:F2}; "
+                + $"poseSamplerLocalYaw={poseSamplerLocalYaw:F2}; "
+                + $"turnLocalYaw={turnLocalYaw:F2}; "
+                + $"ikLocalYaw={ikLocalYaw:F2}; "
+                + $"poseSamplerDelta={Mathf.DeltaAngle(inputLocalYaw, poseSamplerLocalYaw):F2}; "
+                + $"turnDelta={Mathf.DeltaAngle(poseSamplerLocalYaw, turnLocalYaw):F2}; "
+                + DescribeProbeBoneDelta("spine", inputOffset + 1, poseSamplerOffset + 1, lookOffset + 1, turnOffset + 1, ikOffset + 1)
+                + DescribeProbeBoneDelta("weapon", inputOffset + 3, poseSamplerOffset + 3, lookOffset + 3, turnOffset + 3, ikOffset + 3)
+                + DescribeProbeBoneDelta("ikWeapon", inputOffset + 4, poseSamplerOffset + 4, lookOffset + 4, turnOffset + 4, ikOffset + 4),
+                rigComponent);
+        }
+
+        private string DescribeProbeBoneDelta(
+            string name,
+            int inputIndex,
+            int poseSamplerIndex,
+            int lookIndex,
+            int turnIndex,
+            int ikIndex)
+        {
+            return $"{name}PoseYaw={Mathf.DeltaAngle(ExtractYaw(layerPoseProbeRotations[inputIndex]), ExtractYaw(layerPoseProbeRotations[poseSamplerIndex])):F2}; "
+                + $"{name}LookYaw={Mathf.DeltaAngle(ExtractYaw(layerPoseProbeRotations[poseSamplerIndex]), ExtractYaw(layerPoseProbeRotations[lookIndex])):F2}; "
+                + $"{name}TurnYaw={Mathf.DeltaAngle(ExtractYaw(layerPoseProbeRotations[lookIndex]), ExtractYaw(layerPoseProbeRotations[turnIndex])):F2}; "
+                + $"{name}IkYaw={Mathf.DeltaAngle(ExtractYaw(layerPoseProbeRotations[turnIndex]), ExtractYaw(layerPoseProbeRotations[ikIndex])):F2}; "
+                + $"{name}PosePos={(layerPoseProbePositions[poseSamplerIndex] - layerPoseProbePositions[inputIndex]):F4}; "
+                + $"{name}LookPos={(layerPoseProbePositions[lookIndex] - layerPoseProbePositions[poseSamplerIndex]):F4}; "
+                + $"{name}TurnPos={(layerPoseProbePositions[turnIndex] - layerPoseProbePositions[lookIndex]):F4}; "
+                + $"{name}IkPos={(layerPoseProbePositions[ikIndex] - layerPoseProbePositions[turnIndex]):F4}; ";
         }
 
         private static float ExtractYaw(Quaternion rotation)
@@ -878,6 +984,7 @@ public BoneProfile ActiveProfile => activeProfile;
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (layerPoseProbeMarkers.IsCreated) layerPoseProbeMarkers.Dispose();
+            if (layerPoseProbePositions.IsCreated) layerPoseProbePositions.Dispose();
             if (layerPoseProbeLocalRotations.IsCreated) layerPoseProbeLocalRotations.Dispose();
             if (layerPoseProbeRotations.IsCreated) layerPoseProbeRotations.Dispose();
 #endif
@@ -1117,6 +1224,7 @@ public void Add(AnimationLayer layer)
         {
             public NativeArray<Quaternion> Rotations;
             public NativeArray<Quaternion> LocalRotations;
+            public NativeArray<Vector3> Positions;
             public NativeArray<int> Markers;
             public TransformStreamHandle ModelRoot;
             public TransformStreamHandle Spine;
@@ -1133,6 +1241,11 @@ public void Add(AnimationLayer layer)
                 Rotations[offset + 2] = UpperChest.GetRotation(stream);
                 Rotations[offset + 3] = WeaponBone.GetRotation(stream);
                 Rotations[offset + 4] = IkWeaponBone.GetRotation(stream);
+                Positions[offset] = ModelRoot.GetPosition(stream);
+                Positions[offset + 1] = Spine.GetPosition(stream);
+                Positions[offset + 2] = UpperChest.GetPosition(stream);
+                Positions[offset + 3] = WeaponBone.GetPosition(stream);
+                Positions[offset + 4] = IkWeaponBone.GetPosition(stream);
                 LocalRotations[offset] = ModelRoot.GetLocalRotation(stream);
                 LocalRotations[offset + 1] = Spine.GetLocalRotation(stream);
                 LocalRotations[offset + 2] = UpperChest.GetLocalRotation(stream);

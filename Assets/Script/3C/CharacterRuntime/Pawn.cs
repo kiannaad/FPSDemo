@@ -18,6 +18,9 @@ namespace CGame
         private bool pendingJump;
         private bool sprintRequested;
         private bool rootDestroyed;
+        private Vector3 cameraShotOrigin;
+        private Vector3 cameraShotDirection = Vector3.forward;
+        private int cameraShotFrame = -1;
         private static readonly GameplayTag ReloadingStateTag = CreateTag("State.Weapon.Reloading");
 
         public Pawn()
@@ -95,6 +98,17 @@ public RecoilComponent Recoil => recoilComponent;
 
         public bool IsRootDestroyed => rootDestroyed || Root == null;
 
+        public bool TryGetCurrentCameraShotRay(out Vector3 origin, out Vector3 direction)
+        {
+            origin = cameraShotOrigin;
+            direction = cameraShotDirection;
+            return cameraShotFrame == Time.frameCount
+                   && direction.sqrMagnitude > Mathf.Epsilon;
+        }
+
+        public bool HasRunningIntent =>
+            sprintRequested && movementInput.sqrMagnitude > 0.0001f;
+
         public virtual void SettingController(Controller nextController)
         {
             controller = nextController ?? throw new ArgumentNullException(nameof(nextController));
@@ -134,6 +148,19 @@ public RecoilComponent Recoil => recoilComponent;
         public virtual void ApplyingControlRotation(Quaternion controlRotation)
         {
             ControlRotation = NormalizeControlRotation(controlRotation);
+        }
+
+        public void PublishCameraShotRay(Vector3 origin, Vector3 direction)
+        {
+            if (direction.sqrMagnitude <= Mathf.Epsilon)
+            {
+                cameraShotFrame = -1;
+                return;
+            }
+
+            cameraShotOrigin = origin;
+            cameraShotDirection = direction.normalized;
+            cameraShotFrame = Time.frameCount;
         }
 
         public void ResetRotationState()
@@ -359,6 +386,9 @@ public RecoilComponent Recoil => recoilComponent;
             RecoilOffset = new Pose(Vector3.zero, Quaternion.identity);
             WeaponCollisionHasHit = false;
             WeaponCollisionDistance = 0f;
+            cameraShotOrigin = Vector3.zero;
+            cameraShotDirection = Vector3.forward;
+            cameraShotFrame = -1;
             ResetRotationState();
         }
 

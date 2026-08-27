@@ -47,7 +47,8 @@ namespace CGame
                     new PawnAnimationComponent(animator, motor, definition.AnimationConfig, rigComponent),
                     new EquipmentManagerComponent(),
                     new PawnHeroComponent(definition.InputProfile),
-                    new PawnCameraComponent(camera, definition.RequireCamera)
+                    new PawnCameraComponent(camera, definition.RequireCamera),
+                    new PawnShotQueryComponent()
                 };
                 return new Pawn(root, components);
             }

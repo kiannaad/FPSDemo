@@ -130,10 +130,10 @@ namespace CGame.InventoryEquipment
             switch (action)
             {
                 case WeaponAction.Fire:
-                    if (TryPerformShot(weapon).Succeeded)
+                    if (TryQueueShot(weapon).Succeeded)
                     {
                         StartTask(new RepeatFireTask(
-                            () => TryPerformShot(weapon),
+                            () => TryQueueShot(weapon),
                             _ => EndAbility(AbilityEndReason.Failed),
                             weapon.Definition.FireInterval));
                     }
@@ -189,29 +189,106 @@ namespace CGame.InventoryEquipment
         }
         protected override void OnInputReleased() { if (action == WeaponAction.Fire || action == WeaponAction.Aim) EndAbility(AbilityEndReason.Cancelled); }
 
-        private FireResult TryPerformShot(WeaponInstance weapon)
+        private FireResult TryQueueShot(WeaponInstance weapon)
         {
-            if (!weapon.IsArmed)
+            if (!CanQueueShot(weapon, out Pawn pawn, out PawnShotQueryComponent shotQuery, out FireResult failure))
             {
-                return FireResult.Failed("Weapon is not armed.", 0);
+                return failure;
+            }
+
+            if (!shotQuery.TryQueueShot(
+                    (origin, direction) => ExecuteQueuedShot(weapon, pawn, origin, direction),
+                    OnQueuedShotCompleted,
+                    out FireResult queueResult))
+            {
+                return queueResult;
+            }
+
+            return queueResult;
+        }
+
+        private bool CanQueueShot(
+            WeaponInstance weapon,
+            out Pawn pawn,
+            out PawnShotQueryComponent shotQuery,
+            out FireResult failure)
+        {
+            pawn = ActivationContext?.AbilitySystem.Avatar as Pawn;
+            shotQuery = null;
+            if (weapon == null || weapon.IsDisposed || !weapon.IsArmed)
+            {
+                failure = FireResult.Failed("Weapon is not armed.", 0);
+                return false;
             }
 
             if (weapon.Definition.RecoilProfile == null)
             {
-                return FireResult.Failed("Weapon does not have a RecoilProfile.", 0);
+                failure = FireResult.Failed("Weapon does not have a RecoilProfile.", 0);
+                return false;
             }
 
+            if (weapon.Item.MagazineAmmo <= 0)
+            {
+                failure = FireResult.Failed("Weapon has no ammunition.", 0);
+                return false;
+            }
+
+            if (pawn == null || !pawn.TryGetComponent(out shotQuery))
+            {
+                failure = FireResult.Failed("Weapon Ability requires a PawnShotQueryComponent.", 0);
+                return false;
+            }
+
+            failure = default;
+            return true;
+        }
+
+        private FireResult ExecuteQueuedShot(WeaponInstance weapon, Pawn pawn, Vector3 origin, Vector3 direction)
+        {
+            if (weapon == null || weapon.IsDisposed || !weapon.IsArmed)
+            {
+                return FireResult.Failed("Queued shot weapon is no longer armed.", pawn.RecoilShotSequence);
+            }
+
+            if (weapon.Definition.RecoilProfile == null)
+            {
+                return FireResult.Failed("Queued shot weapon has no RecoilProfile.", pawn.RecoilShotSequence);
+            }
+
+            if (weapon.Item.MagazineAmmo <= 0)
+            {
+                return FireResult.Failed("Queued shot weapon has no ammunition.", pawn.RecoilShotSequence);
+            }
+
+            WeaponHitResult hitResult = weapon.QueryHit(origin, direction);
             if (!weapon.Item.TryConsumeMagazineAmmo())
             {
-                return FireResult.Failed("Weapon has no ammunition.", 0);
+                return FireResult.Failed("Queued shot ammunition commit failed.", pawn.RecoilShotSequence);
             }
 
-            if (!(ActivationContext?.AbilitySystem.Avatar is Pawn pawn))
+            FireResult recoilResult = pawn.ApplySuccessfulShot(weapon.Definition.RecoilProfile);
+            if (!recoilResult.Succeeded)
             {
-                return FireResult.Failed("Weapon Ability requires a Pawn avatar.", 0);
+                return recoilResult;
             }
 
-            return pawn.ApplySuccessfulShot(weapon.Definition.RecoilProfile);
+            string hitObject = hitResult.HasHit && hitResult.Hit.collider != null
+                ? hitResult.Hit.collider.name
+                : "<none>";
+            Vector3 hitPosition = hitResult.HasHit ? hitResult.Hit.point : hitResult.CandidatePoint;
+            Debug.Log($"[WeaponFire] sequence={recoilResult.ShotSequence}, object={hitObject}, position=({hitPosition.x:F5},{hitPosition.y:F5},{hitPosition.z:F5}), direction=({hitResult.Direction.x:F5},{hitResult.Direction.y:F5},{hitResult.Direction.z:F5}), muzzleBlocked={hitResult.MuzzleBlocked}");
+            return new FireResult(true, recoilResult.ShotSequence, hitResult);
+        }
+
+        private void OnQueuedShotCompleted(FireResult result)
+        {
+            if (result.Succeeded)
+            {
+                return;
+            }
+
+            Debug.LogWarning($"[WeaponFire] failed reason={result.FailureReason}");
+            EndAbility(AbilityEndReason.Failed);
         }
     }
 

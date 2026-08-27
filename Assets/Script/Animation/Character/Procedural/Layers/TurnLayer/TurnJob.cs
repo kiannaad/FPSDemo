@@ -82,6 +82,14 @@ namespace CGame.Animation
         }
         public bool IsTurning { get; private set; }
 
+        public void Cancel()
+        {
+            playback = 0f;
+            turnAngle = 0f;
+            cachedTurnAngle = 0f;
+            IsTurning = false;
+        }
+
         public TurnRequest Advance(
             float viewDeltaDegrees,
             float deltaTime,

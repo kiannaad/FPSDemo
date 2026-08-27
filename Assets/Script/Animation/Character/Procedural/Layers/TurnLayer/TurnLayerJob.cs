@@ -64,6 +64,13 @@ namespace CGame.Animation
                 return;
             }
 
+            if (context.CharacterState.IsMoving)
+            {
+                state.Cancel();
+                context.SetTurnOffsetDegrees(0f);
+                return;
+            }
+
             TurnRequest request = state.Advance(
                 context.ViewDeltaDegrees.x,
                 deltaTime,
