@@ -11,5 +11,9 @@ namespace CGame
             System.Array.Empty<PlayerSubSystem>();
 
         public virtual GameMode CreateGameMode(World world, Player player) => null;
+
+        public virtual LevelRuntime CreateLevelRuntime() => null;
+
+        public virtual GameState CreateGameState(World world) => null;
     }
 }

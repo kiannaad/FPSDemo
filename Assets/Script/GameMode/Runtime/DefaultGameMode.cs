@@ -7,22 +7,21 @@ namespace CGame
 {
     public sealed class DefaultGameMode : GameMode
     {
-        private readonly PawnDefinition pawnDefinition;
-        private readonly InitialInventorySet initialInventorySet;
+        private readonly PlayerStateDefinition playerStateDefinition;
         private readonly PawnFactory pawnFactory;
         private ActorRegistration pawnRegistration;
         private Pawn defaultPawn;
+        private string occupiedPlayerPointId;
+        private Guid occupiedRegistrationId;
 
         public DefaultGameMode(
             World world,
             Player player,
-            PawnDefinition pawnDefinition,
-            InitialInventorySet initialInventorySet,
+            PlayerStateDefinition playerStateDefinition,
             PawnFactory pawnFactory = null)
             : base(world, player)
         {
-            this.pawnDefinition = pawnDefinition ?? throw new ArgumentNullException(nameof(pawnDefinition));
-            this.initialInventorySet = initialInventorySet;
+            this.playerStateDefinition = playerStateDefinition ?? throw new ArgumentNullException(nameof(playerStateDefinition));
             this.pawnFactory = pawnFactory ?? new PawnFactory();
         }
 
@@ -30,12 +29,18 @@ namespace CGame
             ? defaultPawn
             : null;
 
+        public ActorRegistration DefaultPawnRegistration =>
+            pawnRegistration != null && !pawnRegistration.IsDisposed ? pawnRegistration : null;
+
+        public string OccupiedPlayerPointId => occupiedPlayerPointId;
+
+        public PlayerStateDefinition PlayerStateDefinition => playerStateDefinition;
+
         protected override Controller CreatePlayerController(Player player)
         {
             return CGame.PlayerController.Create(
                 player,
-                pawnDefinition,
-                initialInventorySet,
+                playerStateDefinition,
                 player.GetSubSystem<InputSubSystem>(),
                 new DefaultPlayerControllerComponentFactory());
         }
@@ -48,10 +53,19 @@ namespace CGame
             {
                 throw new InvalidOperationException("DefaultGameMode requires a PlayerController.");
             }
+            if (DefaultPawn != null)
+            {
+                throw new InvalidOperationException("DefaultGameMode already spawned its default Pawn.");
+            }
 
-            ResolveSpawnPose(out Vector3 spawnPosition, out Quaternion spawnRotation);
+            LevelRuntime levelRuntime = World.LevelRuntime
+                ?? throw new InvalidOperationException("DefaultGameMode requires LevelRuntime.");
+            using SpawnPointReservation reservation = levelRuntime.ReserveFirstPlayerPoint();
+            Vector3 spawnPosition = reservation.Transform.position;
+            Quaternion spawnRotation = reservation.Transform.rotation;
             Pawn candidate = await pawnFactory.CreateAsync(
-                pawnDefinition,
+                playerStateDefinition.PawnData,
+                playerStateDefinition.InputProfile,
                 spawnPosition,
                 spawnRotation,
                 cancellationToken);
@@ -61,6 +75,10 @@ namespace CGame
             try
             {
                 candidateRegistration = World.RegisterActor(candidate, critical: true);
+                candidateRegistration.Disposed += OnPawnRegistrationDisposed;
+                occupiedPlayerPointId = reservation.PointId;
+                occupiedRegistrationId = candidateRegistration.RegistrationId;
+                reservation.Commit(candidateRegistration.RegistrationId);
                 controller.Unpossess();
                 if (previousRegistration != null && !previousRegistration.IsDisposed)
                 {
@@ -85,6 +103,7 @@ namespace CGame
 
                 if (candidateRegistration != null && !candidateRegistration.IsDisposed)
                 {
+                    candidateRegistration.Disposed -= OnPawnRegistrationDisposed;
                     World.UnregisterActor(candidateRegistration);
                 }
                 else if (candidate.State == ActorState.Constructed)
@@ -97,29 +116,39 @@ namespace CGame
                     controller.Possess(previousPawn);
                 }
 
+                ReleasePlayerPoint();
+
                 throw;
             }
         }
 
         protected override void OnShutdown()
         {
+            ReleasePlayerPoint();
             defaultPawn = null;
             pawnRegistration = null;
         }
 
-        private static void ResolveSpawnPose(out Vector3 position, out Quaternion rotation)
+        private void OnPawnRegistrationDisposed(ActorRegistration registration)
         {
-            PlayerStart playerStart = UnityEngine.Object.FindObjectOfType<PlayerStart>();
-            if (playerStart == null)
+            registration.Disposed -= OnPawnRegistrationDisposed;
+            if (ReferenceEquals(pawnRegistration, registration))
             {
-                position = Vector3.zero;
-                rotation = Quaternion.identity;
-                return;
+                PlayerController?.NotifyPossessedActorUnregistered(registration.Actor);
+                ReleasePlayerPoint();
+                pawnRegistration = null;
+                defaultPawn = null;
             }
+        }
 
-            PlayerStartInfo start = playerStart.GetInfo();
-            position = start.Position;
-            rotation = start.Rotation;
+        private void ReleasePlayerPoint()
+        {
+            if (!string.IsNullOrEmpty(occupiedPlayerPointId) && occupiedRegistrationId != Guid.Empty)
+            {
+                World.LevelRuntime?.ReleaseOccupied(occupiedPlayerPointId, occupiedRegistrationId);
+            }
+            occupiedPlayerPointId = null;
+            occupiedRegistrationId = Guid.Empty;
         }
     }
 }

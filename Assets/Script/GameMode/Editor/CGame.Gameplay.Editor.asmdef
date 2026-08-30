@@ -1,0 +1,7 @@
+{
+  "name": "CGame.Gameplay.Editor",
+  "rootNamespace": "CGame.Editor",
+  "references": ["CGame.Gameplay", "CGame.World"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

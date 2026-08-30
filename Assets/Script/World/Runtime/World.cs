@@ -39,6 +39,20 @@ namespace CGame
 
         public GameMode GameMode { get; private set; }
 
+        public LevelRuntime LevelRuntime { get; private set; }
+
+        public GameState GameState { get; private set; }
+
+        public bool IsGameplayReady { get; private set; }
+
+        public int GameplayReadyPublishCount { get; private set; }
+
+        public WorldState GameplayReadyPublishedWorldState { get; private set; }
+
+        public ActorState GameplayReadyPublishedPawnState { get; private set; }
+
+        public event Action GameplayReady;
+
         public int RegisteredActorCount => actorRegistrations.Count;
 
         public static World Create() => Create(Array.Empty<WorldSubSystem>(), null);
@@ -80,6 +94,7 @@ namespace CGame
             State = WorldState.Initializing;
             try
             {
+                LevelRuntime = configuration?.CreateLevelRuntime();
                 for (int index = 0; index < orderedSubSystems.Count; index++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -92,6 +107,14 @@ namespace CGame
                         subSystem.TickTasks,
                         critical: true);
                     subSystemTickRegistrations.Add(subSystem, registration);
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                GameState = configuration?.CreateGameState(this);
+                if (GameState != null)
+                {
+                    RegisterActor(GameState, critical: true);
+                    await GameState.LoadExperienceAsync();
                 }
 
                 LocalPlayer = new Player(configuration?.CreatePlayerSubSystems());
@@ -111,6 +134,13 @@ namespace CGame
             {
                 Failure = exception.Message;
                 State = WorldState.Faulted;
+                LevelRuntime?.Shutdown();
+                LevelRuntime = null;
+                if (GameState != null)
+                {
+                    await GameState.ShutdownExperienceAsync();
+                    GameState = null;
+                }
                 DisposeAllActors();
                 GameMode = null;
                 if (LocalPlayer != null)
@@ -144,6 +174,7 @@ namespace CGame
                 }
 
                 State = WorldState.Playing;
+                MarkGameplayReady();
             }
             catch (Exception exception)
             {
@@ -218,13 +249,21 @@ namespace CGame
         private async Task ShutdownInternalAsync()
         {
             State = WorldState.ShuttingDown;
+            IsGameplayReady = false;
             if (ReferenceEquals(Current, this))
             {
                 Current = null;
             }
 
+            if (GameState != null)
+            {
+                await GameState.ShutdownExperienceAsync();
+                GameState = null;
+            }
             DisposeAllActors();
             GameMode = null;
+            LevelRuntime?.Shutdown();
+            LevelRuntime = null;
             if (LocalPlayer != null)
             {
                 await LocalPlayer.ShutdownAsync(TickTaskManager);
@@ -234,6 +273,7 @@ namespace CGame
             await ShutdownInitializedSubSystemsAsync();
             TickTaskManager.OwnerFaulted -= OnTickOwnerFaulted;
             State = WorldState.Destroyed;
+            GameplayReady = null;
         }
 
         private void AddSubSystems(IEnumerable<WorldSubSystem> subSystems)
@@ -382,6 +422,28 @@ namespace CGame
             {
                 throw new InvalidOperationException($"World cannot {operation} while it is {State}.");
             }
+        }
+
+        private void MarkGameplayReady()
+        {
+            if (IsGameplayReady) throw new InvalidOperationException("World GameplayReady can only be published once.");
+            if (State != WorldState.Playing)
+                throw new InvalidOperationException("World must be Playing before GameplayReady.");
+            if (GameMode != null)
+            {
+                Controller controller = GameMode.PlayerController;
+                if (controller == null || controller.State != ActorState.Playing ||
+                    controller.PossessedActor == null || controller.PossessedActor.State != ActorState.Playing)
+                {
+                    throw new InvalidOperationException("GameplayReady requires a Playing Controller with a possessed Playing Pawn.");
+                }
+            }
+
+            IsGameplayReady = true;
+            GameplayReadyPublishCount++;
+            GameplayReadyPublishedWorldState = State;
+            GameplayReadyPublishedPawnState = GameMode?.PlayerController?.PossessedActor?.State ?? ActorState.Constructed;
+            GameplayReady?.Invoke();
         }
     }
 }

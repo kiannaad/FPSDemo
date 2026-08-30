@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using YooAsset;
 
@@ -22,6 +24,9 @@ namespace CGame
         {
             return resources.GetPackage().CheckLocationValid(location);
         }
+
+        public Task<IDisposable> LoadRequiredAssetsAsync(IEnumerable<string> locations) =>
+            resources.LoadRequiredAssetsAsync(locations);
 
         public void UnloadUnusedAssets()
         {

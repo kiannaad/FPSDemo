@@ -14,7 +14,7 @@ namespace CGame
         public static PawnData CreateRuntime(GameObject pawnPrefab, params AbilitySet[] baseAbilitySets)
         {
             PawnData data = CreateInstance<PawnData>();
-            data.ConfigureRuntime(pawnPrefab, baseAbilitySets);
+            data.ConfigureRuntime(pawnPrefab);
             return data;
         }
     }

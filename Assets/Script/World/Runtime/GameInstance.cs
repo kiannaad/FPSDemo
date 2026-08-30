@@ -55,6 +55,12 @@ namespace CGame
 
         private async Task InitializeWorldAsync(CancellationToken cancellationToken)
         {
+            while (!gameObject.scene.isLoaded)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.Yield();
+            }
+
             await RuntimeWorld.InitializeAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             RuntimeWorld.StartPlay();

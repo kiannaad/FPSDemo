@@ -3,6 +3,7 @@ using CGame.GameplayTags;
 using CGame.Ability.Cues;
 using CGame.InventoryEquipment;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace CGame
 {
@@ -13,6 +14,7 @@ namespace CGame
         [SerializeField] private bool initializeResources = true;
         [SerializeField] private bool initializeInput = true;
         [SerializeField] private CharacterPhysicsSettings characterPhysicsSettings;
+        [SerializeField] private LevelDefinition levelDefinition;
         [SerializeField] private GameModeDefinition gameModeDefinition;
         [SerializeField] private GameplayTagSource[] gameplayTagSources;
         [SerializeField] private WeaponDefinition[] weaponDefinitions;
@@ -54,6 +56,24 @@ namespace CGame
                 : gameModeDefinition.CreateGameMode(world, player);
         }
 
+        public override LevelRuntime CreateLevelRuntime()
+        {
+            return levelDefinition == null ? null : new LevelRuntime(levelDefinition, SceneManager.GetActiveScene());
+        }
+
+        public override GameState CreateGameState(World world)
+        {
+            if (gameModeDefinition == null) return null;
+            gameModeDefinition.ValidateRequiredReferences();
+            return gameModeDefinition.GameStateDefinition.CreateGameState(
+                world,
+                gameModeDefinition.ExperienceDefinition);
+        }
+
+        public LevelDefinition LevelDefinition => levelDefinition;
+
+        public GameModeDefinition GameModeDefinition => gameModeDefinition;
+
 public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
         {
             gameplayTagSources = sources ?? System.Array.Empty<GameplayTagSource>();
@@ -62,6 +82,12 @@ public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
         public void ConfigureGameMode(GameModeDefinition definition)
         {
             gameModeDefinition = definition ?? throw new System.ArgumentNullException(nameof(definition));
+        }
+
+        public void ConfigureGameplayAssembly(LevelDefinition level, GameModeDefinition gameMode)
+        {
+            levelDefinition = level ?? throw new System.ArgumentNullException(nameof(level));
+            gameModeDefinition = gameMode ?? throw new System.ArgumentNullException(nameof(gameMode));
         }
 
         public void ConfigureWeaponDefinitions(params WeaponDefinition[] definitions)

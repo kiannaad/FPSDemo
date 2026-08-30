@@ -105,15 +105,65 @@ namespace CGame
 
         public async Task PreloadAssetsAsync(IEnumerable<string> locations)
         {
+            using (await LoadRequiredAssetsAsync(locations)) { }
+        }
+
+        public async Task<IDisposable> LoadRequiredAssetsAsync(IEnumerable<string> locations)
+        {
+            if (locations == null) throw new ArgumentNullException(nameof(locations));
             var handles = new List<AssetHandle>();
-            foreach (string location in locations)
+            try
             {
-                handles.Add(GetPackage().LoadAssetAsync<UnityEngine.Object>(location));
+                foreach (string location in locations)
+                {
+                    if (string.IsNullOrWhiteSpace(location))
+                    {
+                        throw new InvalidOperationException("Required asset location cannot be empty.");
+                    }
+
+                    handles.Add(GetPackage().LoadAssetAsync<UnityEngine.Object>(location));
+                }
+
+                foreach (AssetHandle handle in handles)
+                {
+                    await handle.Task;
+                    if (handle.Status != EOperationStatus.Succeed)
+                    {
+                        throw new InvalidOperationException(handle.LastError);
+                    }
+                }
+
+                return new AssetHandleLease(handles);
+            }
+            catch
+            {
+                ReleaseHandles(handles);
+                throw;
+            }
+        }
+
+        private static void ReleaseHandles(IReadOnlyList<AssetHandle> handles)
+        {
+            for (int index = handles.Count - 1; index >= 0; index--)
+            {
+                handles[index]?.Release();
+            }
+        }
+
+        private sealed class AssetHandleLease : IDisposable
+        {
+            private List<AssetHandle> handles;
+
+            public AssetHandleLease(List<AssetHandle> handles)
+            {
+                this.handles = handles;
             }
 
-            foreach (AssetHandle handle in handles)
+            public void Dispose()
             {
-                await handle.Task;
+                List<AssetHandle> current = handles;
+                handles = null;
+                if (current != null) ReleaseHandles(current);
             }
         }
     }

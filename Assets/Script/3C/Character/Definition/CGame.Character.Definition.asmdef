@@ -5,7 +5,8 @@
     "CGame.Ability",
     "CGame.GameplayTags",
     "CGame.Animation",
-    "CGame.Input"
+    "CGame.Input",
+    "CGame.Inventory"
   ],
   "autoReferenced": true
 }
