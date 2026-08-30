@@ -16,6 +16,7 @@ namespace CGame
         {
             if (pawn == null) throw new ArgumentNullException(nameof(pawn));
             AttachPossessedActor(pawn);
+            PlayerState.SetAvatar(pawn);
             pawn.SettingController(this);
             pawn.ClearingControlIntent();
         }
@@ -26,13 +27,19 @@ namespace CGame
             if (pawn != null)
             {
                 DetachPossessedActor(pawn);
+                PlayerState.SetAvatar(null);
                 pawn.ClearingController(this);
             }
+            PlayerState.Dispose();
         }
 
         protected override void OnPossessedActorUnregistered(Actor actor)
         {
-            if (actor is Pawn pawn) pawn.ClearingController(this);
+            if (actor is Pawn pawn)
+            {
+                if (!PlayerState.IsDisposed) PlayerState.SetAvatar(null);
+                pawn.ClearingController(this);
+            }
         }
     }
 }

@@ -152,6 +152,7 @@ public bool CanAcceptDirectSlotSelection(int slotIndex)
 
         private void Tick(float deltaTime)
         {
+            CurrentWeapon?.AdvanceHeat(deltaTime);
             if (pendingRequest == null)
             {
                 TryCompleteArming(deltaTime);

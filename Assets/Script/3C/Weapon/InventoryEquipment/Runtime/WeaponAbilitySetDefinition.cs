@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using CGame.Ability;
 using CGame.Ability.Cues;
+using CGame.Ability.Effects;
+using CGame.Ability.Targeting;
 using CGame.Animation;
 using CGame.GameplayTags;
 using UnityEngine;
@@ -200,7 +202,7 @@ namespace CGame.InventoryEquipment
             }
 
             if (!shotQuery.TryQueueShot(
-                    (origin, direction) => ExecuteQueuedShot(weapon, pawn, origin, direction),
+                    (origin, shotContext) => ExecuteQueuedShot(weapon, pawn, origin, shotContext),
                     OnQueuedShotCompleted,
                     out FireResult queueResult))
             {
@@ -246,7 +248,7 @@ namespace CGame.InventoryEquipment
             return true;
         }
 
-        private FireResult ExecuteQueuedShot(WeaponInstance weapon, Pawn pawn, Vector3 origin, Vector3 direction)
+        private FireResult ExecuteQueuedShot(WeaponInstance weapon, Pawn pawn, Vector3 origin, PawnShotContext shotContext)
         {
             if (weapon == null || weapon.IsDisposed || !weapon.IsArmed)
             {
@@ -263,11 +265,24 @@ namespace CGame.InventoryEquipment
                 return FireResult.Failed("Queued shot weapon has no ammunition.", pawn.RecoilShotSequence);
             }
 
-            GameplayHitResult? hitResult = weapon.QueryHit(origin, direction);
+            var spreadContext = new WeaponSpreadContext(
+                shotContext.Forward,
+                shotContext.Right,
+                shotContext.Up,
+                shotContext.IsAiming,
+                shotContext.IsGrounded,
+                shotContext.HorizontalSpeed);
+            GameplayAbilityTargetDataHandle targetData =
+                weapon.QueryTargetData(origin, shotContext.Forward, spreadContext);
+            GameplayHitResult? hitResult = targetData.Count > 0
+                ? targetData[0].HitResult
+                : (GameplayHitResult?)null;
             if (!weapon.Item.TryConsumeMagazineAmmo())
             {
                 return FireResult.Failed("Queued shot ammunition commit failed.", pawn.RecoilShotSequence);
             }
+
+            weapon.CommitSuccessfulShot();
 
             FireResult recoilResult = pawn.ApplySuccessfulShot(weapon.Definition.RecoilProfile);
             if (!recoilResult.Succeeded)
@@ -280,7 +295,25 @@ namespace CGame.InventoryEquipment
                 : "<none>";
             Vector3 hitPosition = hitResult.HasValue ? hitResult.Value.Location : origin;
             Debug.Log($"[WeaponFire] sequence={recoilResult.ShotSequence}, object={hitObject}, position=({hitPosition.x:F5},{hitPosition.y:F5},{hitPosition.z:F5})");
-            DispatchGameplayCues(abilitySystem, weapon, pawn, hitResult);
+            if (weapon.Definition.DamageEffect != null)
+            {
+                WeaponDamageApplicationResult damageResult = new WeaponDamageApplication().Apply(
+                    abilitySystem,
+                    weapon.Definition.DamageEffect,
+                    weapon.PresentationRoot,
+                    weapon.Definition,
+                    weapon.MuzzlePoint.position,
+                    targetData);
+                foreach (WeaponDamageEntryFailure entryFailure in damageResult.Failures)
+                {
+                    Debug.LogWarning(
+                        $"[WeaponDamage] ShotId={entryFailure.ShotId} TraceIndex={entryFailure.TraceIndex} ApplyFailure={entryFailure.FailureReason}");
+                }
+            }
+            else
+            {
+                DispatchGameplayCues(abilitySystem, weapon, pawn, hitResult);
+            }
             return new FireResult(true, recoilResult.ShotSequence, hitResult);
         }
 

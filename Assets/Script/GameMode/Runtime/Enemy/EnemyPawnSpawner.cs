@@ -35,25 +35,28 @@ namespace CGame
                     reservation.Transform.rotation);
                 controllerRegistration = world.RegisterActor(controller, critical: true);
                 pawnRegistration = world.RegisterActor(pawn, critical: true);
+                pawn.GetComponent<HealthComponent>().Bind(playerState.AbilitySystem);
                 controller.Possess(pawn);
-                reservation.Commit(pawnRegistration.RegistrationId);
                 if (world.State == WorldState.Playing)
                 {
                     world.ActivateActor(controllerRegistration);
                     world.ActivateActor(pawnRegistration);
                 }
-                return new EnemySpawnHandle(
+                var handle = new EnemySpawnHandle(
                     world,
                     controllerRegistration,
                     pawnRegistration,
                     world.LevelRuntime,
                     reservation.PointId);
+                reservation.Commit(pawnRegistration.RegistrationId);
+                return handle;
             }
             catch
             {
                 if (pawnRegistration != null && !pawnRegistration.IsDisposed) world.UnregisterActor(pawnRegistration);
                 else if (pawn != null && pawn.State == ActorState.Constructed) pawn.DestroyCandidate();
                 if (controllerRegistration != null && !controllerRegistration.IsDisposed) world.UnregisterActor(controllerRegistration);
+                reservation.Dispose();
                 throw;
             }
         }

@@ -5,6 +5,7 @@
     "CGame.Gameplay",
     "CGame.Character.Definition",
     "CGame.Ability",
+    "CGame.GameplayTags",
     "CGame.Input",
     "CGame.Inventory",
     "CGame.World",

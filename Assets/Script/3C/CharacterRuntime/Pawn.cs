@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.Ability.Targeting;
 using CGame.GameplayTags;
 using UnityEngine;
 
 namespace CGame
 {
-    public class Pawn : Actor, ICharacterIntentSink, ICharacterMovementCommandSource
+    public class Pawn : Actor, ICharacterIntentSink, ICharacterMovementCommandSource, IAbilitySystemAvatar
     {
         private readonly List<ActorComponent> declaredComponents;
         private readonly RecoilComponent recoilComponent;
@@ -21,6 +22,8 @@ namespace CGame
         private Vector3 cameraShotOrigin;
         private Vector3 cameraShotDirection = Vector3.forward;
         private int cameraShotFrame = -1;
+        private bool isShotGrounded = true;
+        private float shotHorizontalSpeed;
         private static readonly GameplayTag ReloadingStateTag = CreateTag("State.Weapon.Reloading");
 
         public Pawn()
@@ -51,6 +54,7 @@ namespace CGame
         }
 
         public GameObject Root { get; }
+        public GameObject AbilitySystemRoot => Root;
 
 
 
@@ -77,6 +81,10 @@ public RecoilComponent Recoil => recoilComponent;
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
 
         public bool IsAiming { get; private set; }
+
+        public bool IsShotGrounded => isShotGrounded;
+
+        public float ShotHorizontalSpeed => shotHorizontalSpeed;
 
         public Pose AimPointOffset { get; private set; } = new Pose(Vector3.zero, Quaternion.identity);
 
@@ -262,6 +270,12 @@ public RecoilComponent Recoil => recoilComponent;
         {
             WeaponCollisionHasHit = hasHit;
             WeaponCollisionDistance = distance;
+        }
+
+        public void SetShotMovementSnapshot(bool isGrounded, float horizontalSpeed)
+        {
+            isShotGrounded = isGrounded;
+            shotHorizontalSpeed = Mathf.Max(0f, horizontalSpeed);
         }
 
         public void SubmitControlIntent(in CharacterControlIntent intent)

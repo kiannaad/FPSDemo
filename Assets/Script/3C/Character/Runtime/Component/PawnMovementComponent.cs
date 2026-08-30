@@ -1,4 +1,5 @@
 using System;
+using UnityEngine;
 
 namespace CGame
 {
@@ -48,6 +49,15 @@ namespace CGame
         private void Tick(float deltaTime)
         {
             TickCount++;
+            if (Owner is Pawn pawn)
+            {
+                Vector3 horizontalVelocity = motor != null
+                    ? Vector3.ProjectOnPlane(motor.Velocity, Vector3.up)
+                    : Vector3.zero;
+                pawn.SetShotMovementSnapshot(
+                    motor == null || motor.GroundingStatus.IsStableOnGround,
+                    horizontalVelocity.magnitude);
+            }
         }
     }
 }

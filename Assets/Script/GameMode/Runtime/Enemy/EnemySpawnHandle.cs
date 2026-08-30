@@ -10,7 +10,7 @@ namespace CGame
         private readonly LevelRuntime levelRuntime;
         private readonly string pointId;
         private readonly Guid registrationId;
-        private HealthDeathComponent health;
+        private HealthComponent health;
 
         internal EnemySpawnHandle(
             World world,
@@ -27,7 +27,7 @@ namespace CGame
             registrationId = pawnRegistration.RegistrationId;
             Controller = (IdleAIController)controllerRegistration.Actor;
             Pawn = (Pawn)pawnRegistration.Actor;
-            health = Pawn.GetComponent<HealthDeathComponent>();
+            health = Pawn.GetComponent<HealthComponent>();
             health.DeathFinished += Dispose;
             pawnRegistration.Disposed += OnPawnUnregistered;
         }

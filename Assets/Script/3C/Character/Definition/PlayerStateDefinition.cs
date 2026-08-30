@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.Ability.Effects;
 using UnityEngine;
 
 namespace CGame
@@ -12,11 +13,13 @@ namespace CGame
         [SerializeField] private InputProfile inputProfile;
         [SerializeField] private AbilityDefinition[] baseAbilities = Array.Empty<AbilityDefinition>();
         [SerializeField] private InitialInventorySet initialInventorySet;
+        [SerializeField] private AbilitySystemInitializationDefinition abilitySystemInitialization;
         [NonSerialized] private AbilitySet[] runtimeBaseAbilitySets;
 
         public PawnData PawnData => pawnData;
         public InputProfile InputProfile => inputProfile;
         public InitialInventorySet InitialInventorySet => initialInventorySet;
+        public AbilitySystemInitializationDefinition AbilitySystemInitialization => abilitySystemInitialization;
 
         public IReadOnlyList<AbilitySet> ResolveBaseAbilitySets()
         {
@@ -68,6 +71,11 @@ namespace CGame
         public void SetInitialInventory(InitialInventorySet inventory)
         {
             initialInventorySet = inventory;
+        }
+
+        public void SetAbilitySystemInitialization(AbilitySystemInitializationDefinition initialization)
+        {
+            abilitySystemInitialization = initialization;
         }
 
         public void ValidateRequiredReferences()

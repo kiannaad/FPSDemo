@@ -1,4 +1,9 @@
 using CGame;
+using CGame.Ability.Attributes;
+using CGame.Ability.Cues;
+using CGame.Ability.Effects;
+using CGame.GameplayTags;
+using CGame.InventoryEquipment;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -19,6 +24,28 @@ namespace CGame.Editor
             "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemyDefinition.asset";
         private const string EnemyActionPath =
             "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemySpawnFeatureAction.asset";
+        private const string PlayerStatePath =
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/DefaultPlayerStateDefinition.asset";
+        private const string HealthSetPath =
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/HealthAttributeSetDefinition.asset";
+        private const string CombatSetPath =
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/CombatAttributeSetDefinition.asset";
+        private const string PlayerInitializationEffectPath =
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GE_Player_Initialization.asset";
+        private const string EnemyInitializationEffectPath =
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GE_TargetEnemy_Initialization.asset";
+        private const string PlayerAbilityInitializationPath =
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/PlayerAbilitySystemInitialization.asset";
+        private const string EnemyAbilityInitializationPath =
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemyAbilitySystemInitialization.asset";
+        private const string DamageEffectFolder =
+            "Assets/Settings/Gameplay/Weapon/GameplayEffects";
+        private const string DamageEffectPath =
+            DamageEffectFolder + "/GE_Damage_Instant.asset";
+        private const string Ak12WeaponDefinitionPath =
+            "Assets/Settings/Gameplay/Weapon/WeaponDefinition/AK12/AK12WeaponDefinition.asset";
+        private const string Mk18WeaponDefinitionPath =
+            "Assets/Settings/Gameplay/Weapon/WeaponGripAK12/MK18/MK18WeaponDefinition.asset";
 
         [MenuItem("CGame/Setup/Enable SampleScene Gameplay Resources")]
         public static void EnableResources()
@@ -46,6 +73,102 @@ namespace CGame.Editor
             EditorUtility.SetDirty(experience);
             EnsurePlayerPoint();
             EnsureEnemyPoints();
+            AssetDatabase.SaveAssets();
+        }
+
+        [MenuItem("CGame/Setup/Configure SampleScene Ability System Initialization")]
+        public static void ConfigureAbilitySystemInitialization()
+        {
+            AttributeSetDefinition healthSet = LoadOrCreate<AttributeSetDefinition>(HealthSetPath);
+            healthSet.Configure(AttributeSetKind.Health);
+            EditorUtility.SetDirty(healthSet);
+            AttributeSetDefinition combatSet = LoadOrCreate<AttributeSetDefinition>(CombatSetPath);
+            combatSet.Configure(AttributeSetKind.Combat);
+            EditorUtility.SetDirty(combatSet);
+
+            GameplayEffectDefinition playerEffect = LoadOrCreate<GameplayEffectDefinition>(PlayerInitializationEffectPath);
+            playerEffect.Configure(
+                GameplayEffectDurationPolicy.Instant,
+                GameplayTag.Empty,
+                GameplayEffectModifierDefinition.Constant(HealthSet.MaxHealthAttribute, GameplayEffectModifierOperation.Override, 100f),
+                GameplayEffectModifierDefinition.Constant(HealthSet.HealthAttribute, GameplayEffectModifierOperation.Override, 100f),
+                GameplayEffectModifierDefinition.Constant(CombatSet.BaseDamageAttribute, GameplayEffectModifierOperation.Override, 20f));
+            EditorUtility.SetDirty(playerEffect);
+
+            GameplayEffectDefinition enemyEffect = LoadOrCreate<GameplayEffectDefinition>(EnemyInitializationEffectPath);
+            enemyEffect.Configure(
+                GameplayEffectDurationPolicy.Instant,
+                GameplayTag.Empty,
+                GameplayEffectModifierDefinition.Constant(HealthSet.MaxHealthAttribute, GameplayEffectModifierOperation.Override, 60f),
+                GameplayEffectModifierDefinition.Constant(HealthSet.HealthAttribute, GameplayEffectModifierOperation.Override, 60f),
+                GameplayEffectModifierDefinition.Constant(CombatSet.BaseDamageAttribute, GameplayEffectModifierOperation.Override, 10f));
+            EditorUtility.SetDirty(enemyEffect);
+
+            AbilitySystemInitializationDefinition playerInitialization =
+                LoadOrCreate<AbilitySystemInitializationDefinition>(PlayerAbilityInitializationPath);
+            playerInitialization.Configure(new[] { healthSet, combatSet }, new[] { playerEffect });
+            EditorUtility.SetDirty(playerInitialization);
+            AbilitySystemInitializationDefinition enemyInitialization =
+                LoadOrCreate<AbilitySystemInitializationDefinition>(EnemyAbilityInitializationPath);
+            enemyInitialization.Configure(new[] { healthSet, combatSet }, new[] { enemyEffect });
+            EditorUtility.SetDirty(enemyInitialization);
+
+            PlayerStateDefinition playerState = AssetDatabase.LoadAssetAtPath<PlayerStateDefinition>(PlayerStatePath);
+            if (playerState == null) throw new System.InvalidOperationException($"Missing PlayerStateDefinition at {PlayerStatePath}.");
+            playerState.SetAbilitySystemInitialization(playerInitialization);
+            EditorUtility.SetDirty(playerState);
+            EnemyPlayerStateDefinition enemyState = AssetDatabase.LoadAssetAtPath<EnemyPlayerStateDefinition>(EnemyStatePath);
+            if (enemyState == null || enemyState.PawnPrefab == null)
+                throw new System.InvalidOperationException($"Missing configured EnemyPlayerStateDefinition at {EnemyStatePath}.");
+            enemyState.Configure(enemyState.PawnPrefab, enemyInitialization);
+            EditorUtility.SetDirty(enemyState);
+            AssetDatabase.SaveAssets();
+        }
+
+        [MenuItem("CGame/Setup/Configure Formal Weapon Damage Effect")]
+        public static void ConfigureFormalWeaponDamageEffect()
+        {
+            if (!AssetDatabase.IsValidFolder(DamageEffectFolder))
+            {
+                AssetDatabase.CreateFolder("Assets/Settings/Gameplay/Weapon", "GameplayEffects");
+            }
+
+            if (!GameplayTag.TryCreateSerialized(
+                    "GameplayCue.Weapon.DamageTaken",
+                    out GameplayTag damageTakenTag))
+            {
+                throw new System.InvalidOperationException("DamageTaken GameplayCue tag is invalid.");
+            }
+
+            GameplayTagSource tagSource = AssetDatabase.LoadAssetAtPath<GameplayTagSource>(
+                "Assets/Settings/Gameplay/SampleScene/InputConfig/SampleInputTagSource.asset");
+            if (tagSource == null)
+            {
+                throw new System.InvalidOperationException("SampleScene GameplayTagSource is missing.");
+            }
+
+            if (!CGame.GameplayTags.Editor.GameplayTagSourceMutationService.AddTagPath(
+                    tagSource,
+                    damageTakenTag.Name,
+                    "Formal weapon damage cue",
+                    out string tagError) &&
+                !tagError.Contains("already exists", System.StringComparison.Ordinal))
+            {
+                throw new System.InvalidOperationException(tagError);
+            }
+
+            GameplayEffectDefinition damageEffect = LoadOrCreate<GameplayEffectDefinition>(DamageEffectPath);
+            damageEffect.Configure(
+                GameplayEffectDurationPolicy.Instant,
+                damageTakenTag,
+                GameplayEffectModifierDefinition.SourceAttribute(
+                    HealthSet.DamageAttribute,
+                    GameplayEffectModifierOperation.Add,
+                    CombatSet.BaseDamageAttribute));
+            EditorUtility.SetDirty(damageEffect);
+            ConfigureDamageTakenCue(damageTakenTag);
+            ConfigureWeaponDamageEffect(Ak12WeaponDefinitionPath, damageEffect);
+            ConfigureWeaponDamageEffect(Mk18WeaponDefinitionPath, damageEffect);
             AssetDatabase.SaveAssets();
         }
 
@@ -95,6 +218,50 @@ namespace CGame.Editor
             asset = ScriptableObject.CreateInstance<T>();
             AssetDatabase.CreateAsset(asset, path);
             return asset;
+        }
+
+        private static void ConfigureWeaponDamageEffect(
+            string weaponPath,
+            GameplayEffectDefinition damageEffect)
+        {
+            WeaponDefinition weapon = AssetDatabase.LoadAssetAtPath<WeaponDefinition>(weaponPath);
+            if (weapon == null)
+            {
+                throw new System.InvalidOperationException($"Missing WeaponDefinition at {weaponPath}.");
+            }
+
+            weapon.ConfigureDamageEffect(damageEffect);
+            EditorUtility.SetDirty(weapon);
+        }
+
+        private static void ConfigureDamageTakenCue(GameplayTag damageTakenTag)
+        {
+            GameplayCueSet cueSet = AssetDatabase.LoadAssetAtPath<GameplayCueSet>(
+                "Assets/Settings/Gameplay/Cues/WeaponGameplayCueSet.asset");
+            CueNotifyDefinition notify = AssetDatabase.LoadAssetAtPath<CueNotifyDefinition>(
+                "Assets/Settings/Gameplay/Cues/DebugParticleCueNotify.asset");
+            if (cueSet == null || notify == null)
+            {
+                throw new System.InvalidOperationException("Formal Weapon GameplayCue assets are missing.");
+            }
+
+            var entries = new System.Collections.Generic.List<GameplayCueSetEntry>(cueSet.Entries);
+            for (int index = 0; index < entries.Count; index++)
+            {
+                if (entries[index] != null && entries[index].CueTag == damageTakenTag)
+                {
+                    entries[index].SetDefinition(damageTakenTag, notify);
+                    cueSet.SetDefinition(cueSet.Priority, entries);
+                    EditorUtility.SetDirty(cueSet);
+                    return;
+                }
+            }
+
+            var damageTakenEntry = new GameplayCueSetEntry();
+            damageTakenEntry.SetDefinition(damageTakenTag, notify);
+            entries.Add(damageTakenEntry);
+            cueSet.SetDefinition(cueSet.Priority, entries);
+            EditorUtility.SetDirty(cueSet);
         }
 
         private static void EnsurePlayerPoint()

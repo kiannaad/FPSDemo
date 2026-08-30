@@ -163,7 +163,8 @@ public bool TryRequestQuickBarSlot(int slotIndex)
         {
             PlayerState = new PlayerState(
                 playerStateDefinition.ResolveBaseAbilitySets(),
-                playerStateDefinition);
+                playerStateDefinition,
+                playerStateDefinition.AbilitySystemInitialization);
             Inventory = componentFactory.CreateInventory()
                 ?? throw new InvalidOperationException("Inventory factory returned null.");
             QuickBar = componentFactory.CreateQuickBar(Inventory)

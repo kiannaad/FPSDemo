@@ -1,6 +1,8 @@
 using CGame;
 using System;
 using CGame.Ability;
+using CGame.Ability.Attributes;
+using CGame.Ability.Effects;
 using CGame.Animation;
 using CGame.GameplayTags;
 using UnityEngine;
@@ -28,6 +30,13 @@ namespace CGame.InventoryEquipment
         [SerializeField] private RecoilProfile recoilProfile;
         [SerializeField, Range(1f, 179f)] private float aimFov = 40f;
         [SerializeField, Min(0.001f)] private float fireInterval = 0.1f;
+        [SerializeField, Min(0.001f)] private float baseSpreadMultiplier = 1f;
+        [SerializeField, Min(0.001f)] private float aimSpreadMultiplier = 0.65f;
+        [SerializeField, Min(0.001f)] private float airSpreadMultiplier = 1.5f;
+        [SerializeField, Min(0.001f)] private float moveSpreadMultiplier = 1.35f;
+        [SerializeField, Min(0f)] private float movingSpreadSpeedThreshold = 0.1f;
+        [SerializeField, Min(0f)] private float heatCooldownDelaySeconds = 0.25f;
+        [SerializeField] private GameplayEffectDefinition damageEffect;
         [SerializeField] private int loadTicks = 1;
         [SerializeField] private bool simulateLoadFailure;
         [SerializeField] private RuntimeAnimatorController weaponAnimatorController;
@@ -51,6 +60,13 @@ namespace CGame.InventoryEquipment
         public RecoilProfile RecoilProfile => recoilProfile;
         public float AimFov => aimFov;
         public float FireInterval => fireInterval;
+        public float BaseSpreadMultiplier => baseSpreadMultiplier;
+        public float AimSpreadMultiplier => aimSpreadMultiplier;
+        public float AirSpreadMultiplier => airSpreadMultiplier;
+        public float MoveSpreadMultiplier => moveSpreadMultiplier;
+        public float MovingSpreadSpeedThreshold => movingSpreadSpeedThreshold;
+        public float HeatCooldownDelaySeconds => heatCooldownDelaySeconds;
+        public GameplayEffectDefinition DamageEffect => damageEffect;
         public override int LoadTicks => Math.Max(0, loadTicks);
         public override bool SimulateLoadFailure => simulateLoadFailure;
         public RuntimeAnimatorController WeaponAnimatorController => weaponAnimatorController;
@@ -129,6 +145,11 @@ namespace CGame.InventoryEquipment
             bulletData.Configure(maxShootDistance, hitLayerMask);
         }
 
+        public void ConfigureDamageEffect(GameplayEffectDefinition effect)
+        {
+            damageEffect = effect ?? throw new ArgumentNullException(nameof(effect));
+        }
+
         public static WeaponDefinition CreateRuntime(
             GameplayTag weaponTag,
             int magazineCapacity,
@@ -161,6 +182,13 @@ namespace CGame.InventoryEquipment
             if (fireInterval <= 0f)
             {
                 throw new InvalidOperationException("Weapon Definition fire interval must be positive.");
+            }
+
+            if (!IsFinitePositive(baseSpreadMultiplier) || !IsFinitePositive(aimSpreadMultiplier)
+                || !IsFinitePositive(airSpreadMultiplier) || !IsFinitePositive(moveSpreadMultiplier)
+                || movingSpreadSpeedThreshold < 0f || heatCooldownDelaySeconds < 0f)
+            {
+                throw new InvalidOperationException("Weapon Definition spread multipliers and heat timing are invalid.");
             }
 
             if (bulletData == null)
@@ -205,10 +233,56 @@ namespace CGame.InventoryEquipment
                 throw new InvalidOperationException("Serialized Weapon Definition requires overlay, profile, equip and unequip IK Motion.");
             }
 
+            if (prefab != null && HasFireAbility())
+            {
+                ValidateDamageEffect();
+            }
+
             if (prefab != null && (presentationLocalScale.x <= 0f || presentationLocalScale.y <= 0f || presentationLocalScale.z <= 0f))
             {
                 throw new InvalidOperationException("Serialized Weapon Definition presentation scale must be positive.");
             }
         }
+
+        private void ValidateDamageEffect()
+        {
+            if (damageEffect == null ||
+                damageEffect.DurationPolicy != GameplayEffectDurationPolicy.Instant ||
+                damageEffect.Modifiers.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "Serialized Weapon Definition requires one Instant Damage GameplayEffect.");
+            }
+
+            GameplayEffectModifierDefinition modifier = damageEffect.Modifiers[0];
+            if (!ReferenceEquals(modifier.TargetAttribute, HealthSet.DamageAttribute) ||
+                modifier.Operation != GameplayEffectModifierOperation.Add ||
+                modifier.MagnitudeSource != GameplayEffectMagnitudeSource.SourceAttribute ||
+                !ReferenceEquals(modifier.SourceAttributeValue, CombatSet.BaseDamageAttribute))
+            {
+                throw new InvalidOperationException(
+                    "Weapon Damage GameplayEffect must add CombatSet.BaseDamage to HealthSet.Damage.");
+            }
+        }
+
+        private bool HasFireAbility()
+        {
+            if (abilitySet == null)
+            {
+                return false;
+            }
+
+            foreach (WeaponAbilityDefinition ability in abilitySet.Abilities)
+            {
+                if (ability is FireWeaponAbilityDefinition)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsFinitePositive(float value) => value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using CGame.Ability;
 using CGame.Ability.Cues;
+using CGame.Ability.Effects;
 using CGame.GameplayTags;
 using NUnit.Framework;
 using UnityEngine;

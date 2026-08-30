@@ -26,7 +26,7 @@ namespace CGame
                 var components = new List<ActorComponent>
                 {
                     new PawnMovementComponent(motor),
-                    new HealthDeathComponent(definition.MaximumHealth)
+                    new HealthComponent()
                 };
                 return Task.FromResult(new Pawn(root, components));
             }
