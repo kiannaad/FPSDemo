@@ -371,7 +371,7 @@ namespace CGame.InventoryEquipment
                 return false;
             }
 
-            RaycastHit[] hits = Physics.RaycastAll(origin, direction, distance, layerMask, QueryTriggerInteraction.Ignore);
+            RaycastHit[] hits = Physics.RaycastAll(origin, direction, distance, layerMask, QueryTriggerInteraction.Collide);
             bool found = false;
             foreach (RaycastHit hit in hits)
             {
