@@ -94,7 +94,7 @@ public CharacterBoneController BoneController => boneController;
                 return defaultValue;
             }
 
-            if (playablesController.TryGetCurveValue(curveName, out float playableValue))
+            if (playablesController.TryGetCurveValue(curveName, defaultValue, out float playableValue))
             {
                 return playableValue;
             }
@@ -115,7 +115,7 @@ public CharacterBoneController BoneController => boneController;
             switch (source)
             {
                 case AnimationCurveBlendSource.Playables:
-                    return playablesController.TryGetCurveValue(curveName, out float playableValue)
+                    return playablesController.TryGetCurveValue(curveName, defaultValue, out float playableValue)
                         ? playableValue
                         : defaultValue;
                 case AnimationCurveBlendSource.Animator:

@@ -187,10 +187,28 @@ namespace CGame.Animation.Editor
             SerializedProperty curve = target.FindPropertyRelative("curve");
             curve.animationCurveValue = new AnimationCurve(
                 new Keyframe(0f, 0f),
-                new Keyframe(0.2f, 0f),
-                new Keyframe(0.72f, 0f),
-                new Keyframe(0.84f, 0.25f),
-                new Keyframe(0.94f, 1f),
+                new Keyframe(1f, 0f));
+
+            SerializedProperty weaponBoneWeight = null;
+            for (int index = 0; index < curves.arraySize; index++)
+            {
+                SerializedProperty candidate = curves.GetArrayElementAtIndex(index);
+                if (candidate.FindPropertyRelative("name").stringValue == "WeaponBoneWeight")
+                {
+                    weaponBoneWeight = candidate;
+                    break;
+                }
+            }
+
+            if (weaponBoneWeight == null)
+            {
+                curves.arraySize++;
+                weaponBoneWeight = curves.GetArrayElementAtIndex(curves.arraySize - 1);
+            }
+
+            weaponBoneWeight.FindPropertyRelative("name").stringValue = "WeaponBoneWeight";
+            weaponBoneWeight.FindPropertyRelative("curve").animationCurveValue = new AnimationCurve(
+                new Keyframe(0f, 1f),
                 new Keyframe(1f, 1f));
             serializedAnimation.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(animationAsset);
@@ -212,7 +230,7 @@ namespace CGame.Animation.Editor
 
                 Debug.Log($"[ReloadTrace] Character reload clip bindings: clip={clipAsset.AnimationClip.name}, total={bindings.Length}, leftHand={leftHandBindings}");
             }
-            Debug.Log($"[ReloadTrace] Character reload curve configured: asset={animationAsset.name}, curve=MaskAttachHand, keys=6");
+            Debug.Log($"[ReloadTrace] Character reload curves configured: asset={animationAsset.name}, MaskAttachHand=0, WeaponBoneWeight=1");
         }
 
         private static AnimatorState FindState(AnimatorStateMachine stateMachine, string name)
