@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Fps.Protocol\Fps.Protocol.csproj" />
+    <PackageReference Include="LiteNetLib" Version="2.1.4" />
+  </ItemGroup>
+</Project>

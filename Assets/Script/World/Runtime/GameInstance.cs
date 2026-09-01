@@ -29,6 +29,11 @@ namespace CGame
 
         protected virtual void Update()
         {
+            if (RuntimeWorld?.State == WorldState.Initialized && RuntimeWorld.GameMode is INetworkPrePlayExecution networkGameMode)
+            {
+                networkGameMode.PumpPrePlay();
+            }
+
             RuntimeWorld?.UpdateTick(Time.deltaTime);
             RuntimeWorld?.FixedTick(Time.deltaTime);
             RuntimeWorld?.PreAnimationTick(Time.deltaTime);
@@ -63,6 +68,11 @@ namespace CGame
 
             await RuntimeWorld.InitializeAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            if (RuntimeWorld.GameMode is INetworkPrePlayExecution networkGameMode)
+            {
+                await networkGameMode.WaitForInitialOwnerPawnAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
             RuntimeWorld.StartPlay();
         }
 

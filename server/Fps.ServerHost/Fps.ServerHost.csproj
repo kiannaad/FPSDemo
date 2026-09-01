@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Fps.ServerDomain\Fps.ServerDomain.csproj" />
+    <ProjectReference Include="..\Fps.ServerNet\Fps.ServerNet.csproj" />
+  </ItemGroup>
+</Project>

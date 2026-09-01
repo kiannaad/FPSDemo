@@ -13,7 +13,8 @@
     "CGame.Inventory",
     "CGame.CharacterPhysics",
     "CGame.InventoryEquipment",
-    "CGame.Input"
+    "CGame.Input",
+    "CGame.Network"
   ],
   "autoReferenced": true
 }

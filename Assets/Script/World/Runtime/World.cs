@@ -227,6 +227,15 @@ namespace CGame
             registration.Activate();
         }
 
+        public void ReportGameplayFailure(Exception exception)
+        {
+            if (exception == null) throw new ArgumentNullException(nameof(exception));
+            if (State == WorldState.ShuttingDown || State == WorldState.Destroyed) return;
+            Failure = exception.Message;
+            EndBegunSubSystems();
+            State = WorldState.Faulted;
+        }
+
         public void FixedTick(float deltaTime) => ExecuteTick(TickDomain.Fixed, deltaTime);
 
         public void UpdateTick(float deltaTime) => ExecuteTick(TickDomain.Update, deltaTime);

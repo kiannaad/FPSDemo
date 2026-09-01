@@ -14,6 +14,7 @@
     "CGame.Gameplay",
     "CGame.World",
     "CGame.World.CoreServices",
+    "CGame.Network",
     "CGame.GameplayTags",
     "Unity.InputSystem",
     "Unity.InputSystem.TestFramework"

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using CGame.GameplayTags;
 using CGame.Ability.Cues;
 using CGame.InventoryEquipment;
+using CGame.Network;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -19,6 +20,7 @@ namespace CGame
         [SerializeField] private GameplayTagSource[] gameplayTagSources;
         [SerializeField] private WeaponDefinition[] weaponDefinitions;
         [SerializeField] private GameplayCueSet[] gameplayCueSets;
+        [SerializeField] private ClientNetworkDefinition clientNetworkDefinition;
 
         public override IReadOnlyList<WorldSubSystem> CreateWorldSubSystems()
         {
@@ -33,6 +35,11 @@ namespace CGame
             {
                 subSystems.Add(new ResourceManager(resourcePackageName));
                 subSystems.Add(new AssetManager());
+            }
+
+            if (clientNetworkDefinition != null)
+            {
+                subSystems.Add(new ClientNetworkSubSystem(clientNetworkDefinition));
             }
 
             return subSystems;
@@ -51,6 +58,15 @@ namespace CGame
 
         public override GameMode CreateGameMode(World world, Player player)
         {
+            if (clientNetworkDefinition != null)
+            {
+                return new NetworkGameMode(
+                    world,
+                    player,
+                    gameModeDefinition.PlayerStateDefinition,
+                    world.GetSubSystem<ClientNetworkSubSystem>());
+            }
+
             return gameModeDefinition == null
                 ? null
                 : gameModeDefinition.CreateGameMode(world, player);
@@ -98,6 +114,11 @@ public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
         public void ConfigureGameplayCueSets(params GameplayCueSet[] cueSets)
         {
             gameplayCueSets = cueSets ?? System.Array.Empty<GameplayCueSet>();
+        }
+
+        public void ConfigureClientNetwork(ClientNetworkDefinition definition)
+        {
+            clientNetworkDefinition = definition;
         }
 
 

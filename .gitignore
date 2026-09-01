@@ -81,3 +81,11 @@ sysinfo.txt
 /server/bin/*.exe
 /example/**/*.exe
 /example/**/server.log
+
+# Versioned authoritative .NET server source; its generated build output remains ignored above.
+!/Server/
+!/Server/**/*.csproj
+/Server/**/bin/
+/Server/**/obj/
+/Server/**/.idea/
+/Server/.idea/
