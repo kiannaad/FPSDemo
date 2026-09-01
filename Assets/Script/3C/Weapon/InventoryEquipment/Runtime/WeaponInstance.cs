@@ -25,9 +25,7 @@ namespace CGame.InventoryEquipment
         private AnimationClipPlayable reloadPresentationPlayable;
         private bool reloadControllerPlaying;
         private bool reloadTraceLogged;
-        private float heat;
-        private float lastSuccessfulShotTime = float.NegativeInfinity;
-        private ulong spreadSequence;
+        private ulong nextShotId;
         private static readonly int ReloadState = Animator.StringToHash("Reload");
         private static readonly int IdleState = Animator.StringToHash("Idle");
 
@@ -52,8 +50,7 @@ namespace CGame.InventoryEquipment
         public Transform MuzzlePoint => muzzlePoint;
 
         public bool IsPresentationVisible { get; private set; }
-        public float Heat => heat;
-        public ulong SpreadSequence => spreadSequence;
+        public ulong SpreadSequence => nextShotId;
 
         public bool HasAnimationBinding =>
             animationInstance != null
@@ -167,7 +164,6 @@ namespace CGame.InventoryEquipment
             ClearAnimationBinding();
             RevokeAbilitySets();
             IsArmed = false;
-            ResetHeat();
             ClearAimPointFromPawn();
         }
 
@@ -270,11 +266,6 @@ namespace CGame.InventoryEquipment
 
         public GameplayHitResult? QueryHit(Vector3 cameraOrigin, Vector3 cameraDirection)
         {
-            return QueryHit(cameraOrigin, cameraDirection, CreateDefaultSpreadContext(cameraDirection));
-        }
-
-        public GameplayHitResult? QueryHit(Vector3 cameraOrigin, Vector3 cameraDirection, WeaponSpreadContext spreadContext)
-        {
             if (!IsPrepared || muzzlePoint == null)
             {
                 throw new InvalidOperationException("Weapon hit query requires a prepared MuzzlePoint.");
@@ -287,7 +278,7 @@ namespace CGame.InventoryEquipment
 
             WeaponBulletData bulletData = Definition.BulletData;
             bulletData.Validate();
-            Vector3 direction = CreateSpreadDirection(spreadContext);
+            Vector3 direction = cameraDirection.normalized;
             bool cameraHasHit = TryGetNearestValidHit(cameraOrigin, direction, bulletData.MaxShootDistance, bulletData.HitLayerMask, out RaycastHit cameraHit);
             Vector3 candidatePoint = cameraHasHit ? cameraHit.point : cameraOrigin + direction * bulletData.MaxShootDistance;
             Vector3 muzzlePosition = muzzlePoint.position;
@@ -307,67 +298,27 @@ namespace CGame.InventoryEquipment
 
         public GameplayAbilityTargetDataHandle QueryTargetData(
             Vector3 cameraOrigin,
-            Vector3 cameraDirection,
-            WeaponSpreadContext spreadContext)
+            Vector3 cameraDirection)
         {
-            GameplayHitResult? hit = QueryHit(cameraOrigin, cameraDirection, spreadContext);
+            ulong shotId = ++nextShotId;
+            GameplayHitResult? hit = QueryHit(cameraOrigin, cameraDirection);
             if (!hit.HasValue)
             {
-                return GameplayAbilityTargetDataHandle.Empty;
+                return new GameplayAbilityTargetDataHandle(shotId, System.Array.Empty<SingleTargetHitData>());
             }
 
-            return new GameplayAbilityTargetDataHandle(new[]
+            return new GameplayAbilityTargetDataHandle(shotId, new[]
             {
-                new SingleTargetHitData(spreadSequence + 1UL, 0, hit.Value)
+                new SingleTargetHitData(0, hit.Value)
             });
-        }
-
-        public void CommitSuccessfulShot()
-        {
-            WeaponBulletData bulletData = Definition.BulletData;
-            heat = Mathf.Clamp01(heat + bulletData.EvaluateHeatPerShot(heat));
-            spreadSequence++;
-            lastSuccessfulShotTime = Time.time;
         }
 
         public void AdvanceHeat(float deltaTime)
         {
-            AdvanceHeat(deltaTime, Time.time);
-        }
-
-        public void AdvanceHeat(float deltaTime, float currentTime)
-        {
-            if (!IsArmed || heat <= 0f || deltaTime <= 0f || currentTime - lastSuccessfulShotTime < Definition.HeatCooldownDelaySeconds)
-            {
-                return;
-            }
-
-            heat = Mathf.Clamp01(heat - Definition.BulletData.EvaluateHeatCooldown(heat) * deltaTime);
         }
 
         public void ResetHeat()
         {
-            heat = 0f;
-            lastSuccessfulShotTime = float.NegativeInfinity;
-        }
-
-        private Vector3 CreateSpreadDirection(WeaponSpreadContext context)
-        {
-            float multiplier = Definition.BaseSpreadMultiplier;
-            if (context.IsAiming) multiplier *= Definition.AimSpreadMultiplier;
-            if (!context.IsGrounded) multiplier *= Definition.AirSpreadMultiplier;
-            if (context.HorizontalSpeed > Definition.MovingSpreadSpeedThreshold) multiplier *= Definition.MoveSpreadMultiplier;
-            float halfAngle = Mathf.Clamp(Definition.BulletData.EvaluateSpreadAngle(heat) * multiplier, 0f, 89f);
-            return WeaponSpreadSampler.SampleDirection(context, halfAngle, Definition.BulletData.SpreadExponent, spreadSequence);
-        }
-
-        private static WeaponSpreadContext CreateDefaultSpreadContext(Vector3 direction)
-        {
-            Vector3 forward = direction.normalized;
-            Vector3 right = Vector3.Cross(Vector3.up, forward);
-            if (right.sqrMagnitude <= Mathf.Epsilon) right = Vector3.right;
-            Vector3 up = Vector3.Cross(forward, right).normalized;
-            return new WeaponSpreadContext(forward, right, up, false, true, 0f);
         }
 
         private static GameplayHitResult ToGameplayHitResult(

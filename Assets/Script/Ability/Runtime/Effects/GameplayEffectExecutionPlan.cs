@@ -60,7 +60,7 @@ namespace CGame.Ability.Effects
             return true;
         }
 
-        public bool Execute(Action onCommitted = null)
+        public bool Execute(out IReadOnlyList<GameplayEffectAttributeChange> committedChanges, Action onCommitted = null)
         {
             try
             {
@@ -90,6 +90,17 @@ namespace CGame.Ability.Effects
                     }
                 }
 
+                var changes = new GameplayEffectAttributeChange[entries.Length];
+                for (int index = 0; index < entries.Length; index++)
+                {
+                    Entry entry = entries[index];
+                    changes[index] = new GameplayEffectAttributeChange(
+                        entry.Attribute,
+                        originalValues[entry.Data],
+                        entry.Data.CurrentValue);
+                }
+
+                committedChanges = changes;
                 return true;
             }
             catch
@@ -99,6 +110,7 @@ namespace CGame.Ability.Effects
                     originalValue.Key.SetCurrentValue(originalValue.Value);
                 }
 
+                committedChanges = Array.Empty<GameplayEffectAttributeChange>();
                 return false;
             }
         }

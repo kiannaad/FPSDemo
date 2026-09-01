@@ -202,7 +202,7 @@ namespace CGame.InventoryEquipment
             }
 
             if (!shotQuery.TryQueueShot(
-                    (origin, shotContext) => ExecuteQueuedShot(weapon, pawn, origin, shotContext),
+                    (origin, direction) => ExecuteQueuedShot(weapon, pawn, origin, direction),
                     OnQueuedShotCompleted,
                     out FireResult queueResult))
             {
@@ -248,7 +248,7 @@ namespace CGame.InventoryEquipment
             return true;
         }
 
-        private FireResult ExecuteQueuedShot(WeaponInstance weapon, Pawn pawn, Vector3 origin, PawnShotContext shotContext)
+        private FireResult ExecuteQueuedShot(WeaponInstance weapon, Pawn pawn, Vector3 origin, Vector3 direction)
         {
             if (weapon == null || weapon.IsDisposed || !weapon.IsArmed)
             {
@@ -265,15 +265,8 @@ namespace CGame.InventoryEquipment
                 return FireResult.Failed("Queued shot weapon has no ammunition.", pawn.RecoilShotSequence);
             }
 
-            var spreadContext = new WeaponSpreadContext(
-                shotContext.Forward,
-                shotContext.Right,
-                shotContext.Up,
-                shotContext.IsAiming,
-                shotContext.IsGrounded,
-                shotContext.HorizontalSpeed);
             GameplayAbilityTargetDataHandle targetData =
-                weapon.QueryTargetData(origin, shotContext.Forward, spreadContext);
+                weapon.QueryTargetData(origin, direction);
             GameplayHitResult? hitResult = targetData.Count > 0
                 ? targetData[0].HitResult
                 : (GameplayHitResult?)null;
@@ -281,8 +274,6 @@ namespace CGame.InventoryEquipment
             {
                 return FireResult.Failed("Queued shot ammunition commit failed.", pawn.RecoilShotSequence);
             }
-
-            weapon.CommitSuccessfulShot();
 
             FireResult recoilResult = pawn.ApplySuccessfulShot(weapon.Definition.RecoilProfile);
             if (!recoilResult.Succeeded)

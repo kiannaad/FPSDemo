@@ -22,8 +22,6 @@ namespace CGame
         private Vector3 cameraShotOrigin;
         private Vector3 cameraShotDirection = Vector3.forward;
         private int cameraShotFrame = -1;
-        private bool isShotGrounded = true;
-        private float shotHorizontalSpeed;
         private static readonly GameplayTag ReloadingStateTag = CreateTag("State.Weapon.Reloading");
 
         public Pawn()
@@ -82,9 +80,6 @@ public RecoilComponent Recoil => recoilComponent;
 
         public bool IsAiming { get; private set; }
 
-        public bool IsShotGrounded => isShotGrounded;
-
-        public float ShotHorizontalSpeed => shotHorizontalSpeed;
 
         public Pose AimPointOffset { get; private set; } = new Pose(Vector3.zero, Quaternion.identity);
 
@@ -272,11 +267,6 @@ public RecoilComponent Recoil => recoilComponent;
             WeaponCollisionDistance = distance;
         }
 
-        public void SetShotMovementSnapshot(bool isGrounded, float horizontalSpeed)
-        {
-            isShotGrounded = isGrounded;
-            shotHorizontalSpeed = Mathf.Max(0f, horizontalSpeed);
-        }
 
         public void SubmitControlIntent(in CharacterControlIntent intent)
         {

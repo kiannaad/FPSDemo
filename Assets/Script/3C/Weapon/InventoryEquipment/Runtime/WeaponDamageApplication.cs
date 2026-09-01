@@ -87,7 +87,7 @@ namespace CGame.InventoryEquipment
                 else
                 {
                     failures.Add(new WeaponDamageEntryFailure(
-                        entry.ShotId,
+                        targetData.ShotId,
                         entry.TraceIndex,
                         applyResult.FailureReason));
                 }

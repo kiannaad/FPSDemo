@@ -8,13 +8,14 @@ namespace CGame.Ability.Targeting
     {
         private readonly SingleTargetHitData[] entries;
 
-        public GameplayAbilityTargetDataHandle(IEnumerable<SingleTargetHitData> entries)
+        public GameplayAbilityTargetDataHandle(ulong shotId, IEnumerable<SingleTargetHitData> entries)
         {
             if (entries == null)
             {
                 throw new ArgumentNullException(nameof(entries));
             }
 
+            ShotId = shotId;
             this.entries = new List<SingleTargetHitData>(entries).ToArray();
             if (Array.Exists(this.entries, entry => entry == null))
             {
@@ -23,8 +24,9 @@ namespace CGame.Ability.Targeting
         }
 
         public static GameplayAbilityTargetDataHandle Empty { get; } =
-            new GameplayAbilityTargetDataHandle(Array.Empty<SingleTargetHitData>());
+            new GameplayAbilityTargetDataHandle(0UL, Array.Empty<SingleTargetHitData>());
 
+        public ulong ShotId { get; }
         public int Count => entries.Length;
         public SingleTargetHitData this[int index] => entries[index];
 

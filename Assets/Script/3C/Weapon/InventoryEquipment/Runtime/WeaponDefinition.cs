@@ -30,12 +30,6 @@ namespace CGame.InventoryEquipment
         [SerializeField] private RecoilProfile recoilProfile;
         [SerializeField, Range(1f, 179f)] private float aimFov = 40f;
         [SerializeField, Min(0.001f)] private float fireInterval = 0.1f;
-        [SerializeField, Min(0.001f)] private float baseSpreadMultiplier = 1f;
-        [SerializeField, Min(0.001f)] private float aimSpreadMultiplier = 0.65f;
-        [SerializeField, Min(0.001f)] private float airSpreadMultiplier = 1.5f;
-        [SerializeField, Min(0.001f)] private float moveSpreadMultiplier = 1.35f;
-        [SerializeField, Min(0f)] private float movingSpreadSpeedThreshold = 0.1f;
-        [SerializeField, Min(0f)] private float heatCooldownDelaySeconds = 0.25f;
         [SerializeField] private GameplayEffectDefinition damageEffect;
         [SerializeField] private int loadTicks = 1;
         [SerializeField] private bool simulateLoadFailure;
@@ -60,12 +54,6 @@ namespace CGame.InventoryEquipment
         public RecoilProfile RecoilProfile => recoilProfile;
         public float AimFov => aimFov;
         public float FireInterval => fireInterval;
-        public float BaseSpreadMultiplier => baseSpreadMultiplier;
-        public float AimSpreadMultiplier => aimSpreadMultiplier;
-        public float AirSpreadMultiplier => airSpreadMultiplier;
-        public float MoveSpreadMultiplier => moveSpreadMultiplier;
-        public float MovingSpreadSpeedThreshold => movingSpreadSpeedThreshold;
-        public float HeatCooldownDelaySeconds => heatCooldownDelaySeconds;
         public GameplayEffectDefinition DamageEffect => damageEffect;
         public override int LoadTicks => Math.Max(0, loadTicks);
         public override bool SimulateLoadFailure => simulateLoadFailure;
@@ -184,13 +172,6 @@ namespace CGame.InventoryEquipment
                 throw new InvalidOperationException("Weapon Definition fire interval must be positive.");
             }
 
-            if (!IsFinitePositive(baseSpreadMultiplier) || !IsFinitePositive(aimSpreadMultiplier)
-                || !IsFinitePositive(airSpreadMultiplier) || !IsFinitePositive(moveSpreadMultiplier)
-                || movingSpreadSpeedThreshold < 0f || heatCooldownDelaySeconds < 0f)
-            {
-                throw new InvalidOperationException("Weapon Definition spread multipliers and heat timing are invalid.");
-            }
-
             if (bulletData == null)
             {
                 throw new InvalidOperationException("Weapon Definition requires BulletData.");
@@ -283,6 +264,5 @@ namespace CGame.InventoryEquipment
             return false;
         }
 
-        private static bool IsFinitePositive(float value) => value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);
     }
 }

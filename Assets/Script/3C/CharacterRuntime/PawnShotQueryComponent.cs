@@ -10,7 +10,7 @@ namespace CGame
         public bool HasPendingShot => pendingShot != null;
 
         public bool TryQueueShot(
-            Func<Vector3, PawnShotContext, FireResult> execute,
+            Func<Vector3, Vector3, FireResult> execute,
             Action<FireResult> completed,
             out FireResult queueResult)
         {
@@ -62,7 +62,7 @@ namespace CGame
 
             try
             {
-                Complete(shot, shot.Execute(origin, CreateShotContext(pawn, direction)));
+                Complete(shot, shot.Execute(origin, direction));
             }
             catch (Exception exception)
             {
@@ -87,34 +87,15 @@ namespace CGame
             shot.Completed?.Invoke(result);
         }
 
-        private static PawnShotContext CreateShotContext(Pawn pawn, Vector3 cameraDirection)
-        {
-            Vector3 forward = cameraDirection.normalized;
-            Vector3 right = Vector3.Cross(Vector3.up, forward);
-            if (right.sqrMagnitude <= Mathf.Epsilon)
-            {
-                right = Vector3.right;
-            }
-
-            Vector3 up = Vector3.Cross(forward, right).normalized;
-            return new PawnShotContext(
-                forward,
-                right,
-                up,
-                pawn != null && pawn.IsAiming,
-                pawn == null || pawn.IsShotGrounded,
-                pawn != null ? pawn.ShotHorizontalSpeed : 0f);
-        }
-
         private sealed class PendingShot
         {
-            public PendingShot(Func<Vector3, PawnShotContext, FireResult> execute, Action<FireResult> completed)
+            public PendingShot(Func<Vector3, Vector3, FireResult> execute, Action<FireResult> completed)
             {
                 Execute = execute;
                 Completed = completed;
             }
 
-            public Func<Vector3, PawnShotContext, FireResult> Execute { get; }
+            public Func<Vector3, Vector3, FireResult> Execute { get; }
 
             public Action<FireResult> Completed { get; }
         }

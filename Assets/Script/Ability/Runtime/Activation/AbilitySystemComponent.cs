@@ -169,7 +169,7 @@ namespace CGame.Ability
                 return GameplayEffectApplyResult.Failure(failureReason);
             }
 
-            if (!executionPlan.Execute(() =>
+            if (!executionPlan.Execute(out IReadOnlyList<GameplayEffectAttributeChange> committedChanges, () =>
                 {
                     if (!spec.Definition.ExecutedCueTag.IsEmpty)
                     {
@@ -182,7 +182,7 @@ namespace CGame.Ability
                 return GameplayEffectApplyResult.Failure(GameplayEffectFailureReason.ExecutionFailed);
             }
 
-            return GameplayEffectApplyResult.Success();
+            return GameplayEffectApplyResult.Success(committedChanges);
         }
 
         public void Dispose()
