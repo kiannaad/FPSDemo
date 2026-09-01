@@ -31,6 +31,7 @@ namespace CGame
 
         public Task StartInitialSpawn()
         {
+            if (disposed) throw new ObjectDisposedException(nameof(EnemySpawnGameComponent));
             if (SpawnTask != null) throw new InvalidOperationException("Initial enemy batch can only spawn once.");
             SpawnTask = SpawnBatchAsync();
             return SpawnTask;
@@ -47,7 +48,19 @@ namespace CGame
 
         private void OnGameplayReady()
         {
-            StartInitialSpawn();
+            _ = ObserveInitialSpawnAsync();
+        }
+
+        private async Task ObserveInitialSpawnAsync()
+        {
+            try
+            {
+                await StartInitialSpawn();
+            }
+            catch
+            {
+                // SpawnBatchAsync reports the failure to World; observing here prevents an unobserved event task.
+            }
         }
 
         private async Task SpawnBatchAsync()
@@ -59,13 +72,19 @@ namespace CGame
                 for (int index = 0; index < reservations.Count; index++)
                 {
                     EnemySpawnHandle handle = await spawner.SpawnAsync(world, definition, reservations[index]);
+                    if (disposed)
+                    {
+                        handle.Dispose();
+                        return;
+                    }
                     handles.Add(handle);
                 }
             }
-            catch
+            catch (Exception exception)
             {
                 for (int index = handles.Count - 1; index >= 0; index--) handles[index].Dispose();
                 handles.Clear();
+                world.ReportGameplayFailure(exception);
                 throw;
             }
             finally

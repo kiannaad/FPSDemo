@@ -5,12 +5,12 @@ namespace CGame
 {
     public sealed class ExperienceActivationTransaction : IDisposable
     {
-        private readonly object owner;
+        private readonly IGameFeatureActivationHost owner;
         private readonly Guid ownerId = Guid.NewGuid();
         private readonly List<GameFeatureActivationReceipt> receipts = new List<GameFeatureActivationReceipt>();
         private bool activationAttempted;
 
-        public ExperienceActivationTransaction(object activationOwner)
+        public ExperienceActivationTransaction(IGameFeatureActivationHost activationOwner)
         {
             owner = activationOwner ?? throw new ArgumentNullException(nameof(activationOwner));
         }

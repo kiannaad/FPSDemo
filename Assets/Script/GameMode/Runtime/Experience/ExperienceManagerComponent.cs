@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace CGame
 {
-    public sealed class ExperienceManagerComponent : ActorComponent
+    public sealed class ExperienceManagerComponent : ActorComponent, IGameFeatureActivationHost
     {
         private readonly World world;
         private readonly ExperienceDefinition experience;
@@ -36,6 +36,9 @@ namespace CGame
         public GameFeatureComponentRegistry Components => components;
 
         public World World => world;
+
+        public GameFeatureActivationReceipt InstallComponent(object component, Guid ownerId) =>
+            components.Install(component, ownerId);
 
         public Task LoadAsync()
         {

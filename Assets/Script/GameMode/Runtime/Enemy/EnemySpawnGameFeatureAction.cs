@@ -16,10 +16,8 @@ namespace CGame
 
         public override GameFeatureActivationReceipt Activate(GameFeatureActivationContext context)
         {
-            if (!(context.Owner is ExperienceManagerComponent manager))
-                throw new System.InvalidOperationException("Enemy spawn action requires ExperienceManagerComponent.");
             return context.InstallComponent(
-                new EnemySpawnGameComponent(manager.World, enemyDefinition, initialSpawnCount));
+                new EnemySpawnGameComponent(context.World, enemyDefinition, initialSpawnCount));
         }
     }
 }

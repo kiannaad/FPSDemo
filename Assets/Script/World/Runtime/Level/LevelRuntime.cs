@@ -117,27 +117,4 @@ namespace CGame
         }
     }
 
-    public enum SpawnPointState { Available, Reserved, Occupied }
-
-    public readonly struct SpawnPointStatus
-    {
-        public SpawnPointStatus(string id, SpawnPointKind kind, Transform transform, SpawnPointState state, Guid registrationId) { PointId = id; Kind = kind; Transform = transform; State = state; RegistrationId = registrationId; }
-        public string PointId { get; }
-        public SpawnPointKind Kind { get; }
-        public Transform Transform { get; }
-        public SpawnPointState State { get; }
-        public Guid RegistrationId { get; }
-        public bool HasOccupiedTag => State == SpawnPointState.Occupied;
-    }
-
-    public sealed class SpawnPointReservation : IDisposable
-    {
-        private LevelRuntime owner;
-        internal SpawnPointReservation(LevelRuntime runtime, string pointId, SpawnPointKind kind, Transform transform) { owner = runtime; PointId = pointId; Kind = kind; Transform = transform; }
-        public string PointId { get; }
-        public SpawnPointKind Kind { get; }
-        public Transform Transform { get; }
-        public void Commit(Guid registrationId) { if (owner == null) throw new ObjectDisposedException(nameof(SpawnPointReservation)); owner.Commit(PointId, registrationId); owner = null; }
-        public void Dispose() { owner?.Rollback(PointId); owner = null; }
-    }
 }

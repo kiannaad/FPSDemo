@@ -13,31 +13,31 @@ namespace CGame.Editor
     public static class SampleSceneGameplayAssemblySetup
     {
         private const string BootstrapPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GameBootstrap.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/Bootstrap/GameBootstrap.asset";
         private const string ExperiencePath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/DefaultExperienceDefinition.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GameFlow/DefaultExperienceDefinition.asset";
         private const string FeaturePath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/DefaultCoreGameFeature.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GameFlow/Features/DefaultCoreGameFeature.asset";
         private const string EnemyStatePath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemyPlayerStateDefinition.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemy/TargetEnemyPlayerStateDefinition.asset";
         private const string EnemyDefinitionPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemyDefinition.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemy/TargetEnemyDefinition.asset";
         private const string EnemyActionPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemySpawnFeatureAction.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemy/TargetEnemySpawnFeatureAction.asset";
         private const string PlayerStatePath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/DefaultPlayerStateDefinition.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/Player/DefaultPlayerStateDefinition.asset";
         private const string HealthSetPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/HealthAttributeSetDefinition.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/Shared/AbilitySystem/HealthAttributeSetDefinition.asset";
         private const string CombatSetPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/CombatAttributeSetDefinition.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/Shared/AbilitySystem/CombatAttributeSetDefinition.asset";
         private const string PlayerInitializationEffectPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GE_Player_Initialization.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/Player/AbilitySystem/GE_Player_Initialization.asset";
         private const string EnemyInitializationEffectPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GE_TargetEnemy_Initialization.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemy/AbilitySystem/GE_TargetEnemy_Initialization.asset";
         private const string PlayerAbilityInitializationPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/PlayerAbilitySystemInitialization.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/Player/AbilitySystem/PlayerAbilitySystemInitialization.asset";
         private const string EnemyAbilityInitializationPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemyAbilitySystemInitialization.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/TargetEnemy/AbilitySystem/TargetEnemyAbilitySystemInitialization.asset";
         private const string DamageEffectFolder =
             "Assets/Settings/Gameplay/Weapon/GameplayEffects";
         private const string DamageEffectPath =
@@ -270,7 +270,7 @@ namespace CGame.Editor
             if (scene.path != "Assets/Scenes/SampleScene.unity")
                 throw new System.InvalidOperationException("Load SampleScene before running gameplay setup.");
             LevelDefinition definition = AssetDatabase.LoadAssetAtPath<LevelDefinition>(
-                "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/DefaultLevelDefinition.asset");
+                "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GameFlow/DefaultLevelDefinition.asset");
             GameObject root = System.Array.Find(scene.GetRootGameObjects(), item => item.name == LevelDefinitionScanner.PlayerContainerName);
             if (root == null || root.transform.childCount == 0)
             {
@@ -293,7 +293,7 @@ namespace CGame.Editor
         {
             var scene = EditorSceneManager.GetActiveScene();
             LevelDefinition definition = AssetDatabase.LoadAssetAtPath<LevelDefinition>(
-                "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/DefaultLevelDefinition.asset");
+                "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GameFlow/DefaultLevelDefinition.asset");
             GameObject root = System.Array.Find(scene.GetRootGameObjects(), item => item.name == LevelDefinitionScanner.EnemyContainerName);
             while (root == null || root.transform.childCount < 3)
             {

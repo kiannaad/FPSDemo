@@ -66,7 +66,7 @@ namespace CGame.Editor
                 string containerName = kind == SpawnPointKind.Player ? PlayerContainerName : EnemyContainerName;
                 string prefix = kind == SpawnPointKind.Player ? "PlayerPoint" : "EnemyPoint";
                 Transform container = GetOrCreateUniqueRoot(scene, containerName);
-                var point = new GameObject($"{prefix}{container.childCount + 1}");
+                var point = new GameObject($"{prefix} {container.childCount + 1}");
                 Undo.RegisterCreatedObjectUndo(point, "Add Spawn Point");
                 point.transform.SetParent(container);
                 ScanAndApply(scene, definition);
@@ -128,7 +128,7 @@ namespace CGame.Editor
                 if (markers.Length > 1) throw new InvalidOperationException($"{child.name} has duplicate spawn markers.");
                 if (markers.Length == 1 && markers[0].Kind != kind && !string.IsNullOrEmpty(markers[0].PointId))
                     throw new InvalidOperationException($"{child.name} marker kind conflicts with its container.");
-                string id = $"{prefix}{index + 1}";
+                string id = $"{prefix} {index + 1}";
                 Undo.RecordObject(child.gameObject, "Normalize Spawn Point");
                 child.name = id;
                 child.SetSiblingIndex(index);
@@ -154,8 +154,9 @@ namespace CGame.Editor
         private static bool TryExtractNumber(string name, string prefix, out int value)
         {
             value = 0;
-            return name.StartsWith(prefix, StringComparison.Ordinal) &&
-                   int.TryParse(name.Substring(prefix.Length), out value) && value > 0;
+            string requiredPrefix = prefix + " ";
+            return name.StartsWith(requiredPrefix, StringComparison.Ordinal) &&
+                   int.TryParse(name.Substring(requiredPrefix.Length), out value) && value > 0;
         }
         private static int ExtractNumber(string name, string prefix) { TryExtractNumber(name, prefix, out int value); return value; }
     }

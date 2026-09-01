@@ -30,7 +30,7 @@ MonoBehaviour:
       AssetTags:
       ActiveRuleName: EnableGroup
       Collectors:
-      - CollectPath: Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/DefaultExperienceDefinition.asset
+      - CollectPath: Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/GameFlow/DefaultExperienceDefinition.asset
         CollectorGUID: c942b6fddd697c444aa746c47d7eb829
         CollectorType: 0
         AddressRuleName: AddressByFileName
