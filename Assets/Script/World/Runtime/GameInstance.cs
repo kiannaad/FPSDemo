@@ -70,7 +70,7 @@ namespace CGame
             cancellationToken.ThrowIfCancellationRequested();
             if (RuntimeWorld.GameMode is INetworkPrePlayExecution networkGameMode)
             {
-                await networkGameMode.WaitForInitialOwnerPawnAsync(cancellationToken);
+                await networkGameMode.WaitForNetworkStartAsync(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
             }
             RuntimeWorld.StartPlay();

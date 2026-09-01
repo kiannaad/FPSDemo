@@ -130,6 +130,9 @@ namespace CGame.Network
         {
             switch (response.Header.MessageId)
             {
+                case NetworkMessageId.MatchStarting:
+                    ClientWorld.OnMatchStarting(MessagePackSerializer.Deserialize<MatchStartingEvent>(response.Payload));
+                    break;
                 case NetworkMessageId.PawnSpawned:
                     ClientWorld.OnPawnSpawned(MessagePackSerializer.Deserialize<PawnSpawnedEvent>(response.Payload));
                     break;

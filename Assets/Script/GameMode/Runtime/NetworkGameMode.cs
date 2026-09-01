@@ -13,9 +13,12 @@ namespace CGame
         private readonly ClientNetworkSubSystem network;
         private readonly PawnFactory pawnFactory = new PawnFactory();
         private readonly Dictionary<long, GameObject> remoteViewsByPawnId = new Dictionary<long, GameObject>();
+        private readonly List<ClientPawnState> pendingRemoteViews = new List<ClientPawnState>();
         private readonly TaskCompletionSource<bool> initialOwnerPawnReady = new TaskCompletionSource<bool>();
+        private readonly TaskCompletionSource<bool> networkStartReady = new TaskCompletionSource<bool>();
         private ActorRegistration ownerPawnRegistration;
         private bool ownerPawnSpawnRequested;
+        private long startedMatchId;
 
         public NetworkGameMode(World world, Player player, PlayerStateDefinition playerStateDefinition, ClientNetworkSubSystem network)
             : base(world, player)
@@ -24,6 +27,8 @@ namespace CGame
             this.network = network ?? throw new ArgumentNullException(nameof(network));
             network.ClientWorld.PawnSpawned += OnPawnSpawned;
             network.ClientWorld.OwnerPossessionApplied += OnOwnerPossessionApplied;
+            network.ClientWorld.MatchStarting += OnMatchStarting;
+            world.GameplayReady += OnGameplayReady;
         }
 
         public string RoomId { get; private set; } = string.Empty;
@@ -62,6 +67,14 @@ namespace CGame
             }
         }
 
+        public async Task WaitForNetworkStartAsync(CancellationToken cancellationToken)
+        {
+            using (cancellationToken.Register(() => networkStartReady.TrySetCanceled(cancellationToken)))
+            {
+                await networkStartReady.Task;
+            }
+        }
+
         public async Task CreateRoomAsync()
         {
             CreateRoomResponse room = await network.CreateRoomAsync("sample-scene");
@@ -87,6 +100,8 @@ namespace CGame
         {
             network.ClientWorld.PawnSpawned -= OnPawnSpawned;
             network.ClientWorld.OwnerPossessionApplied -= OnOwnerPossessionApplied;
+            network.ClientWorld.MatchStarting -= OnMatchStarting;
+            World.GameplayReady -= OnGameplayReady;
             if (ownerPawnRegistration != null && !ownerPawnRegistration.IsDisposed) World.UnregisterActor(ownerPawnRegistration);
             foreach (GameObject view in remoteViewsByPawnId.Values)
             {
@@ -99,6 +114,14 @@ namespace CGame
         private void OnPawnSpawned(ClientPawnState pawn)
         {
             if (pawn.OwnerPlayerId == network.ClientWorld.LocalPlayerId || remoteViewsByPawnId.ContainsKey(pawn.PawnId)) return;
+            pendingRemoteViews.Add(pawn);
+        }
+
+        private void OnGameplayReady()
+        {
+            foreach (ClientPawnState pawn in pendingRemoteViews)
+            {
+                if (remoteViewsByPawnId.ContainsKey(pawn.PawnId)) continue;
             SpawnPointStatus spawnPoint = World.LevelRuntime.GetStatus(pawn.SpawnPointId);
             GameObject view = UnityEngine.Object.Instantiate(
                 playerStateDefinition.PawnData.PawnPrefab,
@@ -109,6 +132,9 @@ namespace CGame
             view.name = $"RemotePawnView:{pawn.PawnId}";
             view.SetActive(true);
             remoteViewsByPawnId.Add(pawn.PawnId, view);
+            }
+
+            pendingRemoteViews.Clear();
         }
 
         private void OnOwnerPossessionApplied(ClientPawnState pawn)
@@ -132,11 +158,26 @@ namespace CGame
                 ((PlayerController)PlayerController).Possess(ownerPawn);
                 NetworkStatus = "Owner pawn possessed";
                 initialOwnerPawnReady.TrySetResult(true);
+                TryCompleteNetworkStart();
             }
             catch (Exception exception)
             {
                 NetworkStatus = exception.Message;
                 initialOwnerPawnReady.TrySetException(exception);
+            }
+        }
+
+        private void OnMatchStarting(long matchId)
+        {
+            startedMatchId = matchId;
+            TryCompleteNetworkStart();
+        }
+
+        private void TryCompleteNetworkStart()
+        {
+            if (startedMatchId > 0 && initialOwnerPawnReady.Task.IsCompletedSuccessfully)
+            {
+                networkStartReady.TrySetResult(true);
             }
         }
     }

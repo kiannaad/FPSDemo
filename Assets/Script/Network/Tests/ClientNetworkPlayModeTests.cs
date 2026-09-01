@@ -32,6 +32,39 @@ namespace CGame.Network.Tests
             Assert.That(clientWorld.Pawns.Single().IsLocallyControlled, Is.True);
         }
 
+        [Test]
+        public void ClientWorld_IgnoresOlderPossessionAfterItWasApplied()
+        {
+            var clientWorld = new ClientWorld();
+            clientWorld.SetLocalPlayer(7);
+            clientWorld.OnPawnSpawned(new PawnSpawnedEvent
+            {
+                PawnId = 99,
+                OwnerPlayerId = 7,
+                SpawnPointId = "spawn-a"
+            });
+            clientWorld.OnPawnSpawned(new PawnSpawnedEvent
+            {
+                PawnId = 100,
+                OwnerPlayerId = 7,
+                SpawnPointId = "spawn-b"
+            });
+            clientWorld.OnPossessionChanged(new PossessionChangedEvent
+            {
+                PlayerId = 7,
+                PawnId = 100,
+                PossessionRevision = 2
+            });
+            clientWorld.OnPossessionChanged(new PossessionChangedEvent
+            {
+                PlayerId = 7,
+                PawnId = 99,
+                PossessionRevision = 1
+            });
+
+            Assert.That(clientWorld.ControlledPawnId, Is.EqualTo(100));
+        }
+
         [UnityTest]
         public IEnumerator WorldClient_CompletesHelloAgainstIndependentServer()
         {

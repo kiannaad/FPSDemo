@@ -7,12 +7,14 @@ namespace CGame.Network
     {
         private readonly Dictionary<long, ClientPawnState> pawnsById = new Dictionary<long, ClientPawnState>();
         private readonly Dictionary<long, PendingPossession> pendingPossessionsByPlayerId = new Dictionary<long, PendingPossession>();
+        private readonly Dictionary<long, long> appliedPossessionRevisionsByPlayerId = new Dictionary<long, long>();
 
         public long LocalPlayerId { get; private set; }
         public long ControlledPawnId { get; private set; }
         public IReadOnlyCollection<ClientPawnState> Pawns => pawnsById.Values;
         public event Action<ClientPawnState> PawnSpawned;
         public event Action<ClientPawnState> OwnerPossessionApplied;
+        public event Action<long> MatchStarting;
 
         public void SetLocalPlayer(long playerId)
         {
@@ -39,6 +41,8 @@ namespace CGame.Network
         {
             if (possessionChanged == null || possessionChanged.PlayerId <= 0 || possessionChanged.PawnId <= 0)
                 throw new ArgumentException("PossessionChanged data is invalid.", nameof(possessionChanged));
+            if (appliedPossessionRevisionsByPlayerId.TryGetValue(possessionChanged.PlayerId, out long appliedRevision)
+                && appliedRevision >= possessionChanged.PossessionRevision) return;
             if (pendingPossessionsByPlayerId.TryGetValue(possessionChanged.PlayerId, out PendingPossession current)
                 && current.Revision >= possessionChanged.PossessionRevision) return;
             pendingPossessionsByPlayerId[possessionChanged.PlayerId] = new PendingPossession(
@@ -47,11 +51,19 @@ namespace CGame.Network
             ApplyPendingPossession(possessionChanged.PlayerId);
         }
 
+        public void OnMatchStarting(MatchStartingEvent matchStarting)
+        {
+            if (matchStarting == null || matchStarting.MatchId <= 0)
+                throw new ArgumentException("MatchStarting data is invalid.", nameof(matchStarting));
+            MatchStarting?.Invoke(matchStarting.MatchId);
+        }
+
         private void ApplyPendingPossession(long playerId)
         {
             if (!pendingPossessionsByPlayerId.TryGetValue(playerId, out PendingPossession pending)
                 || !pawnsById.TryGetValue(pending.PawnId, out ClientPawnState pawn)) return;
             pendingPossessionsByPlayerId.Remove(playerId);
+            appliedPossessionRevisionsByPlayerId[playerId] = pending.Revision;
             pawn.PossessionRevision = pending.Revision;
             pawn.IsLocallyControlled = playerId == LocalPlayerId;
             if (pawn.IsLocallyControlled)

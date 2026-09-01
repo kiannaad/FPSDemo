@@ -16,5 +16,6 @@ namespace CGame
     {
         void PumpPrePlay();
         Task WaitForInitialOwnerPawnAsync(CancellationToken cancellationToken);
+        Task WaitForNetworkStartAsync(CancellationToken cancellationToken);
     }
 }

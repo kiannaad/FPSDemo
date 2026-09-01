@@ -10,6 +10,7 @@ public sealed class LiteNetServerTransport : IDisposable
     private readonly EventBasedLiteNetListener listener = new();
     private readonly MessageRouter router;
     private readonly Dictionary<string, LiteNetPeer> peersByConnectionId = new(StringComparer.Ordinal);
+    private readonly Queue<RoutedOutboundMessage> pendingOutboundMessages = new();
     private LiteNetManager? manager;
 
     public LiteNetServerTransport(MessageRouter router)
@@ -43,6 +44,10 @@ public sealed class LiteNetServerTransport : IDisposable
     public void PollEvents()
     {
         manager?.PollEvents();
+        if (pendingOutboundMessages.Count == 0) return;
+        RoutedOutboundMessage outbound = pendingOutboundMessages.Dequeue();
+        if (!peersByConnectionId.TryGetValue(outbound.ConnectionId, out LiteNetPeer? targetPeer)) return;
+        targetPeer.Send(PacketCodec.Encode(outbound.Message.Header, outbound.Message.Payload), DeliveryMethod.ReliableOrdered);
     }
 
     public void Dispose()
@@ -57,18 +62,21 @@ public sealed class LiteNetServerTransport : IDisposable
         {
             if (!PacketCodec.TryDecode(reader.GetRemainingBytes(), out PacketHeader header, out ReadOnlyMemory<byte> payload))
             {
+                Console.Error.WriteLine($"[Server][Protocol] Disconnecting {GetConnectionId(peer)}: invalid packet.");
+                peer.Disconnect();
                 return;
             }
 
             IReadOnlyList<RoutedOutboundMessage> outboundMessages = router.Route(GetConnectionId(peer), header, payload.Span);
             foreach (RoutedOutboundMessage outbound in outboundMessages)
             {
-                if (!peersByConnectionId.TryGetValue(outbound.ConnectionId, out LiteNetPeer? targetPeer)) continue;
-                targetPeer.Send(PacketCodec.Encode(outbound.Message.Header, outbound.Message.Payload), DeliveryMethod.ReliableOrdered);
+                pendingOutboundMessages.Enqueue(outbound);
             }
         }
-        catch (InvalidDataException)
+        catch (Exception exception)
         {
+            Console.Error.WriteLine($"[Server][Protocol] Disconnecting {GetConnectionId(peer)}: {exception.Message}");
+            peer.Disconnect();
         }
         finally
         {

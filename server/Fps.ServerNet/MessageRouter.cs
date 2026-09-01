@@ -126,11 +126,11 @@ public sealed class MessageRouter
 
         foreach (string targetConnectionId in room.ConnectionIds)
         {
-            messages.Add(Event(targetConnectionId, matchId, MessageId.MatchStarting, new MatchStartingEvent(matchId, 0)));
             foreach (ServerPawn pawn in match.Pawns)
                 messages.Add(Event(targetConnectionId, matchId, MessageId.PawnSpawned, new PawnSpawnedEvent(pawn.EntityId, pawn.OwnerPlayerId, pawn.SpawnPointId)));
             foreach (ServerPlayer player in players)
                 messages.Add(Event(targetConnectionId, matchId, MessageId.PossessionChanged, new PossessionChangedEvent(player.PlayerId, player.ControlledPawnId, player.PossessionRevision)));
+            messages.Add(Event(targetConnectionId, matchId, MessageId.MatchStarting, new MatchStartingEvent(matchId, 0)));
         }
 
         return messages;

@@ -178,6 +178,13 @@ namespace CGame.Network
     }
 
     [MessagePackObject]
+    public sealed class MatchStartingEvent
+    {
+        [Key(0)] public long MatchId { get; set; }
+        [Key(1)] public long StartTick { get; set; }
+    }
+
+    [MessagePackObject]
     public sealed class PawnSpawnedEvent
     {
         [Key(0)] public long PawnId { get; set; }
