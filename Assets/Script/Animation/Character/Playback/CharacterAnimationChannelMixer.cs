@@ -338,19 +338,41 @@ namespace CGame.Animation
 
         public bool TryGetCurveValue(string curveName, out float value)
         {
+            return TryGetCurveValue(curveName, 0f, out value);
+        }
+
+        public bool TryGetCurveValue(string curveName, float defaultValue, out float value)
+        {
             value = 0f;
             bool found = false;
+            float matchedInputWeight = 0f;
             for (int i = 0; i < slots.Count; i++)
             {
                 Slot slot = slots[i];
                 if (slot.Animation.TryEvaluateCurve(curveName, out float rawValue))
                 {
-                    value += rawValue * mixer.GetInputWeight(slot.InputIndex);
+                    float inputWeight = mixer.GetInputWeight(slot.InputIndex);
+                    value += rawValue * inputWeight;
+                    matchedInputWeight += inputWeight;
                     found = true;
                 }
             }
 
+            if (found)
+            {
+                value = ResolveCurveValueWithDefault(value, matchedInputWeight, defaultValue);
+            }
+
             return found;
+        }
+
+        internal static float ResolveCurveValueWithDefault(
+            float weightedCurveValue,
+            float matchedInputWeight,
+            float defaultValue)
+        {
+            float remainingWeight = 1f - Mathf.Clamp01(matchedInputWeight);
+            return weightedCurveValue + defaultValue * remainingWeight;
         }
 
         public bool TrySetPlaybackTime(AnimationPlaybackHandle handle, double time)

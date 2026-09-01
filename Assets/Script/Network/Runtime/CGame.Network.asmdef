@@ -1,0 +1,11 @@
+{
+  "name": "CGame.Network",
+  "rootNamespace": "CGame.Network",
+  "references": [
+    "CGame.World",
+    "LiteNetLib",
+    "MessagePack.Unity",
+    "Unity.InputSystem"
+  ],
+  "autoReferenced": true
+}

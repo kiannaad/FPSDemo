@@ -1,6 +1,8 @@
 using CGame;
 using System;
 using CGame.Ability;
+using CGame.Ability.Attributes;
+using CGame.Ability.Effects;
 using CGame.Animation;
 using CGame.GameplayTags;
 using UnityEngine;
@@ -28,6 +30,7 @@ namespace CGame.InventoryEquipment
         [SerializeField] private RecoilProfile recoilProfile;
         [SerializeField, Range(1f, 179f)] private float aimFov = 40f;
         [SerializeField, Min(0.001f)] private float fireInterval = 0.1f;
+        [SerializeField] private GameplayEffectDefinition damageEffect;
         [SerializeField] private int loadTicks = 1;
         [SerializeField] private bool simulateLoadFailure;
         [SerializeField] private RuntimeAnimatorController weaponAnimatorController;
@@ -51,6 +54,7 @@ namespace CGame.InventoryEquipment
         public RecoilProfile RecoilProfile => recoilProfile;
         public float AimFov => aimFov;
         public float FireInterval => fireInterval;
+        public GameplayEffectDefinition DamageEffect => damageEffect;
         public override int LoadTicks => Math.Max(0, loadTicks);
         public override bool SimulateLoadFailure => simulateLoadFailure;
         public RuntimeAnimatorController WeaponAnimatorController => weaponAnimatorController;
@@ -129,6 +133,11 @@ namespace CGame.InventoryEquipment
             bulletData.Configure(maxShootDistance, hitLayerMask);
         }
 
+        public void ConfigureDamageEffect(GameplayEffectDefinition effect)
+        {
+            damageEffect = effect ?? throw new ArgumentNullException(nameof(effect));
+        }
+
         public static WeaponDefinition CreateRuntime(
             GameplayTag weaponTag,
             int magazineCapacity,
@@ -205,10 +214,55 @@ namespace CGame.InventoryEquipment
                 throw new InvalidOperationException("Serialized Weapon Definition requires overlay, profile, equip and unequip IK Motion.");
             }
 
+            if (prefab != null && HasFireAbility())
+            {
+                ValidateDamageEffect();
+            }
+
             if (prefab != null && (presentationLocalScale.x <= 0f || presentationLocalScale.y <= 0f || presentationLocalScale.z <= 0f))
             {
                 throw new InvalidOperationException("Serialized Weapon Definition presentation scale must be positive.");
             }
         }
+
+        private void ValidateDamageEffect()
+        {
+            if (damageEffect == null ||
+                damageEffect.DurationPolicy != GameplayEffectDurationPolicy.Instant ||
+                damageEffect.Modifiers.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "Serialized Weapon Definition requires one Instant Damage GameplayEffect.");
+            }
+
+            GameplayEffectModifierDefinition modifier = damageEffect.Modifiers[0];
+            if (!ReferenceEquals(modifier.TargetAttribute, HealthSet.DamageAttribute) ||
+                modifier.Operation != GameplayEffectModifierOperation.Add ||
+                modifier.MagnitudeSource != GameplayEffectMagnitudeSource.SourceAttribute ||
+                !ReferenceEquals(modifier.SourceAttributeValue, CombatSet.BaseDamageAttribute))
+            {
+                throw new InvalidOperationException(
+                    "Weapon Damage GameplayEffect must add CombatSet.BaseDamage to HealthSet.Damage.");
+            }
+        }
+
+        private bool HasFireAbility()
+        {
+            if (abilitySet == null)
+            {
+                return false;
+            }
+
+            foreach (WeaponAbilityDefinition ability in abilitySet.Abilities)
+            {
+                if (ability is FireWeaponAbilityDefinition)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
     }
 }

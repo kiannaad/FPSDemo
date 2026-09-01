@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CGame.Ability.Attributes;
+using CGame.Ability.Cues;
+using CGame.Ability.Effects;
 using CGame.GameplayTags;
 
 namespace CGame.Ability
@@ -8,6 +11,7 @@ namespace CGame.Ability
     public sealed class AbilitySystemComponent
     {
         private readonly Dictionary<AbilitySpecHandle, AbilitySpec> specs = new Dictionary<AbilitySpecHandle, AbilitySpec>();
+        private readonly Dictionary<Type, AttributeSet> attributeSets = new Dictionary<Type, AttributeSet>();
         private readonly Dictionary<GameplayTag, int> ownedTagCounts = new Dictionary<GameplayTag, int>();
         private readonly Dictionary<int, GameplayTag> ownedTagGrants = new Dictionary<int, GameplayTag>();
         private readonly List<AbilityGrantReceipt> grantReceipts = new List<AbilityGrantReceipt>();
@@ -17,20 +21,31 @@ namespace CGame.Ability
         private readonly HashSet<AbilitySpecHandle> heldInputHandles = new HashSet<AbilitySpecHandle>();
         private readonly HashSet<AbilitySpecHandle> releasedInputHandles = new HashSet<AbilitySpecHandle>();
         private readonly IAbilityExecutionGate executionGate;
+        private static readonly HashSet<AbilitySystemComponent> activeComponents =
+            new HashSet<AbilitySystemComponent>();
         private int nextSpecHandle;
         private int nextTagGrantHandle;
         private long nextActivationHandle;
         private long nextGameEventRegistrationId;
 
         public AbilitySystemComponent(object avatar, IAbilityExecutionGate executionGate = null)
+            : this(avatar, avatar, executionGate)
         {
-            Avatar = avatar;
-            this.executionGate = executionGate;
         }
 
+        public AbilitySystemComponent(object owner, object avatar, IAbilityExecutionGate executionGate)
+        {
+            Owner = owner;
+            Avatar = avatar;
+            this.executionGate = executionGate;
+            activeComponents.Add(this);
+        }
+
+        public object Owner { get; }
         public object Avatar { get; private set; }
         public int AbilityCount => specs.Count;
         public bool IsDisposed { get; private set; }
+        internal static IReadOnlyCollection<AbilitySystemComponent> ActiveComponents => activeComponents;
 
         public bool SetAvatar(object avatar)
         {
@@ -39,9 +54,135 @@ namespace CGame.Ability
                 return false;
             }
 
+            GameplayCueRouter.Current?.RemoveForTarget(Avatar);
             EndAllActiveAbilities(AbilityEndReason.AvatarChanged);
             Avatar = avatar;
             return true;
+        }
+
+        public void AddAttributeSet(AttributeSet attributeSet)
+        {
+            if (IsDisposed)
+            {
+                throw new ObjectDisposedException(nameof(AbilitySystemComponent));
+            }
+
+            if (attributeSet == null)
+            {
+                throw new ArgumentNullException(nameof(attributeSet));
+            }
+
+            Type setType = attributeSet.GetType();
+            if (attributeSets.ContainsKey(setType))
+            {
+                throw new InvalidOperationException($"AttributeSet type {setType.FullName} is already registered.");
+            }
+
+            attributeSets.Add(setType, attributeSet);
+        }
+
+        public TSet GetSet<TSet>() where TSet : AttributeSet
+        {
+            return attributeSets.TryGetValue(typeof(TSet), out AttributeSet attributeSet)
+                ? (TSet)attributeSet
+                : null;
+        }
+
+        public GameplayEffectSpec MakeOutgoingSpec(
+            GameplayEffectDefinition definition,
+            float level,
+            GameplayEffectContext context)
+        {
+            if (definition == null)
+            {
+                return new GameplayEffectSpec(null, level, context, GameplayEffectFailureReason.InvalidDefinition, null);
+            }
+
+            if (float.IsNaN(level) || float.IsInfinity(level) || level <= 0f)
+            {
+                return new GameplayEffectSpec(definition, level, context, GameplayEffectFailureReason.InvalidLevel, null);
+            }
+
+            if (definition.DurationPolicy != GameplayEffectDurationPolicy.Instant)
+            {
+                return new GameplayEffectSpec(definition, level, context, GameplayEffectFailureReason.UnsupportedDuration, null);
+            }
+
+            var evaluatedModifiers = new List<EvaluatedGameplayEffectModifier>();
+            foreach (GameplayEffectModifierDefinition modifier in definition.Modifiers)
+            {
+                if (modifier == null)
+                {
+                    return new GameplayEffectSpec(definition, level, context, GameplayEffectFailureReason.InvalidDefinition, null);
+                }
+
+                float magnitude = modifier.ConstantMagnitude;
+                if (modifier.MagnitudeSource == GameplayEffectMagnitudeSource.SourceAttribute)
+                {
+                    GameplayAttribute sourceAttribute = modifier.SourceAttributeValue;
+                    if (sourceAttribute == null ||
+                        !attributeSets.TryGetValue(sourceAttribute.SetType, out AttributeSet sourceSet))
+                    {
+                        return new GameplayEffectSpec(
+                            definition,
+                            level,
+                            context,
+                            GameplayEffectFailureReason.MissingSourceAttributeSet,
+                            null);
+                    }
+
+                    magnitude = sourceAttribute.GetData(sourceSet).CurrentValue;
+                }
+
+                evaluatedModifiers.Add(new EvaluatedGameplayEffectModifier(
+                    modifier.TargetAttribute,
+                    modifier.Operation,
+                    magnitude));
+            }
+
+            return new GameplayEffectSpec(definition, level, context, GameplayEffectFailureReason.None, evaluatedModifiers);
+        }
+
+        public GameplayEffectApplyResult ApplyGameplayEffectSpecToTarget(
+            GameplayEffectSpec spec,
+            AbilitySystemComponent targetAbilitySystem)
+        {
+            return targetAbilitySystem == null
+                ? GameplayEffectApplyResult.Failure(GameplayEffectFailureReason.MissingTargetAttributeSet)
+                : targetAbilitySystem.ApplyGameplayEffectSpecToSelf(spec);
+        }
+
+        public GameplayEffectApplyResult ApplyGameplayEffectSpecToSelf(GameplayEffectSpec spec)
+        {
+            if (spec == null || !spec.IsValid)
+            {
+                return GameplayEffectApplyResult.Failure(spec?.FailureReason ?? GameplayEffectFailureReason.InvalidDefinition);
+            }
+
+            if (!GameplayEffectExecutionPlan.TryBuild(
+                    attributeSets,
+                    spec.Modifiers,
+                    spec.Context,
+                    out GameplayEffectExecutionPlan executionPlan,
+                    out GameplayEffectFailureReason failureReason))
+            {
+                return GameplayEffectApplyResult.Failure(failureReason);
+            }
+
+            if (!executionPlan.Execute(out IReadOnlyList<GameplayEffectAttributeChange> committedChanges, () =>
+                {
+                    if (!spec.Definition.ExecutedCueTag.IsEmpty)
+                    {
+                        ExecuteGameplayCue(
+                            spec.Definition.ExecutedCueTag,
+                            new GameplayCueParameters(spec.Context));
+                    }
+                }))
+            {
+                return GameplayEffectApplyResult.Failure(GameplayEffectFailureReason.ExecutionFailed);
+            }
+
+            return GameplayEffectApplyResult.Success(committedChanges);
         }
 
         public void Dispose()
@@ -51,6 +192,7 @@ namespace CGame.Ability
                 return;
             }
 
+            GameplayCueRouter.Current?.RemoveForTarget(Avatar);
             foreach (AbilityGrantReceipt receipt in grantReceipts.ToArray())
             {
                 receipt.Revoke();
@@ -58,6 +200,7 @@ namespace CGame.Ability
 
             EndAllActiveAbilities(AbilityEndReason.SourceRemoved);
             specs.Clear();
+            attributeSets.Clear();
             ownedTagGrants.Clear();
             ownedTagCounts.Clear();
             gameEventListeners.Clear();
@@ -66,6 +209,7 @@ namespace CGame.Ability
             releasedInputHandles.Clear();
             Avatar = null;
             IsDisposed = true;
+            activeComponents.Remove(this);
         }
 
         public AbilitySpecHandle GiveAbility(AbilityDefinition definition, object sourceObject)
@@ -519,6 +663,21 @@ namespace CGame.Ability
         public bool CancelAbility(AbilitySpecHandle handle, AbilityEndReason reason)
         {
             return specs.TryGetValue(handle, out AbilitySpec spec) && spec.PrimaryInstance.EndAbility(reason);
+        }
+
+        public void ExecuteGameplayCue(GameplayTag cueTag, GameplayCueParameters parameters)
+        {
+            GameplayCueRouter.Current?.Execute(cueTag, parameters.WithTarget(Avatar));
+        }
+
+        public GameplayCueHandle AddGameplayCue(GameplayTag cueTag, GameplayCueParameters parameters)
+        {
+            return GameplayCueRouter.Current?.Add(cueTag, parameters.WithTarget(Avatar)) ?? default;
+        }
+
+        public bool RemoveGameplayCue(GameplayCueHandle handle)
+        {
+            return GameplayCueRouter.Current?.Remove(handle) ?? false;
         }
 
         public GameplayTagGrantHandle AddOwnedTag(GameplayTag tag)

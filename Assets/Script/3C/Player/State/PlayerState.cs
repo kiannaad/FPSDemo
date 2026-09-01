@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.Ability.Effects;
 
 namespace CGame
 {
@@ -15,15 +16,24 @@ namespace CGame
         }
 
         public PlayerState(IEnumerable<AbilitySet> baseAbilitySets, object baseGrantSource)
+            : this(baseAbilitySets, baseGrantSource, null)
+        {
+        }
+
+        public PlayerState(
+            IEnumerable<AbilitySet> baseAbilitySets,
+            object baseGrantSource,
+            AbilitySystemInitializationDefinition initializationDefinition)
         {
             if (baseAbilitySets == null)
             {
                 throw new ArgumentNullException(nameof(baseAbilitySets));
             }
 
-            AbilitySystem = new AbilitySystemComponent(null);
+            AbilitySystem = new AbilitySystemComponent(this, null, null);
             try
             {
+                initializationDefinition?.Initialize(AbilitySystem);
                 foreach (AbilitySet abilitySet in baseAbilitySets)
                 {
                     if (abilitySet == null)

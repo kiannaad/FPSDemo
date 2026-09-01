@@ -1,0 +1,7 @@
+{
+  "name": "CGame.Gameplay.Editor",
+  "rootNamespace": "CGame.Editor",
+  "references": ["CGame.Gameplay", "CGame.World", "CGame.Ability", "CGame.GameplayTags", "CGame.GameplayTags.Editor", "CGame.Character.Definition", "CGame.InventoryEquipment"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

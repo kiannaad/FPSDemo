@@ -1,0 +1,32 @@
+{
+  "name": "CGame.GameplayCue.PlayModeTests",
+  "rootNamespace": "CGame.GameplayCue.PlayModeTests",
+  "references": [
+    "CGame.Ability",
+    "CGame.PlayerController",
+    "CGame.PlayerState",
+    "CGame.Pawn",
+    "CGame.CharacterRuntime",
+    "CGame.Character.Definition",
+    "CGame.CharacterPhysics",
+    "CGame.InventoryEquipment",
+    "CGame.Inventory",
+    "CGame.Gameplay",
+    "CGame.World",
+    "CGame.World.CoreServices",
+    "CGame.Network",
+    "CGame.GameplayTags",
+    "Unity.InputSystem",
+    "Unity.InputSystem.TestFramework"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": ["TestAssemblies"]
+}

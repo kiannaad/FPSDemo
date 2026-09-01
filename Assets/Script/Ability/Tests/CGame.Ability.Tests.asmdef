@@ -1,0 +1,22 @@
+{
+  "name": "CGame.Ability.Tests",
+  "rootNamespace": "CGame.Ability.Tests",
+  "references": [
+    "CGame.Ability",
+    "CGame.GameplayTags"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

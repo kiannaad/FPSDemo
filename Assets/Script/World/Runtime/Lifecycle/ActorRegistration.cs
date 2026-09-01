@@ -18,6 +18,7 @@ namespace CGame
             Actor = actor;
             this.tickTaskManager = tickTaskManager;
             Critical = critical;
+            RegistrationId = Guid.NewGuid();
         }
 
         public Actor Actor { get; }
@@ -26,7 +27,9 @@ namespace CGame
 
         public bool IsDisposed => disposed;
 
-        internal event Action<ActorRegistration> Disposed;
+        public Guid RegistrationId { get; }
+
+        public event Action<ActorRegistration> Disposed;
 
         public static ActorRegistration Register(Actor actor, TickTaskManager tickTaskManager, bool critical = false)
         {

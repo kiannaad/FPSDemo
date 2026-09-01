@@ -1,0 +1,15 @@
+{
+  "contentVersion": "v1",
+  "spawnPoints": [
+    {
+      "id": "PlayerPoint 1",
+      "position": [0, 1, 0],
+      "rotation": [0, 0, 0]
+    },
+    {
+      "id": "PlayerPoint 2",
+      "position": [3, 1, 0],
+      "rotation": [0, 180, 0]
+    }
+  ]
+}

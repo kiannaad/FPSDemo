@@ -101,6 +101,7 @@ namespace CGame.InventoryEquipment
         {
             reloadCommitted = false;
             weapon = (WeaponInstance)ActivationContext.SourceObject;
+            weapon.ResetHeat();
             Debug.Log($"[ReloadTrace] Ability activated: weapon={weapon.Definition.name}, magazine={weapon.Item.MagazineAmmo}, reserve={weapon.Item.ReserveAmmo}");
             if (!weapon.TryGetCharacterAnimation(out characterAnimation))
             {

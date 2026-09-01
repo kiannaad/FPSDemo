@@ -1,0 +1,12 @@
+{
+  "name": "CGame.Network.Tests",
+  "rootNamespace": "CGame.Network.Tests",
+  "references": [
+    "CGame.Network",
+    "CGame.World"
+  ],
+  "autoReferenced": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

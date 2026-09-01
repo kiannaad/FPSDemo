@@ -30,6 +30,7 @@ namespace CGame.InventoryEquipment
             {
                 throw new InvalidOperationException("Weapon BulletData maximum shoot distance must be finite and positive.");
             }
+
         }
 
         private static bool IsFinitePositive(float value) => value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);

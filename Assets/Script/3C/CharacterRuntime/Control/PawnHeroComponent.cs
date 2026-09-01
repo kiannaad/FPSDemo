@@ -36,7 +36,11 @@ namespace CGame
                 {
                     bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Started, _ =>
                     {
-                        if (binding.InputTag.ToString() == "InputTag.Weapon.Reload")
+                        if (binding.InputTag.ToString() == "InputTag.Weapon.Fire")
+                        {
+                            Debug.Log("[CueDebug] Input Started -> InputTag.Weapon.Fire");
+                        }
+                        else if (binding.InputTag.ToString() == "InputTag.Weapon.Reload")
                         {
                             Debug.Log("[ReloadTrace] Input Started -> InputTag.Weapon.Reload");
                         }

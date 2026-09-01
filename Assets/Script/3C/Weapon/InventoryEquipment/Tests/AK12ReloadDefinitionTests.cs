@@ -4,6 +4,7 @@ using CGame.Ability.Animation;
 using CGame.Animation;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEngine;
 
 namespace CGame.InventoryEquipment.Tests
 {
@@ -74,6 +75,23 @@ namespace CGame.InventoryEquipment.Tests
             {
                 inventory.Dispose();
             }
+        }
+
+        [Test]
+        public void Ak12ReloadCharacterAnimation_KeepsAnimationOwnershipUntilBlendOut()
+        {
+            WeaponDefinition definition = AssetDatabase.LoadAssetAtPath<WeaponDefinition>(WeaponDefinitionPath);
+            AnimationClipAsset animation = definition.ReloadDefinition.CharacterAnimation;
+
+            Assert.That(animation.TryGetNamedCurve("WeaponBoneWeight", out AnimationCurve weaponBoneWeight), Is.True);
+            Assert.That(weaponBoneWeight.Evaluate(0f), Is.EqualTo(1f).Within(0.0001f));
+            Assert.That(weaponBoneWeight.Evaluate(0.5f), Is.EqualTo(1f).Within(0.0001f));
+            Assert.That(weaponBoneWeight.Evaluate(1f), Is.EqualTo(1f).Within(0.0001f));
+
+            Assert.That(animation.TryGetNamedCurve("MaskAttachHand", out AnimationCurve maskAttachHand), Is.True);
+            Assert.That(maskAttachHand.Evaluate(0f), Is.Zero.Within(0.0001f));
+            Assert.That(maskAttachHand.Evaluate(0.5f), Is.Zero.Within(0.0001f));
+            Assert.That(maskAttachHand.Evaluate(1f), Is.Zero.Within(0.0001f));
         }
     }
 }

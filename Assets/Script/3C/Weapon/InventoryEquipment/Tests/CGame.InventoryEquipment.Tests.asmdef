@@ -9,7 +9,8 @@
     "CGame.CharacterRuntime",
     "CGame.Animation",
     "CGame.GameplayTags",
-    "CGame.World"
+    "CGame.World",
+    "CGame.World.CoreServices"
   ],
   "includePlatforms": ["Editor"],
   "excludePlatforms": [],

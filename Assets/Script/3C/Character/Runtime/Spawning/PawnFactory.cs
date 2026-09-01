@@ -11,6 +11,7 @@ namespace CGame
     {
         public virtual async Task<Pawn> CreateAsync(
             PawnDefinition definition,
+            InputProfile inputProfile,
             Vector3 position,
             Quaternion rotation,
             CancellationToken cancellationToken = default)
@@ -46,7 +47,7 @@ namespace CGame
                     new PawnMovementComponent(motor),
                     new PawnAnimationComponent(animator, motor, definition.AnimationConfig, rigComponent),
                     new EquipmentManagerComponent(),
-                    new PawnHeroComponent(definition.InputProfile),
+                    new PawnHeroComponent(inputProfile),
                     new PawnCameraComponent(camera, definition.RequireCamera),
                     new PawnShotQueryComponent()
                 };

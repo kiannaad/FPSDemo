@@ -3,6 +3,7 @@
   "rootNamespace": "CGame",
     "references": [
     "CGame.GameplayTags",
+    "CGame.Ability",
     "CGame.World",
     "CGame.World.CoreServices",
     "CGame.PlayerController",
@@ -11,7 +12,9 @@
     "CGame.Pawn",
     "CGame.Inventory",
     "CGame.CharacterPhysics",
-    "CGame.InventoryEquipment"
+    "CGame.InventoryEquipment",
+    "CGame.Input",
+    "CGame.Network"
   ],
   "autoReferenced": true
 }

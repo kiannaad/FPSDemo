@@ -20,8 +20,8 @@ public static class SampleSceneInputTagSetup
     private static void Configure()
     {
         InputActionAsset actions = AssetDatabase.LoadAssetAtPath<InputActionAsset>("Assets/Data/Input/PlayerInput.inputactions");
-        PawnDefinition pawn = AssetDatabase.LoadAssetAtPath<PawnDefinition>(PawnFolder + "/SamplePawnData.asset");
-        if (actions == null || pawn == null) throw new System.InvalidOperationException("SampleScene input or Pawn assets are missing.");
+        PlayerStateDefinition playerState = AssetDatabase.LoadAssetAtPath<PlayerStateDefinition>(PawnFolder + "/SamplePlayerStateDefinition.asset");
+        if (actions == null || playerState == null) throw new System.InvalidOperationException("SampleScene input or PlayerStateDefinition assets are missing.");
 
         GameplayTag fire = CreateTag("InputTag.Weapon.Fire");
         GameplayTag reload = CreateTag("InputTag.Weapon.Reload");
@@ -30,8 +30,8 @@ public static class SampleSceneInputTagSetup
         GameplayTagSource source = CreateOrLoadSource();
         InputTagConfig config = CreateOrLoadConfig(actions, fire, reload, melee, aim);
         InputProfile profile = CreateOrLoadProfile(actions, config);
-        pawn.SetInputProfile(profile);
-        EditorUtility.SetDirty(pawn);
+        playerState.SetInputProfile(profile);
+        EditorUtility.SetDirty(playerState);
 
         GameplayTagConfig sceneConfig = Object.FindFirstObjectByType<GameplayTagConfig>();
         if (sceneConfig == null) throw new System.InvalidOperationException("SampleScene has no GameplayTagConfig.");

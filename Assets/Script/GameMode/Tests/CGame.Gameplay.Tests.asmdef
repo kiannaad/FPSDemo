@@ -1,0 +1,20 @@
+{
+  "name": "CGame.Gameplay.Tests",
+  "rootNamespace": "CGame.Tests.Gameplay",
+  "references": [
+    "CGame.Gameplay",
+    "CGame.Character.Definition",
+    "CGame.Ability",
+    "CGame.GameplayTags",
+    "CGame.Input",
+    "CGame.Inventory",
+    "CGame.World",
+    "CGame.Pawn",
+    "CGame.PlayerController",
+    "CGame.CharacterRuntime",
+    "CGame.Gameplay.Editor"
+  ],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": false
+}

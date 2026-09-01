@@ -4,6 +4,10 @@ namespace CGame
 {
     public class Controller : Actor
     {
+        protected Controller()
+        {
+        }
+
         protected Controller(Player player)
         {
             Player = player ?? throw new ArgumentNullException(nameof(player));

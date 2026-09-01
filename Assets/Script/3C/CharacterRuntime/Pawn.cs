@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.Ability.Targeting;
 using CGame.GameplayTags;
 using UnityEngine;
 
 namespace CGame
 {
-    public class Pawn : Actor, ICharacterIntentSink, ICharacterMovementCommandSource
+    public class Pawn : Actor, ICharacterIntentSink, ICharacterMovementCommandSource, IAbilitySystemAvatar
     {
         private readonly List<ActorComponent> declaredComponents;
         private readonly RecoilComponent recoilComponent;
@@ -51,6 +52,7 @@ namespace CGame
         }
 
         public GameObject Root { get; }
+        public GameObject AbilitySystemRoot => Root;
 
 
 
@@ -77,6 +79,7 @@ public RecoilComponent Recoil => recoilComponent;
         public Quaternion ControlRotation { get; private set; } = Quaternion.identity;
 
         public bool IsAiming { get; private set; }
+
 
         public Pose AimPointOffset { get; private set; } = new Pose(Vector3.zero, Quaternion.identity);
 
@@ -263,6 +266,7 @@ public RecoilComponent Recoil => recoilComponent;
             WeaponCollisionHasHit = hasHit;
             WeaponCollisionDistance = distance;
         }
+
 
         public void SubmitControlIntent(in CharacterControlIntent intent)
         {

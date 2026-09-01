@@ -7,28 +7,26 @@ namespace CGame
 {
     public sealed class PlayerController : Controller
     {
-        private readonly PawnDefinition pawnDefinition;
-        private readonly InitialInventorySet initialInventorySet;
+        private readonly PlayerStateDefinition playerStateDefinition;
         private readonly IPlayerInputSource inputSource;
         private readonly IPlayerControllerComponentFactory componentFactory;
         private IEquipmentActionTarget equipmentActionTarget;
 
         private PlayerController(
             Player player,
-            PawnDefinition pawnDefinition,
-            InitialInventorySet initialInventorySet,
+            PlayerStateDefinition playerStateDefinition,
             IPlayerInputSource inputSource,
             IPlayerControllerComponentFactory componentFactory)
             : base(player)
         {
-            this.pawnDefinition = pawnDefinition ?? throw new ArgumentNullException(nameof(pawnDefinition));
-            this.initialInventorySet = initialInventorySet;
+            this.playerStateDefinition = playerStateDefinition ?? throw new ArgumentNullException(nameof(playerStateDefinition));
             this.inputSource = inputSource;
             this.componentFactory = componentFactory ?? throw new ArgumentNullException(nameof(componentFactory));
         }
 
         public bool IsActive { get; private set; }
         public PlayerState PlayerState { get; private set; }
+        public PlayerStateDefinition PlayerStateDefinition => playerStateDefinition;
         public IInventoryComponent Inventory { get; private set; }
         public IQuickBarComponent QuickBar { get; private set; }
         public int TickCount { get; private set; }
@@ -39,15 +37,13 @@ namespace CGame
 
         public static PlayerController Create(
             Player player,
-            PawnDefinition pawnDefinition,
-            InitialInventorySet initialInventorySet,
+            PlayerStateDefinition playerStateDefinition,
             IPlayerInputSource inputSource,
             IPlayerControllerComponentFactory componentFactory)
         {
             return new PlayerController(
                 player,
-                pawnDefinition,
-                initialInventorySet,
+                playerStateDefinition,
                 inputSource,
                 componentFactory);
         }
@@ -166,12 +162,14 @@ public bool TryRequestQuickBarSlot(int slotIndex)
         protected override void OnInitialize()
         {
             PlayerState = new PlayerState(
-                pawnDefinition.ResolveBaseAbilitySets(),
-                pawnDefinition);
+                playerStateDefinition.ResolveBaseAbilitySets(),
+                playerStateDefinition,
+                playerStateDefinition.AbilitySystemInitialization);
             Inventory = componentFactory.CreateInventory()
                 ?? throw new InvalidOperationException("Inventory factory returned null.");
             QuickBar = componentFactory.CreateQuickBar(Inventory)
                 ?? throw new InvalidOperationException("QuickBar factory returned null.");
+            InitialInventorySet initialInventorySet = playerStateDefinition.InitialInventorySet;
             if (initialInventorySet != null)
             {
                 IReadOnlyList<ItemInstanceHandle> handles = Inventory.Initialize(initialInventorySet);

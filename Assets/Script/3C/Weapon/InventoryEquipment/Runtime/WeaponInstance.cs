@@ -2,6 +2,8 @@ using System;
 using CGame;
 using System.Collections.Generic;
 using CGame.Ability;
+using CGame.Ability.Cues;
+using CGame.Ability.Targeting;
 using UnityEngine;
 using CGame.Animation;
 using UnityEngine.Animations;
@@ -23,6 +25,7 @@ namespace CGame.InventoryEquipment
         private AnimationClipPlayable reloadPresentationPlayable;
         private bool reloadControllerPlaying;
         private bool reloadTraceLogged;
+        private ulong nextShotId;
         private static readonly int ReloadState = Animator.StringToHash("Reload");
         private static readonly int IdleState = Animator.StringToHash("Idle");
 
@@ -44,8 +47,10 @@ namespace CGame.InventoryEquipment
         public bool IsPrepared => presentationRoot != null;
 
         public GameObject PresentationRoot => presentationRoot;
+        public Transform MuzzlePoint => muzzlePoint;
 
         public bool IsPresentationVisible { get; private set; }
+        public ulong SpreadSequence => nextShotId;
 
         public bool HasAnimationBinding =>
             animationInstance != null
@@ -259,7 +264,7 @@ namespace CGame.InventoryEquipment
             base.Dispose();
         }
 
-        public WeaponHitResult QueryHit(Vector3 cameraOrigin, Vector3 cameraDirection)
+        public GameplayHitResult? QueryHit(Vector3 cameraOrigin, Vector3 cameraDirection)
         {
             if (!IsPrepared || muzzlePoint == null)
             {
@@ -281,13 +286,47 @@ namespace CGame.InventoryEquipment
             float candidateDistance = muzzleToCandidate.magnitude;
             if (candidateDistance <= 0.01f)
             {
-                return new WeaponHitResult(cameraHasHit, cameraHit, cameraHasHit, cameraHit, candidatePoint, false, muzzlePosition, direction);
+                return cameraHasHit
+                    ? ToGameplayHitResult(cameraHit, cameraOrigin, candidatePoint)
+                    : null;
             }
 
             bool muzzleBlocked = TryGetNearestValidHit(muzzlePosition, muzzleToCandidate / candidateDistance, candidateDistance - 0.01f, bulletData.HitLayerMask, out RaycastHit muzzleHit);
-            return muzzleBlocked
-                ? new WeaponHitResult(cameraHasHit, cameraHit, true, muzzleHit, candidatePoint, true, muzzlePosition, direction)
-                : new WeaponHitResult(cameraHasHit, cameraHit, cameraHasHit, cameraHit, candidatePoint, false, muzzlePosition, direction);
+            if (muzzleBlocked) return ToGameplayHitResult(muzzleHit, muzzlePosition, candidatePoint);
+            return cameraHasHit ? ToGameplayHitResult(cameraHit, cameraOrigin, candidatePoint) : null;
+        }
+
+        public GameplayAbilityTargetDataHandle QueryTargetData(
+            Vector3 cameraOrigin,
+            Vector3 cameraDirection)
+        {
+            ulong shotId = ++nextShotId;
+            GameplayHitResult? hit = QueryHit(cameraOrigin, cameraDirection);
+            if (!hit.HasValue)
+            {
+                return new GameplayAbilityTargetDataHandle(shotId, System.Array.Empty<SingleTargetHitData>());
+            }
+
+            return new GameplayAbilityTargetDataHandle(shotId, new[]
+            {
+                new SingleTargetHitData(0, hit.Value)
+            });
+        }
+
+        public void AdvanceHeat(float deltaTime)
+        {
+        }
+
+        public void ResetHeat()
+        {
+        }
+
+        private static GameplayHitResult ToGameplayHitResult(
+            RaycastHit hit,
+            Vector3 traceStart,
+            Vector3 traceEnd)
+        {
+            return new GameplayHitResult(hit.point, hit.normal, hit.collider, traceStart, traceEnd);
         }
         private void BindAimPointToPawn()
         {
@@ -368,7 +407,7 @@ namespace CGame.InventoryEquipment
                 return false;
             }
 
-            RaycastHit[] hits = Physics.RaycastAll(origin, direction, distance, layerMask, QueryTriggerInteraction.Ignore);
+            RaycastHit[] hits = Physics.RaycastAll(origin, direction, distance, layerMask, QueryTriggerInteraction.Collide);
             bool found = false;
             foreach (RaycastHit hit in hits)
             {
