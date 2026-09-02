@@ -32,25 +32,17 @@ namespace CGame.Network
         private readonly long matchId;
         private readonly long pawnId;
         private readonly long possessionRevision;
-        private readonly int maxPastTicks;
-        private readonly int maxFutureTicks;
-        private long? clientToServerTickOffset;
-
         public AuthorityMoveValidator(
             string connectionId,
             long matchId,
             long pawnId,
-            long possessionRevision,
-            int maxPastTicks = 120,
-            int maxFutureTicks = 8)
+            long possessionRevision)
         {
             if (string.IsNullOrWhiteSpace(connectionId)) throw new ArgumentException("Connection is required.", nameof(connectionId));
             this.connectionId = connectionId;
             this.matchId = matchId;
             this.pawnId = pawnId;
             this.possessionRevision = possessionRevision;
-            this.maxPastTicks = maxPastTicks;
-            this.maxFutureTicks = maxFutureTicks;
         }
 
         public long LastAcceptedSequence { get; private set; }
@@ -61,8 +53,6 @@ namespace CGame.Network
             AuthorityMoveRejection rejection = GetRejection(senderConnectionId, move, serverTick);
             if (rejection == AuthorityMoveRejection.None)
             {
-                if (!clientToServerTickOffset.HasValue)
-                    clientToServerTickOffset = serverTick - move.ClientTick;
                 LastAcceptedSequence = move.Sequence;
                 LastAcceptedClientTick = move.ClientTick;
             }
@@ -77,17 +67,6 @@ namespace CGame.Network
             if (move.PawnId != pawnId) return AuthorityMoveRejection.Pawn;
             if (move.PossessionRevision != possessionRevision) return AuthorityMoveRejection.PossessionRevision;
             if (move.Sequence <= LastAcceptedSequence) return AuthorityMoveRejection.DuplicateSequence;
-            if (!clientToServerTickOffset.HasValue) return AuthorityMoveRejection.None;
-            long sequenceDelta = move.Sequence - LastAcceptedSequence;
-            long clientTickDelta = move.ClientTick - LastAcceptedClientTick;
-            if (clientTickDelta <= 0) return AuthorityMoveRejection.ExpiredTick;
-            if (clientTickDelta > sequenceDelta + maxFutureTicks) return AuthorityMoveRejection.FutureTick;
-            long observedOffset = serverTick - move.ClientTick;
-            if (observedOffset < clientToServerTickOffset.Value)
-                clientToServerTickOffset = observedOffset;
-            long projectedServerTick = move.ClientTick + clientToServerTickOffset.Value;
-            if (projectedServerTick < serverTick - maxPastTicks) return AuthorityMoveRejection.ExpiredTick;
-            if (projectedServerTick > serverTick + maxFutureTicks) return AuthorityMoveRejection.FutureTick;
             return AuthorityMoveRejection.None;
         }
     }

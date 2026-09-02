@@ -119,6 +119,22 @@ public sealed class DedicatedServerProcessManager
         }
     }
 
+    public async Task<long?> GetAuthorityTickAsync(long matchId, CancellationToken cancellationToken = default)
+    {
+        DedicatedServerLease? lease;
+        lock (sync)
+        {
+            activeLeasesByMatchId.TryGetValue(matchId, out lease);
+        }
+
+        if (lease == null) return null;
+        var endpoint = new Uri($"http://127.0.0.1:{lease.Health.HealthPort}/health");
+        DedicatedServerHealth? health = await healthProbe.ProbeAsync(endpoint, cancellationToken);
+        if (health?.Status != DedicatedServerHealthStatus.PhysicsReady || health.MatchId != matchId)
+            return null;
+        return health.FixedStepCount;
+    }
+
     private async Task StopAndDisposeAsync(IDedicatedServerProcess? process)
     {
         if (process == null)

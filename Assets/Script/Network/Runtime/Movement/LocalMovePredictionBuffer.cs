@@ -51,6 +51,11 @@ namespace CGame.Network
             savedMoves.RemoveAll(move => move.Sequence <= ackSequence);
         }
 
+        public void Clear()
+        {
+            savedMoves.Clear();
+        }
+
         public LocalCorrectionResult Correct(
             long correctedSequence,
             AuthorityState authorityState,

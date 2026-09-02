@@ -138,7 +138,6 @@ namespace CGame.Network
                     return;
                 }
                 PawnMove move = MessagePackSerializer.Deserialize<PawnMoveWireMessage>(payload).ToMove();
-                Debug.Log($"[DedicatedServer][038] MoveReceived PawnId={move.PawnId} Sequence={move.Sequence}");
                 MoveReceived?.Invoke(identity, move);
             }
             finally

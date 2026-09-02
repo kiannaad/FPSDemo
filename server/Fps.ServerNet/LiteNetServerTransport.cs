@@ -62,6 +62,22 @@ public sealed class LiteNetServerTransport : IDisposable
             }
             catch (Exception exception)
             {
+                if ((inbound.Header.Flags & PacketFlags.Request) != 0)
+                {
+                    Console.Error.WriteLine($"[Server][Protocol] Rejecting {inbound.ConnectionId}: {exception.Message}");
+                    var failureHeader = new PacketHeader(
+                        ProtocolVersion.Current,
+                        inbound.Header.MessageId,
+                        PacketFlags.Response | PacketFlags.Failure,
+                        inbound.Header.RequestId,
+                        inbound.Header.MatchId);
+                    byte[] failurePayload = MessagePack.MessagePackSerializer.Serialize(new RpcFailureResponse(exception.Message));
+                    pendingOutboundMessages.Enqueue(new RoutedOutboundMessage(
+                        inbound.ConnectionId,
+                        new RoutedMessage(failureHeader, failurePayload)));
+                    continue;
+                }
+
                 Console.Error.WriteLine($"[Server][Protocol] Disconnecting {inbound.ConnectionId}: {exception.Message}");
                 if (peersByConnectionId.TryGetValue(inbound.ConnectionId, out LiteNetPeer? failedPeer))
                 {
@@ -70,7 +86,7 @@ public sealed class LiteNetServerTransport : IDisposable
             }
         }
 
-        foreach (RoutedOutboundMessage timelineMessage in router.TickAnimationActions())
+        foreach (RoutedOutboundMessage timelineMessage in await router.AdvanceAnimationActionsAsync(cancellationToken))
         {
             pendingOutboundMessages.Enqueue(timelineMessage);
         }

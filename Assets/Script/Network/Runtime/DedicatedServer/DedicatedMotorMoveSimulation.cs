@@ -17,23 +17,29 @@ namespace CGame.Network
 
         public AuthorityState Simulate(PawnMove move, long serverTick)
         {
-            Vector2 input = move.MovementInput.ToVector2();
-            pawn.ApplyingControlRotation(Quaternion.Euler(move.View.PitchDegrees, move.View.YawDegrees, 0f));
-            pawn.SubmitControlIntent(new CharacterControlIntent(
-                new Vector3(input.x, 0f, input.y),
-                (move.Flags & PawnMoveFlags.Jump) != 0,
-                (move.Flags & PawnMoveFlags.Sprint) != 0));
+            ApplyControlIntent(move);
             try
             {
                 world.FixedTick(CharacterPhysicsSubSystem.FixedStepSeconds);
             }
             finally
             {
-                pawn.ClearingControlIntent();
+                ClearControlIntent();
             }
-            Debug.Log($"[DedicatedServer][038] AuthorityMoveSimulated PawnId={move.PawnId} Sequence={move.Sequence} ServerTick={serverTick}");
             return Capture(serverTick);
         }
+
+        public void ApplyControlIntent(PawnMove move)
+        {
+            Vector2 input = move.MovementInput.ToVector2();
+            pawn.ApplyingControlRotation(Quaternion.Euler(move.View.PitchDegrees, move.View.YawDegrees, 0f));
+            pawn.SubmitControlIntent(new CharacterControlIntent(
+                new Vector3(input.x, 0f, input.y),
+                (move.Flags & PawnMoveFlags.Jump) != 0,
+                (move.Flags & PawnMoveFlags.Sprint) != 0));
+        }
+
+        public void ClearControlIntent() => pawn.ClearingControlIntent();
 
         public AuthorityState Capture(long serverTick)
         {
@@ -46,7 +52,9 @@ namespace CGame.Network
                 (byte)motor.PhysicsState,
                 state.GroundingStatus.IsStableOnGround,
                 QuantizedVector3.FromMeters(state.GroundingStatus.GroundNormal),
-                state.AttachedRigidbody != null ? state.AttachedRigidbody.GetInstanceID() : 0);
+                state.AttachedRigidbody != null ? state.AttachedRigidbody.GetInstanceID() : 0,
+                QuantizedQuaternion.FromQuaternion(pawn.ControlRotation),
+                pawn.IsAiming);
         }
     }
 }

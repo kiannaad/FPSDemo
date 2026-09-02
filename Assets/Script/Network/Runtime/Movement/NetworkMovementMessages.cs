@@ -61,6 +61,31 @@ namespace CGame.Network
             bool grounded,
             QuantizedVector3 groundNormal,
             long attachedBaseId)
+            : this(
+                serverTick,
+                position,
+                rotation,
+                baseVelocity,
+                movementState,
+                grounded,
+                groundNormal,
+                attachedBaseId,
+                rotation,
+                false)
+        {
+        }
+
+        public AuthorityState(
+            long serverTick,
+            QuantizedVector3 position,
+            QuantizedQuaternion rotation,
+            QuantizedVector3 baseVelocity,
+            byte movementState,
+            bool grounded,
+            QuantizedVector3 groundNormal,
+            long attachedBaseId,
+            QuantizedQuaternion controlRotation,
+            bool isAiming)
         {
             ServerTick = serverTick;
             Position = position;
@@ -70,6 +95,8 @@ namespace CGame.Network
             Grounded = grounded;
             GroundNormal = groundNormal;
             AttachedBaseId = attachedBaseId;
+            ControlRotation = controlRotation;
+            IsAiming = isAiming;
         }
 
         public long ServerTick { get; }
@@ -80,12 +107,18 @@ namespace CGame.Network
         public bool Grounded { get; }
         public QuantizedVector3 GroundNormal { get; }
         public long AttachedBaseId { get; }
+        public QuantizedQuaternion ControlRotation { get; }
+        public bool IsAiming { get; }
         public bool Equals(AuthorityState other) =>
             ServerTick == other.ServerTick && Position.Equals(other.Position) && Rotation.Equals(other.Rotation) &&
             BaseVelocity.Equals(other.BaseVelocity) && MovementState == other.MovementState && Grounded == other.Grounded &&
-            GroundNormal.Equals(other.GroundNormal) && AttachedBaseId == other.AttachedBaseId;
+            GroundNormal.Equals(other.GroundNormal) && AttachedBaseId == other.AttachedBaseId &&
+            ControlRotation.Equals(other.ControlRotation) && IsAiming == other.IsAiming;
         public override bool Equals(object obj) => obj is AuthorityState other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(ServerTick, Position, Rotation, BaseVelocity, MovementState, Grounded, GroundNormal, AttachedBaseId);
+        public override int GetHashCode() => HashCode.Combine(
+            HashCode.Combine(ServerTick, Position, Rotation, BaseVelocity, MovementState, Grounded, GroundNormal, AttachedBaseId),
+            ControlRotation,
+            IsAiming);
     }
 
     public readonly struct AuthoritySnapshot

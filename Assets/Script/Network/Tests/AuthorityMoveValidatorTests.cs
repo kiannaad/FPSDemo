@@ -59,7 +59,7 @@ namespace CGame.Network.Tests
         [Test]
         public void Validate_LowerObservedOffset_RecalibratesWithoutRejectingJitter()
         {
-            AuthorityMoveValidator validator = CreateValidator(maxFutureTicks: 8);
+            AuthorityMoveValidator validator = CreateValidator();
             Assert.That(validator.Validate(
                 "connection-a",
                 CreateMove(sequence: 1, clientTick: 1),
@@ -74,11 +74,29 @@ namespace CGame.Network.Tests
             Assert.That(validator.LastAcceptedClientTick, Is.EqualTo(10));
         }
 
-        [TestCase(79, AuthorityMoveRejection.ExpiredTick)]
-        [TestCase(104, AuthorityMoveRejection.FutureTick)]
-        public void Validate_TickOutsideWindow_Rejects(long clientTick, AuthorityMoveRejection expected)
+        [Test]
+        public void Validate_ClientTemporarilyFallsBehindAuthority_AcceptsNewestIncrementalMove()
         {
-            AuthorityMoveValidator validator = CreateValidator(maxPastTicks: 20, maxFutureTicks: 2);
+            AuthorityMoveValidator validator = CreateValidator();
+            Assert.That(validator.Validate(
+                "connection-a",
+                CreateMove(sequence: 1, clientTick: 100),
+                serverTick: 101).Accepted, Is.True);
+
+            AuthorityMoveValidation result = validator.Validate(
+                "connection-a",
+                CreateMove(sequence: 2, clientTick: 101),
+                serverTick: 130);
+
+            Assert.That(result.Accepted, Is.True);
+            Assert.That(validator.LastAcceptedSequence, Is.EqualTo(2));
+        }
+
+        [TestCase(79)]
+        [TestCase(104)]
+        public void Validate_DiagnosticTickOutsideAuthorityWindow_AcceptsMonotonicSequence(long clientTick)
+        {
+            AuthorityMoveValidator validator = CreateValidator();
             Assert.That(validator.Validate(
                 "connection-a",
                 CreateMove(sequence: 1, clientTick: 100),
@@ -89,12 +107,13 @@ namespace CGame.Network.Tests
                 CreateMove(sequence: 2, clientTick: clientTick),
                 serverTick: 101);
 
-            Assert.That(result.Rejection, Is.EqualTo(expected));
-            Assert.That(validator.LastAcceptedSequence, Is.EqualTo(1));
+            Assert.That(result.Accepted, Is.True);
+            Assert.That(validator.LastAcceptedSequence, Is.EqualTo(2));
+            Assert.That(validator.LastAcceptedClientTick, Is.EqualTo(clientTick));
         }
 
-        private static AuthorityMoveValidator CreateValidator(int maxPastTicks = 120, int maxFutureTicks = 2) =>
-            new AuthorityMoveValidator("connection-a", 7, 100, 3, maxPastTicks, maxFutureTicks);
+        private static AuthorityMoveValidator CreateValidator() =>
+            new AuthorityMoveValidator("connection-a", 7, 100, 3);
 
         private static PawnMove CreateMove(long sequence, long clientTick) =>
             CreateMove(7, 100, 3, sequence, clientTick);

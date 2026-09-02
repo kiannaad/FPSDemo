@@ -130,11 +130,22 @@ public sealed class MessageRouterTests
             .Single(value => value.PlayerId == 1);
 
         long expectedSequence = 0;
-        foreach (NetworkAnimationActionKind kind in Enum.GetValues<NetworkAnimationActionKind>())
+        var terminal = new List<RoutedOutboundMessage>();
+        foreach (NetworkAnimationActionKind kind in new[]
+                 {
+                     NetworkAnimationActionKind.Equip,
+                     NetworkAnimationActionKind.Melee,
+                     NetworkAnimationActionKind.Reload,
+                     NetworkAnimationActionKind.Unequip
+                 })
         {
+            if (kind == NetworkAnimationActionKind.Unequip)
+                terminal.AddRange(router.AdvanceAnimationActions(1, 270));
             var request = new NetworkAnimationActionRequestMessage(
                 possession.PawnId, possession.PossessionRevision, (long)kind,
-                kind, kind.ToString(), 9);
+                kind, kind.ToString(), 9,
+                kind == NetworkAnimationActionKind.Reload ? 270 : 0,
+                kind == NetworkAnimationActionKind.Reload ? 140 : null);
             var header = new PacketHeader(
                 ProtocolVersion.Current, MessageId.AnimationActionRequest,
                 PacketFlags.Request, (ulong)(10 + (int)kind), 1);
@@ -143,12 +154,16 @@ public sealed class MessageRouterTests
             NetworkAnimationActionStartedMessage response = MessagePackSerializer.Deserialize<NetworkAnimationActionStartedMessage>(
                 routed.Single(message => message.ConnectionId == "connection-a").Message.Payload);
             Assert.That(response.ActionSequence, Is.EqualTo(++expectedSequence));
+            if (kind == NetworkAnimationActionKind.Reload)
+            {
+                Assert.That(response.DurationTicks, Is.EqualTo(270));
+                Assert.That(response.CommitTick, Is.EqualTo(140));
+            }
             Assert.That(routed.Any(message => message.ConnectionId == "connection-b" &&
                 message.Message.Header.MessageId == MessageId.AnimationActionStarted), Is.True);
         }
 
-        var terminal = new List<RoutedOutboundMessage>();
-        for (int tick = 0; tick < 15; tick++) terminal.AddRange(router.TickAnimationActions());
+        terminal.AddRange(router.AdvanceAnimationActions(1, 320));
         Assert.That(terminal.Any(message => message.Message.Header.MessageId == MessageId.AnimationActionCommit), Is.True);
     }
 

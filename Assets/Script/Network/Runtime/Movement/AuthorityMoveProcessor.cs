@@ -75,6 +75,30 @@ namespace CGame.Network
             return new OwnerReconcile(OwnerReconcileKind.Ack, move.Sequence, authorityState, null);
         }
 
+        public AuthorityMoveValidation Validate(string connectionId, PawnMove move, long serverTick) =>
+            validator.Validate(connectionId, move, serverTick);
+
+        public OwnerReconcile Reject(AuthorityMoveValidation validation, long serverTick) =>
+            new OwnerReconcile(
+                OwnerReconcileKind.Correction,
+                validator.LastAcceptedSequence,
+                simulation.Capture(serverTick),
+                validation.Rejection.ToString());
+
+        public OwnerReconcile ReconcileAccepted(PawnMove move, AuthorityState authorityState)
+        {
+            if (ExceedsPositionThreshold(move.PredictedPosition, authorityState.Position))
+            {
+                return new OwnerReconcile(
+                    OwnerReconcileKind.Correction,
+                    move.Sequence,
+                    authorityState,
+                    "PositionError");
+            }
+
+            return new OwnerReconcile(OwnerReconcileKind.Ack, move.Sequence, authorityState, null);
+        }
+
         public AuthorityState Capture(long serverTick) => simulation.Capture(serverTick);
 
         private bool ExceedsPositionThreshold(QuantizedVector3 predicted, QuantizedVector3 authority)

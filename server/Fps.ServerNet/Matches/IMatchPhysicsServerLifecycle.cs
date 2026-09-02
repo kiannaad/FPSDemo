@@ -7,4 +7,7 @@ public interface IMatchPhysicsServerLifecycle
         CancellationToken cancellationToken);
 
     Task StopAsync(long matchId, CancellationToken cancellationToken);
+
+    Task<long?> GetAuthorityTickAsync(long matchId, CancellationToken cancellationToken) =>
+        Task.FromResult<long?>(null);
 }

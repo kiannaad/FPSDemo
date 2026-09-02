@@ -32,6 +32,16 @@ namespace CGame.Network
             string variantId,
             long equipmentInstanceId)
         {
+            return BeginPredicted(actionKind, variantId, equipmentInstanceId, 0, null);
+        }
+
+        public long BeginPredicted(
+            DiscreteActionKind actionKind,
+            string variantId,
+            long equipmentInstanceId,
+            int durationTicks,
+            int? commitOffsetTicks)
+        {
             NetworkAnimationActionKind networkKind = (NetworkAnimationActionKind)((int)actionKind + 1);
             long nonce = bridge.BeginPredicted(networkKind, variantId, equipmentInstanceId);
             _ = SendAsync(new NetworkAnimationActionRequest
@@ -41,7 +51,9 @@ namespace CGame.Network
                 PredictionNonce = nonce,
                 ActionKind = networkKind,
                 VariantId = variantId,
-                EquipmentInstanceId = equipmentInstanceId
+                EquipmentInstanceId = equipmentInstanceId,
+                DurationTicks = durationTicks,
+                CommitOffsetTicks = commitOffsetTicks
             });
             return nonce;
         }
@@ -50,6 +62,12 @@ namespace CGame.Network
         {
             if (predictionNonce <= 0) throw new ArgumentOutOfRangeException(nameof(predictionNonce));
             pendingCommitsByNonce[predictionNonce] = callback ?? throw new ArgumentNullException(nameof(callback));
+        }
+
+        public void RegisterPredictedPlayback(long predictionNonce, object playbackHandle)
+        {
+            if (!bridge.RegisterPredictedPlayback(predictionNonce, playbackHandle))
+                Debug.LogWarning($"[Network][042] PredictedActionPlaybackRejected PredictionNonce={predictionNonce}");
         }
 
         private void OnPredictionConfirmed(long predictionNonce, long actionSequence)
@@ -74,6 +92,7 @@ namespace CGame.Network
             }
             catch (Exception exception)
             {
+                bridge.RejectPredicted(request.PredictionNonce);
                 Debug.LogWarning($"[Network][042] PredictedActionRejected PredictionNonce={request.PredictionNonce} Reason={exception.Message}");
             }
         }
@@ -83,8 +102,8 @@ namespace CGame.Network
     {
         public bool TryPlay(NetworkAnimationActionStarted action, float elapsedSeconds, out object playbackHandle)
         {
-            playbackHandle = action.ActionSequence == 0 ? new object() : null;
-            return playbackHandle != null;
+            playbackHandle = null;
+            return false;
         }
 
         public void Stop(object playbackHandle)

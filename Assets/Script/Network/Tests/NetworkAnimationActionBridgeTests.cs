@@ -94,15 +94,35 @@ namespace CGame.Network.Tests
             var presenter = new RecordingActionPresenter();
             var bridge = new NetworkAnimationActionBridge(7, 3, clock, presenter);
             long nonce = bridge.BeginPredicted(NetworkAnimationActionKind.Melee, "knife", 9);
+            bridge.RegisterPredictedPlayback(nonce, presenter.CreateHandle());
             NetworkAnimationActionStarted started = Started(40, 3, 180, 60);
             started.PredictionNonce = nonce;
             started.ActionKind = NetworkAnimationActionKind.Melee;
 
             bridge.ApplyStarted(started);
 
-            Assert.That(presenter.PlayCount, Is.EqualTo(1));
+            Assert.That(presenter.PlayCount, Is.Zero);
             Assert.That(bridge.ConfirmedPredictionCount, Is.EqualTo(1));
             Assert.That(bridge.ActiveActionCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        [Category("Network042")]
+        public void RejectPredicted_StopsOnlyItsRegisteredHandle()
+        {
+            var clock = new NetworkTickClock();
+            var presenter = new RecordingActionPresenter();
+            var bridge = new NetworkAnimationActionBridge(7, 3, clock, presenter);
+            long first = bridge.BeginPredicted(NetworkAnimationActionKind.Reload, "reload", 9);
+            long second = bridge.BeginPredicted(NetworkAnimationActionKind.Melee, "melee", 9);
+            bridge.RegisterPredictedPlayback(first, presenter.CreateHandle());
+            bridge.RegisterPredictedPlayback(second, presenter.CreateHandle());
+
+            bool rejected = bridge.RejectPredicted(first);
+
+            Assert.That(rejected, Is.True);
+            Assert.That(presenter.StopCount, Is.EqualTo(1));
+            Assert.That(bridge.ApplyStarted(Started(51, 3, 0, 60)), Is.True);
         }
 
         [Test]
@@ -163,6 +183,8 @@ namespace CGame.Network.Tests
             public float LastElapsedSeconds { get; private set; }
             public int StopCount { get; private set; }
             public int PlayCount { get; private set; }
+
+            public object CreateHandle() => handle;
 
             public bool TryPlay(NetworkAnimationActionStarted action, float elapsedSeconds, out object playbackHandle)
             {

@@ -39,7 +39,22 @@ namespace CGame.Network
                 return true;
             }
 
-            state = snapshots[snapshots.Count - 1].State;
+            AuthorityState latest = snapshots[snapshots.Count - 1].State;
+            float elapsedSeconds = Mathf.Min(
+                (serverTick - latest.ServerTick) / (float)NetworkTickClock.TicksPerSecond,
+                0.1f);
+            Vector3 extrapolatedPosition = latest.Position.ToMeters() + latest.BaseVelocity.ToMeters() * elapsedSeconds;
+            state = new AuthorityState(
+                serverTick,
+                QuantizedVector3.FromMeters(extrapolatedPosition),
+                latest.Rotation,
+                latest.BaseVelocity,
+                latest.MovementState,
+                latest.Grounded,
+                latest.GroundNormal,
+                latest.AttachedBaseId,
+                latest.ControlRotation,
+                latest.IsAiming);
             return true;
         }
 
@@ -49,6 +64,10 @@ namespace CGame.Network
             Vector3 velocity = Vector3.Lerp(older.BaseVelocity.ToMeters(), newer.BaseVelocity.ToMeters(), alpha);
             Vector3 normal = Vector3.Lerp(older.GroundNormal.ToMeters(), newer.GroundNormal.ToMeters(), alpha).normalized;
             Quaternion rotation = Quaternion.Slerp(older.Rotation.ToQuaternion(), newer.Rotation.ToQuaternion(), alpha);
+            Quaternion controlRotation = Quaternion.Slerp(
+                older.ControlRotation.ToQuaternion(),
+                newer.ControlRotation.ToQuaternion(),
+                alpha);
             AuthorityState discrete = alpha < 1f ? older : newer;
             return new AuthorityState(
                 serverTick,
@@ -58,7 +77,9 @@ namespace CGame.Network
                 discrete.MovementState,
                 discrete.Grounded,
                 QuantizedVector3.FromMeters(normal),
-                discrete.AttachedBaseId);
+                discrete.AttachedBaseId,
+                QuantizedQuaternion.FromQuaternion(controlRotation),
+                discrete.IsAiming);
         }
     }
 
@@ -73,6 +94,8 @@ namespace CGame.Network
             if (left.Grounded != right.Grounded) return Fail("Grounded", out mismatch);
             if (!left.GroundNormal.Equals(right.GroundNormal)) return Fail("GroundNormal", out mismatch);
             if (left.AttachedBaseId != right.AttachedBaseId) return Fail("AttachedBaseId", out mismatch);
+            if (!left.ControlRotation.Equals(right.ControlRotation)) return Fail("ControlRotation", out mismatch);
+            if (left.IsAiming != right.IsAiming) return Fail("IsAiming", out mismatch);
             mismatch = string.Empty;
             return true;
         }

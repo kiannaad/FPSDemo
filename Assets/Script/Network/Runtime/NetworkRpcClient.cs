@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using LiteNetLib;
+using MessagePack;
 
 namespace CGame.Network
 {
@@ -213,6 +214,13 @@ namespace CGame.Network
                 }
                 if (!pendingRequests.TryGetValue(response.Header.RequestId, out PendingRequest pendingRequest)) return;
                 pendingRequests.Remove(response.Header.RequestId);
+                if ((response.Header.Flags & NetworkPacketFlags.Failure) != 0)
+                {
+                    NetworkRpcFailureResponse failure = MessagePackSerializer.Deserialize<NetworkRpcFailureResponse>(response.Payload);
+                    string reason = string.IsNullOrWhiteSpace(failure?.Reason) ? "The server rejected the RPC request." : failure.Reason;
+                    pendingRequest.CompletionSource.TrySetException(new InvalidOperationException(reason));
+                    return;
+                }
                 pendingRequest.CompletionSource.TrySetResult(response);
             });
         }

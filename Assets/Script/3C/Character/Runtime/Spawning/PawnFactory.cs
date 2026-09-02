@@ -106,7 +106,14 @@ namespace CGame
                 root = UnityEngine.Object.Instantiate(definition.PawnPrefab, position, rotation);
                 root.name = definition.PawnPrefab.name;
                 root.SetActive(false);
-                ConfigureFirstPersonVisual(root, definition);
+                if (includeLocalComponents)
+                {
+                    ConfigureFirstPersonVisual(root, definition);
+                }
+                else
+                {
+                    DisableRemoteViewComponents(root);
+                }
 
                 CharacterPhysicsMotor motor = root.GetComponent<CharacterPhysicsMotor>();
                 Animator animator = ResolveAnimator(root);
@@ -167,6 +174,19 @@ namespace CGame
 
             renderer.sharedMesh = definition.FirstPersonMesh;
             renderer.sharedMaterials = new[] { definition.FirstPersonMaterial };
+        }
+
+        private static void DisableRemoteViewComponents(GameObject root)
+        {
+            foreach (Camera camera in root.GetComponentsInChildren<Camera>(true))
+            {
+                camera.enabled = false;
+            }
+
+            foreach (AudioListener listener in root.GetComponentsInChildren<AudioListener>(true))
+            {
+                listener.enabled = false;
+            }
         }
 
         private static Animator ResolveAnimator(GameObject root)

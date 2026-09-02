@@ -16,18 +16,19 @@ namespace CGame
         private readonly Dictionary<long, RemoteSnapshotBuffer> remoteSnapshotBuffersById = new Dictionary<long, RemoteSnapshotBuffer>();
         private readonly Dictionary<long, RemoteSnapshotPresentation> remoteSnapshotPresentationsById = new Dictionary<long, RemoteSnapshotPresentation>();
         private readonly Dictionary<long, NetworkAnimationActionBridge> remoteAnimationActionBridgesById = new Dictionary<long, NetworkAnimationActionBridge>();
+        private readonly NetworkPawnAnimationActionRouter animationActionRouter = new NetworkPawnAnimationActionRouter();
         private readonly NetworkTickClock networkTickClock = new NetworkTickClock();
         private readonly List<ClientPawnState> pendingRemotePawns = new List<ClientPawnState>();
         private readonly TaskCompletionSource<bool> initialOwnerPawnReady = new TaskCompletionSource<bool>();
         private readonly TaskCompletionSource<bool> networkStartReady = new TaskCompletionSource<bool>();
         private ActorRegistration ownerPawnRegistration;
-        private readonly LocalMovePredictionBuffer movePrediction = new LocalMovePredictionBuffer(NetworkPawnRole.LocalAutonomous);
+        private readonly LocalMovementPredictionCoordinator movementPrediction;
         private CharacterPhysicsSubSystem characterPhysics;
         private Pawn ownerPawn;
         private NetworkPawnBinding ownerNetworkBinding;
         private NetworkAnimationActionBridge ownerAnimationActionBridge;
-        private LocalPawnMoveReplayTarget replayTarget;
-        private long nextMoveSequence;
+        private readonly NetworkLoopAnimationPhaseSynchronizer ownerLoopPhaseSynchronizer =
+            new NetworkLoopAnimationPhaseSynchronizer();
         private bool ownerPawnSpawnRequested;
         private long startedMatchId;
 
@@ -42,6 +43,7 @@ namespace CGame
             this.playerStateDefinition = playerStateDefinition ?? throw new ArgumentNullException(nameof(playerStateDefinition));
             this.network = network ?? throw new ArgumentNullException(nameof(network));
             this.pawnFactory = pawnFactory ?? new PawnFactory();
+            movementPrediction = new LocalMovementPredictionCoordinator(network);
             network.ClientWorld.PawnSpawned += OnPawnSpawned;
             network.ClientWorld.OwnerPossessionApplied += OnOwnerPossessionApplied;
             network.ClientWorld.MatchStarting += OnMatchStarting;
@@ -56,11 +58,12 @@ namespace CGame
 
         public string RoomId { get; private set; } = string.Empty;
         public string NetworkStatus { get; private set; } = "Connecting";
-        public int SavedMoveCount => movePrediction.SavedMoves.Count;
-        public OwnerReconcileKind? LastReconcileKind { get; private set; }
-        public int ReplayCompletedCount { get; private set; }
+        public int SavedMoveCount => movementPrediction.SavedMoveCount;
+        public OwnerReconcileKind? LastReconcileKind => movementPrediction.LastReconcileKind;
+        public int ReplayCompletedCount => movementPrediction.ReplayCompletedCount;
         public int FixedStepObservedCount { get; private set; }
-        public int MoveCreatedCount { get; private set; }
+        public int MoveCreatedCount => movementPrediction.MoveCreatedCount;
+        public string MovementPredictionDiagnostic => movementPrediction.Diagnostic;
         public long CharacterPhysicsFixedStepCount => characterPhysics?.FixedStepCount ?? 0;
         public int AuthoritySnapshotReceivedCount { get; private set; }
         public int SnapshotAppliedCount { get; private set; }
@@ -172,6 +175,8 @@ namespace CGame
             remoteSnapshotBuffersById.Clear();
             remoteSnapshotPresentationsById.Clear();
             remoteAnimationActionBridgesById.Clear();
+            animationActionRouter.Clear();
+            movementPrediction.Clear();
         }
 
         private void OnPawnSpawned(ClientPawnState pawn)
@@ -216,12 +221,13 @@ namespace CGame
                     ownerNetworkBinding);
                 ownerPawnRegistration = World.RegisterActor(ownerPawn, critical: true);
                 ((PlayerController)PlayerController).Possess(ownerPawn);
-                replayTarget = new LocalPawnMoveReplayTarget(ownerPawn);
+                movementPrediction.Configure(ownerPawn, ownerNetworkBinding);
                 ownerAnimationActionBridge = new NetworkAnimationActionBridge(
                     pawn.PawnId,
                     pawn.PossessionRevision,
                     networkTickClock,
                     new ExistingLocalPredictionPresenter());
+                animationActionRouter.SetOwner(ownerNetworkBinding, ownerAnimationActionBridge);
                 ownerPawn.BindDiscreteActionReplicationGateway(
                     new OwnerNetworkAnimationActionGateway(
                         pawn.PawnId,
@@ -259,15 +265,16 @@ namespace CGame
                 if (World.State == WorldState.Playing) World.ActivateActor(remoteRegistration);
                 remoteSnapshotBuffersById.Add(pawn.PawnId, new RemoteSnapshotBuffer());
                 remoteSnapshotPresentationsById.Add(pawn.PawnId, new RemoteSnapshotPresentation(remotePawn));
-                remoteAnimationActionBridgesById.Add(
-                    pawn.PawnId,
-                    new NetworkAnimationActionBridge(
+                var remoteBridge = new NetworkAnimationActionBridge(
                         pawn.PawnId,
                         pawn.PossessionRevision,
                         networkTickClock,
                         new RemotePawnNetworkAnimationActionPresenter(
+                            remotePawn,
                             remotePawn.GetComponent<PawnAnimationComponent>(),
-                            playerStateDefinition.InitialInventorySet)));
+                            playerStateDefinition.InitialInventorySet));
+                remoteAnimationActionBridgesById.Add(pawn.PawnId, remoteBridge);
+                animationActionRouter.AddRemote(pawn.PawnId, remoteBridge);
                 NetworkStatus = $"Remote pawn {pawn.PawnId} spawned";
             }
             catch (Exception exception)
@@ -279,6 +286,7 @@ namespace CGame
         private void OnMatchStarting(long matchId)
         {
             startedMatchId = matchId;
+            movementPrediction.SetMatchId(matchId);
             TryCompleteNetworkStart();
         }
 
@@ -293,45 +301,14 @@ namespace CGame
         private void OnFixedStepCompleted(long clientTick)
         {
             FixedStepObservedCount++;
+            networkTickClock.AdvanceOneTick();
             ApplyRemoteSnapshots();
-            if (startedMatchId <= 0 || ownerPawn == null || ownerNetworkBinding == null || !network.IsMovementConnected) return;
-            Vector3 input = ownerPawn.PeekingMovementInput();
-            Vector3 view = ownerPawn.ControlRotation.eulerAngles;
-            CharacterMovementCommand command = ownerPawn.LastConsumedMovementCommand;
-            PawnMoveFlags flags = PawnMoveFlags.None;
-            if (command.JumpRequested) flags |= PawnMoveFlags.Jump;
-            if (command.SprintRequested) flags |= PawnMoveFlags.Sprint;
-            var move = new PawnMove(
-                startedMatchId,
-                ownerNetworkBinding.PawnId,
-                ownerNetworkBinding.PossessionRevision,
-                ++nextMoveSequence,
-                clientTick,
-                QuantizedInput.FromVector2(new Vector2(input.x, input.z)),
-                QuantizedView.FromDegrees(view.y, Mathf.DeltaAngle(0f, view.x)),
-                flags,
-                QuantizedVector3.FromMeters(ownerPawn.Transform.position));
-            movePrediction.Add(move);
-            MoveCreatedCount++;
-            network.SendPawnMove(move);
+            movementPrediction.OnFixedStepCompleted(clientTick);
         }
 
         private void OnOwnerReconcileReceived(OwnerReconcile reconcile)
         {
-            LastReconcileKind = reconcile.Kind;
-            if (reconcile.Kind == OwnerReconcileKind.Ack)
-            {
-                movePrediction.Acknowledge(reconcile.AckSequence);
-                return;
-            }
-
-            if (replayTarget == null) return;
-            LocalCorrectionResult result = movePrediction.Correct(
-                reconcile.AckSequence,
-                reconcile.AuthorityState,
-                replayTarget);
-            ReplayCompletedCount++;
-            Debug.Log($"[Network][038] ReplayCompleted Sequence={reconcile.AckSequence} HistoryFound={result.HistoryFound} Replayed={result.ReplayedMoveCount}");
+            movementPrediction.OnReconcileReceived(reconcile);
         }
 
         private void OnAuthoritySnapshotReceived(AuthoritySnapshot snapshot)
@@ -346,6 +323,12 @@ namespace CGame
             if (ownerNetworkBinding != null && snapshot.PawnId == ownerNetworkBinding.PawnId)
             {
                 LastOwnerAuditSnapshot = snapshot;
+                bool isMoving = snapshot.State.BaseVelocity.XMillimeters != 0 ||
+                    snapshot.State.BaseVelocity.ZMillimeters != 0;
+                ownerLoopPhaseSynchronizer.Synchronize(
+                    ownerPawn?.GetComponent<PawnAnimationComponent>()?.Animator,
+                    snapshot.State.ServerTick,
+                    isMoving);
                 return;
             }
 
@@ -355,28 +338,12 @@ namespace CGame
 
         private void OnAnimationActionStartedReceived(NetworkAnimationActionStarted action)
         {
-            if (action != null && ownerNetworkBinding != null && action.PawnId == ownerNetworkBinding.PawnId)
-            {
-                ownerAnimationActionBridge?.ApplyStarted(action);
-                return;
-            }
-            if (action != null && remoteAnimationActionBridgesById.TryGetValue(
-                    action.PawnId,
-                    out NetworkAnimationActionBridge bridge))
-                bridge.ApplyStarted(action);
+            animationActionRouter.ApplyStarted(action);
         }
 
         private void OnAnimationActionTerminalReceived(NetworkAnimationActionTerminal terminal)
         {
-            if (terminal != null && ownerNetworkBinding != null && terminal.PawnId == ownerNetworkBinding.PawnId)
-            {
-                ownerAnimationActionBridge?.ApplyTerminal(terminal);
-                return;
-            }
-            if (terminal != null && remoteAnimationActionBridgesById.TryGetValue(
-                    terminal.PawnId,
-                    out NetworkAnimationActionBridge bridge))
-                bridge.ApplyTerminal(terminal);
+            animationActionRouter.ApplyTerminal(terminal);
         }
 
         private void ApplyRemoteSnapshots()
@@ -384,9 +351,8 @@ namespace CGame
             foreach (KeyValuePair<long, RemoteSnapshotBuffer> entry in remoteSnapshotBuffersById)
             {
                 if (!remoteSnapshotPresentationsById.TryGetValue(entry.Key, out RemoteSnapshotPresentation presentation)) continue;
-                long interpolationTick = Math.Max(1, entry.Value.LatestServerTick - 2);
+                long interpolationTick = Math.Max(1, networkTickClock.EstimatedServerTick - 2);
                 if (!entry.Value.TrySample(interpolationTick, out AuthorityState state)) continue;
-                if (state.ServerTick <= presentation.LastAppliedState.ServerTick) continue;
                 presentation.Apply(state);
                 SnapshotAppliedCount++;
                 if (state.ServerTick % 60 == 0)

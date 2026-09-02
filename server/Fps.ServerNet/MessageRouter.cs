@@ -186,24 +186,36 @@ public sealed class MessageRouter
         return messages;
     }
 
-    public IReadOnlyList<RoutedOutboundMessage> TickAnimationActions()
+    public IReadOnlyList<RoutedOutboundMessage> AdvanceAnimationActions(long matchId, long authorityTick)
     {
         var messages = new List<RoutedOutboundMessage>();
-        foreach ((long matchId, ActiveAnimationMatch match) in animationMatchesById)
+        if (authorityTick <= 0 || !animationMatchesById.TryGetValue(matchId, out ActiveAnimationMatch? match))
+            return messages;
+        if (authorityTick <= match.AuthorityTick)
+            return messages;
+        match.AuthorityTick = authorityTick;
+        foreach (NetworkAnimationActionTerminalMessage terminal in match.Timeline.AdvanceTo(authorityTick))
         {
-            match.ServerTick = checked(match.ServerTick + 2);
-            foreach (NetworkAnimationActionTerminalMessage terminal in match.Timeline.AdvanceTo(match.ServerTick))
+            MessageId messageId = terminal.TerminalKind switch
             {
-                MessageId messageId = terminal.TerminalKind switch
-                {
-                    NetworkAnimationActionTerminalKind.Committed => MessageId.AnimationActionCommit,
-                    NetworkAnimationActionTerminalKind.Ended => MessageId.AnimationActionEnded,
-                    _ => MessageId.AnimationActionCancelled
-                };
-                foreach (string target in match.ConnectionIds)
-                    messages.Add(Event(target, matchId, messageId, terminal));
-                Console.WriteLine($"[Server][042] ActionTerminal MatchId={matchId} PawnId={terminal.PawnId} ActionSequence={terminal.ActionSequence} Kind={terminal.TerminalKind} ServerTick={match.ServerTick}");
-            }
+                NetworkAnimationActionTerminalKind.Committed => MessageId.AnimationActionCommit,
+                NetworkAnimationActionTerminalKind.Ended => MessageId.AnimationActionEnded,
+                _ => MessageId.AnimationActionCancelled
+            };
+            foreach (string target in match.ConnectionIds)
+                messages.Add(Event(target, matchId, messageId, terminal));
+            Console.WriteLine($"[Server][042] ActionTerminal MatchId={matchId} PawnId={terminal.PawnId} ActionSequence={terminal.ActionSequence} Kind={terminal.TerminalKind} ServerTick={authorityTick}");
+        }
+        return messages;
+    }
+
+    public async Task<IReadOnlyList<RoutedOutboundMessage>> AdvanceAnimationActionsAsync(CancellationToken cancellationToken)
+    {
+        var messages = new List<RoutedOutboundMessage>();
+        foreach (long matchId in animationMatchesById.Keys.ToArray())
+        {
+            long? authorityTick = await physicsServerLifecycle.GetAuthorityTickAsync(matchId, cancellationToken);
+            if (authorityTick.HasValue) messages.AddRange(AdvanceAnimationActions(matchId, authorityTick.Value));
         }
         return messages;
     }
@@ -217,24 +229,36 @@ public sealed class MessageRouter
             throw new InvalidDataException($"Animation action match is not active: MatchId={header.MatchId}.");
         ServerPlayer player = match.Players.Single(candidate => candidate.ConnectionId == connectionId);
         NetworkAnimationActionRequestMessage request = MessagePackSerializer.Deserialize<NetworkAnimationActionRequestMessage>(payload.ToArray());
-        int durationTicks = request.ActionKind switch
+        if (!match.EquipmentByPawnId.TryGetValue(player.ControlledPawnId, out AuthorityActionEquipmentState? equipment))
+            throw new InvalidDataException("AuthorityPawnEquipmentMissing");
+        AuthorityActionEquipmentSnapshot equipmentBeforeStart = equipment.Capture();
+        if (!equipment.TryBegin(request, out Action commit, out string equipmentReason))
+            throw new InvalidDataException(equipmentReason);
+        int durationTicks = request.DurationTicks > 0 ? request.DurationTicks : request.ActionKind switch
         {
             NetworkAnimationActionKind.Reload => 120,
             NetworkAnimationActionKind.Melee => 60,
             _ => 45
         };
-        int? commitOffset = request.ActionKind == NetworkAnimationActionKind.Reload ? 30 : null;
+        if (durationTicks > 600) throw new InvalidDataException("AnimationActionDurationOutOfRange");
+        int? commitOffset = request.ActionKind == NetworkAnimationActionKind.Reload
+            ? request.CommitOffsetTicks ?? 30
+            : null;
         if (!match.Timeline.TryStart(
                 request,
                 player.ControlledPawnId,
                 player.PossessionRevision,
-                match.ServerTick,
+                match.AuthorityTick,
                 durationTicks,
                 commitOffset,
-                () => match.MagazineAmmoByEquipment[request.EquipmentInstanceId] = 30,
+                commit,
+                () => equipment.Complete(request.ActionKind),
                 out NetworkAnimationActionStartedMessage? started,
                 out string reason))
+        {
+            equipment.Restore(equipmentBeforeStart);
             throw new InvalidDataException(reason);
+        }
 
         var messages = new List<RoutedOutboundMessage>
         {
@@ -244,7 +268,7 @@ public sealed class MessageRouter
         };
         foreach (string target in match.ConnectionIds)
             if (target != connectionId) messages.Add(Event(target, header.MatchId, MessageId.AnimationActionStarted, started));
-        Console.WriteLine($"[Server][042] ActionStarted MatchId={header.MatchId} PawnId={started!.PawnId} PredictionNonce={started.PredictionNonce} ActionSequence={started.ActionSequence} Kind={started.ActionKind} ServerTick={match.ServerTick}");
+        Console.WriteLine($"[Server][042] ActionStarted MatchId={header.MatchId} PawnId={started!.PawnId} PredictionNonce={started.PredictionNonce} ActionSequence={started.ActionSequence} Kind={started.ActionKind} ServerTick={match.AuthorityTick}");
         return messages;
     }
 
@@ -264,13 +288,15 @@ public sealed class MessageRouter
         {
             Players = players.ToArray();
             ConnectionIds = connectionIds.ToArray();
+            foreach (ServerPlayer player in Players)
+                EquipmentByPawnId.Add(player.ControlledPawnId, new AuthorityActionEquipmentState());
         }
 
         public ServerPlayer[] Players { get; }
         public string[] ConnectionIds { get; }
         public AuthorityAnimationActionTimeline Timeline { get; } = new();
-        public Dictionary<long, int> MagazineAmmoByEquipment { get; } = new();
-        public long ServerTick { get; set; }
+        public Dictionary<long, AuthorityActionEquipmentState> EquipmentByPawnId { get; } = new();
+        public long AuthorityTick { get; set; }
     }
 
     private ServerPlayer GetOrCreatePlayer(string connectionId)

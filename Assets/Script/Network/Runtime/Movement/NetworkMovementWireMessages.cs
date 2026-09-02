@@ -105,6 +105,8 @@ namespace CGame.Network
         [Key(5)] public bool Grounded { get; set; }
         [Key(6)] public QuantizedVector3WireMessage GroundNormal { get; set; } = new QuantizedVector3WireMessage { YMillimeters = 1000 };
         [Key(7)] public long AttachedBaseId { get; set; }
+        [Key(8)] public short[] ControlRotation { get; set; } = { 0, 0, 0, short.MaxValue };
+        [Key(9)] public bool IsAiming { get; set; }
 
         public static AuthorityStateWireMessage FromValue(AuthorityState state) => new AuthorityStateWireMessage
         {
@@ -115,7 +117,9 @@ namespace CGame.Network
             MovementState = state.MovementState,
             Grounded = state.Grounded,
             GroundNormal = QuantizedVector3WireMessage.FromValue(state.GroundNormal),
-            AttachedBaseId = state.AttachedBaseId
+            AttachedBaseId = state.AttachedBaseId,
+            ControlRotation = new[] { state.ControlRotation.X, state.ControlRotation.Y, state.ControlRotation.Z, state.ControlRotation.W },
+            IsAiming = state.IsAiming
         };
 
         public AuthorityState ToValue() => new AuthorityState(
@@ -126,7 +130,9 @@ namespace CGame.Network
             MovementState,
             Grounded,
             GroundNormal.ToValue(),
-            AttachedBaseId);
+            AttachedBaseId,
+            new QuantizedQuaternion(ControlRotation[0], ControlRotation[1], ControlRotation[2], ControlRotation[3]),
+            IsAiming);
     }
 
     [MessagePackObject]

@@ -54,7 +54,8 @@ namespace CGame.Network
     {
         None = 0,
         Request = 1,
-        Response = 2
+        Response = 2,
+        Failure = 4
     }
 
     public readonly struct NetworkPacketHeader
@@ -205,6 +206,12 @@ namespace CGame.Network
         [Key(0)] public string RoomId { get; set; }
         [Key(1)] public string State { get; set; }
         [Key(2)] public bool MatchStarted { get; set; }
+    }
+
+    [MessagePackObject]
+    public sealed class NetworkRpcFailureResponse
+    {
+        [Key(0)] public string Reason { get; set; }
     }
 
     [MessagePackObject]

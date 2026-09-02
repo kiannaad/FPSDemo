@@ -41,7 +41,9 @@ namespace CGame.Network.Tests
                     (byte)2,
                     true,
                     new object[] { 7, 999, 8 },
-                    91L
+                    91L,
+                    new object[] { (short)9, (short)8, (short)7, (short)32760 },
+                    true
                 }
             });
 
@@ -53,6 +55,8 @@ namespace CGame.Network.Tests
             Assert.That(snapshot.PawnId, Is.EqualTo(200));
             Assert.That(snapshot.State.ServerTick, Is.EqualTo(177));
             Assert.That(snapshot.State.AttachedBaseId, Is.EqualTo(91));
+            Assert.That(snapshot.State.ControlRotation.X, Is.EqualTo(9));
+            Assert.That(snapshot.State.IsAiming, Is.True);
         }
     }
 }

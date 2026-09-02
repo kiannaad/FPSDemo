@@ -8,6 +8,7 @@ public sealed class AuthorityAnimationActionTimeline
     {
         public required NetworkAnimationActionStartedMessage Started;
         public required Action Commit;
+        public required Action Complete;
         public bool Committed;
     }
 
@@ -22,6 +23,21 @@ public sealed class AuthorityAnimationActionTimeline
         int durationTicks,
         int? commitOffsetTicks,
         Action commit,
+        out NetworkAnimationActionStartedMessage? started,
+        out string reason)
+    {
+        return TryStart(request, expectedPawnId, expectedPossessionRevision, serverTick, durationTicks, commitOffsetTicks, commit, static () => { }, out started, out reason);
+    }
+
+    public bool TryStart(
+        NetworkAnimationActionRequestMessage request,
+        long expectedPawnId,
+        long expectedPossessionRevision,
+        long serverTick,
+        int durationTicks,
+        int? commitOffsetTicks,
+        Action commit,
+        Action complete,
         out NetworkAnimationActionStartedMessage? started,
         out string reason)
     {
@@ -55,7 +71,8 @@ public sealed class AuthorityAnimationActionTimeline
         activeBySequence.Add(sequence, new ActiveAction
         {
             Started = started,
-            Commit = commit ?? (() => { })
+            Commit = commit ?? (() => { }),
+            Complete = complete ?? (() => { })
         });
         reason = string.Empty;
         return true;
@@ -74,6 +91,7 @@ public sealed class AuthorityAnimationActionTimeline
             }
             if (serverTick < action.Started.ServerStartTick + action.Started.DurationTicks) continue;
             events.Add(Terminal(action, serverTick, NetworkAnimationActionTerminalKind.Ended));
+            action.Complete();
             activeBySequence.Remove(sequence);
         }
         return events;
@@ -82,6 +100,7 @@ public sealed class AuthorityAnimationActionTimeline
     public NetworkAnimationActionTerminalMessage? Cancel(long actionSequence, long serverTick)
     {
         if (!activeBySequence.Remove(actionSequence, out ActiveAction? action)) return null;
+        action.Complete();
         return Terminal(action, serverTick, NetworkAnimationActionTerminalKind.Cancelled);
     }
 

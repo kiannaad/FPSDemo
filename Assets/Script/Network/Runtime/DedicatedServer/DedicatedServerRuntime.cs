@@ -8,10 +8,16 @@ namespace CGame.Network
 {
     public sealed class DedicatedServerRuntime : MonoBehaviour
     {
+        private const int TargetQueuedMoves = 2;
+        private const int MaxSimulationStepsPerFixedUpdate = 4;
         private readonly List<Pawn> authorityPawns = new List<Pawn>();
         private readonly List<ActorRegistration> pawnRegistrations = new List<ActorRegistration>();
         private readonly Dictionary<long, AuthorityMoveProcessor> moveProcessors =
             new Dictionary<long, AuthorityMoveProcessor>();
+        private readonly Dictionary<long, DedicatedMotorMoveSimulation> motorSimulations =
+            new Dictionary<long, DedicatedMotorMoveSimulation>();
+        private readonly Dictionary<long, AuthorityMoveInbox> pendingMovesByPawnId =
+            new Dictionary<long, AuthorityMoveInbox>();
         private DedicatedServerLaunchConfiguration launch;
         private DedicatedServerHealthServer healthServer;
         private DedicatedDataServer dataServer;
@@ -106,9 +112,18 @@ namespace CGame.Network
                 }
                 authorityPawns.Add(pawn);
                 pawnRegistrations.Add(world.RegisterActor(pawn, critical: true));
-                IAuthorityMoveSimulation simulation = dedicatedBootstrap != null
-                    ? new DedicatedMotorMoveSimulation(world, pawn)
-                    : new DedicatedTransformMoveSimulation(fallbackTransform);
+                IAuthorityMoveSimulation simulation;
+                if (dedicatedBootstrap != null)
+                {
+                    var motorSimulation = new DedicatedMotorMoveSimulation(world, pawn);
+                    motorSimulations.Add(pawnConfiguration.PawnId, motorSimulation);
+                    pendingMovesByPawnId.Add(pawnConfiguration.PawnId, new AuthorityMoveInbox());
+                    simulation = motorSimulation;
+                }
+                else
+                {
+                    simulation = new DedicatedTransformMoveSimulation(fallbackTransform);
+                }
                 moveProcessors.Add(pawnConfiguration.PawnId, new AuthorityMoveProcessor(
                     new AuthorityMoveValidator(
                         pawnConfiguration.ConnectionId,
@@ -139,17 +154,13 @@ namespace CGame.Network
         {
             dataServer?.PollEvents();
             if (world?.State != WorldState.Playing) return;
-            authorityServerTick++;
-            world.FixedTick(Time.fixedDeltaTime);
-            long serverTick = authorityServerTick;
-            foreach (KeyValuePair<long, AuthorityMoveProcessor> entry in moveProcessors)
+
+            int simulationSteps = GetSimulationStepCount();
+            for (int step = 0; step < simulationSteps; step++)
             {
-                AuthoritySnapshot snapshot = new AuthoritySnapshot(
-                    launch.MatchId,
-                    entry.Key,
-                    entry.Value.Capture(serverTick));
-                dataServer.BroadcastAuthoritySnapshot(snapshot);
+                SimulateAuthorityStep();
             }
+
             if (!IsPhysicsReady && physics.FixedStepCount > 0)
             {
                 IsPhysicsReady = true;
@@ -159,6 +170,49 @@ namespace CGame.Network
             else if (IsPhysicsReady)
             {
                 healthServer.Publish(CreateHealth("PhysicsReady", null));
+            }
+        }
+
+        private int GetSimulationStepCount()
+        {
+            int simulationSteps = 1;
+            foreach (AuthorityMoveInbox inbox in pendingMovesByPawnId.Values)
+            {
+                simulationSteps = Mathf.Max(
+                    simulationSteps,
+                    inbox.GetSimulationStepCount(TargetQueuedMoves, MaxSimulationStepsPerFixedUpdate));
+            }
+
+            return simulationSteps;
+        }
+
+        private void SimulateAuthorityStep()
+        {
+            authorityServerTick++;
+            long serverTick = authorityServerTick;
+            var movesForTick = new List<KeyValuePair<long, AcceptedAuthorityMove>>();
+            foreach (KeyValuePair<long, AuthorityMoveInbox> entry in pendingMovesByPawnId)
+            {
+                if (!entry.Value.TryDequeue(out AcceptedAuthorityMove pending)) continue;
+                movesForTick.Add(new KeyValuePair<long, AcceptedAuthorityMove>(entry.Key, pending));
+                motorSimulations[entry.Key].ApplyControlIntent(pending.Move);
+            }
+            world.FixedTick(Time.fixedDeltaTime);
+            foreach (KeyValuePair<long, AcceptedAuthorityMove> entry in movesForTick)
+            {
+                DedicatedMotorMoveSimulation simulation = motorSimulations[entry.Key];
+                simulation.ClearControlIntent();
+                AuthorityState state = simulation.Capture(serverTick);
+                OwnerReconcile reconcile = moveProcessors[entry.Key].ReconcileAccepted(entry.Value.Move, state);
+                SendReconcile(entry.Value.Identity, entry.Value.Move, reconcile);
+            }
+            foreach (KeyValuePair<long, AuthorityMoveProcessor> entry in moveProcessors)
+            {
+                AuthoritySnapshot snapshot = new AuthoritySnapshot(
+                    launch.MatchId,
+                    entry.Key,
+                    entry.Value.Capture(serverTick));
+                dataServer.BroadcastAuthoritySnapshot(snapshot);
             }
         }
 
@@ -177,10 +231,48 @@ namespace CGame.Network
         {
             if (!moveProcessors.TryGetValue(identity.PawnId, out AuthorityMoveProcessor processor)) return;
             long serverTick = System.Math.Max(1, authorityServerTick);
+            if (motorSimulations.ContainsKey(identity.PawnId))
+            {
+                AuthorityMoveValidation validation = processor.Validate(identity.ConnectionId, move, serverTick);
+                if (!validation.Accepted)
+                {
+                    SendReconcile(identity, move, processor.Reject(validation, serverTick));
+                    return;
+                }
+
+                pendingMovesByPawnId[identity.PawnId].Enqueue(identity, move);
+                return;
+            }
+
             OwnerReconcile reconcile = processor.Process(identity.ConnectionId, move, serverTick);
-            dataServer.SendOwnerReconcile(identity.PawnId, launch.MatchId, reconcile);
-            Debug.Log($"[DedicatedServer][038] ReconcileSent PawnId={identity.PawnId} Sequence={move.Sequence} Kind={reconcile.Kind} Reason={reconcile.Reason ?? "None"}");
+            SendReconcile(identity, move, reconcile);
         }
+
+        private void SendReconcile(DedicatedDataIdentity identity, PawnMove move, OwnerReconcile reconcile)
+        {
+            dataServer.SendOwnerReconcile(identity.PawnId, launch.MatchId, reconcile);
+            if (reconcile.Kind != OwnerReconcileKind.Correction || move.Sequence % 60 != 0) return;
+            long positionError = CalculatePositionErrorMillimeters(
+                move.PredictedPosition,
+                reconcile.AuthorityState.Position);
+            int queuedMoves = pendingMovesByPawnId.TryGetValue(identity.PawnId, out AuthorityMoveInbox inbox)
+                ? inbox.Count
+                : 0;
+            Debug.LogWarning(
+                $"[DedicatedServer][038] CorrectionSent PawnId={identity.PawnId} Sequence={move.Sequence} "
+                + $"Reason={reconcile.Reason ?? "None"} PositionErrorMm={positionError} QueuedMoves={queuedMoves} "
+                + $"Predicted={move.PredictedPosition.XMillimeters},{move.PredictedPosition.YMillimeters},{move.PredictedPosition.ZMillimeters} "
+                + $"Authority={reconcile.AuthorityState.Position.XMillimeters},{reconcile.AuthorityState.Position.YMillimeters},{reconcile.AuthorityState.Position.ZMillimeters}");
+        }
+
+        private static long CalculatePositionErrorMillimeters(QuantizedVector3 predicted, QuantizedVector3 authority)
+        {
+            long x = (long)predicted.XMillimeters - authority.XMillimeters;
+            long y = (long)predicted.YMillimeters - authority.YMillimeters;
+            long z = (long)predicted.ZMillimeters - authority.ZMillimeters;
+            return (long)Mathf.Round(Mathf.Sqrt(x * x + y * y + z * z));
+        }
+
 
         private DedicatedServerHealthSnapshot CreateHealth(string status, string failure)
         {

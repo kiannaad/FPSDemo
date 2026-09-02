@@ -154,16 +154,17 @@ namespace CGame.InventoryEquipment
                         && attackClip != null
                         && weapon.TryGetCharacterAnimation(out CharacterAnimInstance characterAnimation))
                     {
-                        meleePawn.DiscreteActionReplicationGateway?.BeginPredicted(
+                        long predictionNonce = meleePawn.DiscreteActionReplicationGateway?.BeginPredicted(
                             DiscreteActionKind.Melee,
                             attackClip.name,
-                            weapon.ItemHandle.Value);
+                            weapon.ItemHandle.Value) ?? 0;
                         characterPlayback = characterAnimation.PlayAbilityAnimation(attackClip, 0);
                         if (characterPlayback == null || characterPlayback.State == AnimationPlaybackState.Failed)
                         {
                             EndAbility(AbilityEndReason.Failed);
                             return;
                         }
+                        if (predictionNonce > 0) meleePawn.DiscreteActionReplicationGateway.RegisterPredictedPlayback(predictionNonce, characterPlayback);
 
                         meleePawn.NotifyMeleeActivated();
                         StartTask(new WaitWeaponAnimationTask(
@@ -283,6 +284,15 @@ namespace CGame.InventoryEquipment
             if (!recoilResult.Succeeded)
             {
                 return recoilResult;
+            }
+
+            long recoilPredictionNonce = pawn.DiscreteActionReplicationGateway?.BeginPredicted(
+                DiscreteActionKind.Recoil,
+                weapon.Definition.name,
+                weapon.ItemHandle.Value) ?? 0;
+            if (recoilPredictionNonce > 0)
+            {
+                pawn.DiscreteActionReplicationGateway.RegisterPredictedPlayback(recoilPredictionNonce, new object());
             }
 
             string hitObject = hitResult.HasValue && hitResult.Value.Collider != null

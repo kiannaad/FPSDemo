@@ -8,13 +8,21 @@ namespace CGame.Network
 
         public bool HasObservation { get; private set; }
         public long EstimatedServerTick { get; private set; }
+        public long LastObservedServerTick { get; private set; }
 
         public void Observe(long serverTick)
         {
             if (serverTick < 0) throw new ArgumentOutOfRangeException(nameof(serverTick));
-            if (HasObservation && serverTick <= EstimatedServerTick) return;
+            if (HasObservation && serverTick <= LastObservedServerTick) return;
+            LastObservedServerTick = serverTick;
             EstimatedServerTick = serverTick;
             HasObservation = true;
+        }
+
+        public void AdvanceOneTick()
+        {
+            if (!HasObservation) return;
+            EstimatedServerTick++;
         }
 
         public long ElapsedTicksSince(long serverStartTick) =>

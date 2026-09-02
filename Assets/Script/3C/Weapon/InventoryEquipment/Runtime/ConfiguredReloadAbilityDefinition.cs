@@ -104,17 +104,21 @@ namespace CGame.InventoryEquipment
             authorityDrivenCommit = false;
             weapon = (WeaponInstance)ActivationContext.SourceObject;
             weapon.ResetHeat();
+            long predictionNonce = 0;
+            IDiscreteActionReplicationGateway gateway = null;
             if (ActivationContext.AbilitySystem.Avatar is Pawn pawn)
             {
-                IDiscreteActionReplicationGateway gateway = pawn.DiscreteActionReplicationGateway;
+                gateway = pawn.DiscreteActionReplicationGateway;
                 if (gateway != null)
                 {
-                    long nonce = gateway.BeginPredicted(
+                    predictionNonce = gateway.BeginPredicted(
                         DiscreteActionKind.Reload,
                         weapon.Definition.ReloadDefinition.CharacterAnimation.name,
-                        weapon.ItemHandle.Value);
+                        weapon.ItemHandle.Value,
+                        GetReloadDurationTicks(weapon.Definition.ReloadDefinition),
+                        GetReloadCommitOffsetTicks(weapon.Definition.ReloadDefinition));
                     authorityDrivenCommit = true;
-                    gateway.RegisterCommit(nonce, CommitReloadFromAuthority);
+                    gateway.RegisterCommit(predictionNonce, CommitReloadFromAuthority);
                 }
             }
             Debug.Log($"[ReloadTrace] Ability activated: weapon={weapon.Definition.name}, magazine={weapon.Item.MagazineAmmo}, reserve={weapon.Item.ReserveAmmo}");
@@ -135,6 +139,7 @@ namespace CGame.InventoryEquipment
                 EndAbility(AbilityEndReason.Failed);
                 return;
             }
+            if (gateway != null) gateway.RegisterPredictedPlayback(predictionNonce, characterPlayback);
 
             if (!weapon.BeginReloadPresentation())
             {
@@ -198,6 +203,32 @@ namespace CGame.InventoryEquipment
             int loadedAmmo = weapon.Item.ReloadMagazine(weapon.MagazineCapacity);
             weapon.NotifyReloadCommitted(loadedAmmo);
             Debug.Log($"[Network][042] ReloadAuthorityCommit loaded={loadedAmmo} magazine={weapon.Item.MagazineAmmo} reserve={weapon.Item.ReserveAmmo}");
+        }
+
+        private static int GetReloadDurationTicks(WeaponReloadDefinition reloadDefinition)
+        {
+            float characterDuration = reloadDefinition.CharacterAnimation.AnimationClip.length;
+            float weaponDuration = reloadDefinition.WeaponAnimation.length;
+            return Mathf.Max(1, Mathf.CeilToInt(Mathf.Max(characterDuration, weaponDuration) * 60f));
+        }
+
+        private static int? GetReloadCommitOffsetTicks(WeaponReloadDefinition reloadDefinition)
+        {
+            AnimationClip characterClip = reloadDefinition.CharacterAnimation.AnimationClip;
+            foreach (AnimationNotifyTrack track in reloadDefinition.CharacterAnimation.NotifyTracks)
+            {
+                if (track == null) continue;
+                foreach (AnimationNotifyEvent notifyEvent in track.Events)
+                {
+                    if (notifyEvent?.Notify == null) continue;
+                    return Mathf.Clamp(
+                        Mathf.RoundToInt(notifyEvent.StartFrame / characterClip.frameRate * 60f),
+                        0,
+                        GetReloadDurationTicks(reloadDefinition));
+                }
+            }
+
+            return null;
         }
     }
 

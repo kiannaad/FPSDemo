@@ -23,7 +23,7 @@ namespace CGame.Tests.Gameplay
             GameFeatureConfig b = Feature("B", new[] { "A" });
             GameFeatureConfig c = Feature("C", new[] { "A" });
             ExperienceDefinition experience = Experience(b, c, a);
-            var transaction = new ExperienceActivationTransaction(this);
+            var transaction = new ExperienceActivationTransaction(new TestFeatureHost());
             CollectionAssert.AreEqual(new[] { "A", "B", "C" }, MapIds(transaction.BuildActivationOrder(experience)));
 
             GameFeatureConfig missing = Feature("MissingOwner", new[] { "Nope" });
@@ -41,7 +41,7 @@ namespace CGame.Tests.Gameplay
             TestAction second = Action("second", trace);
             TestAction failing = Action("fail", trace, true);
             GameFeatureConfig feature = Feature("Feature", null, first, second, failing);
-            var transaction = new ExperienceActivationTransaction(this);
+            var transaction = new ExperienceActivationTransaction(new TestFeatureHost());
             Assert.Throws<InvalidOperationException>(() => transaction.Activate(Experience(feature)));
             CollectionAssert.AreEqual(new[] { "+first", "+second", "+fail", "-second", "-first" }, trace);
         }
@@ -53,7 +53,7 @@ namespace CGame.Tests.Gameplay
             TestAction first = Action("first", trace);
             TestAction wrong = Action("wrong", trace);
             wrong.ReturnWrongOwner = true;
-            var transaction = new ExperienceActivationTransaction(this);
+            var transaction = new ExperienceActivationTransaction(new TestFeatureHost());
             Assert.Throws<InvalidOperationException>(() => transaction.Activate(Experience(Feature("Feature", null, first, wrong))));
             CollectionAssert.AreEqual(new[] { "+first", "+wrong", "-wrong", "-first" }, trace);
             Assert.Throws<InvalidOperationException>(() => transaction.Activate(Experience(Feature("Other"))));
@@ -105,6 +105,16 @@ namespace CGame.Tests.Gameplay
                 if (Fail) throw new InvalidOperationException(Name);
                 Guid ownerId = ReturnWrongOwner ? Guid.NewGuid() : context.OwnerId;
                 return new GameFeatureActivationReceipt(ownerId, () => Trace.Add("-" + Name));
+            }
+        }
+
+        private sealed class TestFeatureHost : IGameFeatureActivationHost
+        {
+            public World World => null;
+
+            public GameFeatureActivationReceipt InstallComponent(object component, Guid ownerId)
+            {
+                return new GameFeatureActivationReceipt(ownerId, () => { });
             }
         }
     }

@@ -64,6 +64,10 @@ namespace CGame.GameplayCue.PlayModeTests
                 Assert.That(remotePawn.TryGetComponent(out PawnCameraComponent _), Is.False);
                 Assert.That(remotePawn.TryGetComponent(out PawnMovementComponent _), Is.True);
                 Assert.That(remotePawn.TryGetComponent(out PawnAnimationComponent _), Is.True);
+                foreach (Camera remoteCamera in remotePawn.Transform.GetComponentsInChildren<Camera>(true))
+                    Assert.That(remoteCamera.enabled, Is.False, "Remote pawn camera can take over the local Game View.");
+                foreach (AudioListener remoteListener in remotePawn.Transform.GetComponentsInChildren<AudioListener>(true))
+                    Assert.That(remoteListener.enabled, Is.False, "Remote pawn must not own the client audio listener.");
             }
             finally
             {
@@ -265,9 +269,9 @@ namespace CGame.GameplayCue.PlayModeTests
                 Assert.That(world.State, Is.EqualTo(WorldState.Playing), world.Failure);
                 Assert.That(gameMode.CharacterPhysicsFixedStepCount, Is.GreaterThan(0), "Character physics subsystem did not advance.");
                 Assert.That(gameMode.FixedStepObservedCount, Is.GreaterThan(0), "Character physics did not publish fixed-step completion.");
-                Assert.That(gameMode.MoveCreatedCount, Is.GreaterThan(0), "NetworkGameMode did not create PawnMove after data connection.");
-                Assert.That(gameMode.LastReconcileKind, Is.EqualTo(OwnerReconcileKind.Correction));
-                Assert.That(gameMode.ReplayCompletedCount, Is.GreaterThan(0));
+                Assert.That(gameMode.MoveCreatedCount, Is.GreaterThan(0), $"NetworkGameMode did not create PawnMove after data connection. {gameMode.MovementPredictionDiagnostic}");
+                Assert.That(gameMode.LastReconcileKind, Is.EqualTo(OwnerReconcileKind.Correction), gameMode.MovementPredictionDiagnostic);
+                Assert.That(gameMode.ReplayCompletedCount, Is.GreaterThan(0), gameMode.MovementPredictionDiagnostic);
             }
             finally
             {

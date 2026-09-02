@@ -15,6 +15,7 @@ namespace CGame.Network
 
         private void Update()
         {
+            if (!Application.isFocused) return;
             if (!(GetComponent<GameInstance>()?.RuntimeWorld?.GameMode is INetworkLobby lobby))
             {
                 return;

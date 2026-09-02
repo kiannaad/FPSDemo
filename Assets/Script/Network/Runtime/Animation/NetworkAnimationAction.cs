@@ -7,7 +7,8 @@ namespace CGame.Network
         Reload = 1,
         Melee = 2,
         Equip = 3,
-        Unequip = 4
+        Unequip = 4,
+        Recoil = 5
     }
 
     public enum NetworkAnimationActionTerminalKind : byte
@@ -26,6 +27,8 @@ namespace CGame.Network
         [Key(3)] public NetworkAnimationActionKind ActionKind { get; set; }
         [Key(4)] public string VariantId { get; set; }
         [Key(5)] public long EquipmentInstanceId { get; set; }
+        [Key(6)] public int DurationTicks { get; set; }
+        [Key(7)] public int? CommitOffsetTicks { get; set; }
     }
 
     [MessagePackObject]

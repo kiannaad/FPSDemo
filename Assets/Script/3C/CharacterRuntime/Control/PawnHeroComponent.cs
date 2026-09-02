@@ -44,6 +44,7 @@ namespace CGame
                     if (binding.ActionReference?.action?.name == "Melee") meleeInputTag = binding.InputTag;
                     bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Started, _ =>
                     {
+                        if (!Application.isFocused) return;
                         if (binding.InputTag.ToString() == "InputTag.Weapon.Fire")
                         {
                             Debug.Log("[CueDebug] Input Started -> InputTag.Weapon.Fire");
@@ -56,6 +57,7 @@ namespace CGame
                     }));
                     bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Canceled, _ =>
                     {
+                        if (!Application.isFocused) return;
                         abilitySystem.AbilityInputTagReleased(binding.InputTag);
                     }));
                 }
@@ -82,7 +84,7 @@ namespace CGame
 
         private void TickMeleeInput(float deltaTime)
         {
-            if (abilitySystem == null || meleeInputTag.IsEmpty || Keyboard.current == null) return;
+            if (!Application.isFocused || abilitySystem == null || meleeInputTag.IsEmpty || Keyboard.current == null) return;
             if (Keyboard.current.vKey.wasPressedThisFrame) abilitySystem.AbilityInputTagPressed(meleeInputTag);
             if (Keyboard.current.vKey.wasReleasedThisFrame) abilitySystem.AbilityInputTagReleased(meleeInputTag);
         }

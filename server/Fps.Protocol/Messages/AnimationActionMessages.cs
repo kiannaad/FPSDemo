@@ -7,7 +7,8 @@ public enum NetworkAnimationActionKind : byte
     Reload = 1,
     Melee = 2,
     Equip = 3,
-    Unequip = 4
+    Unequip = 4,
+    Recoil = 5
 }
 
 public enum NetworkAnimationActionTerminalKind : byte
@@ -24,7 +25,9 @@ public sealed record NetworkAnimationActionRequestMessage(
     [property: Key(2)] long PredictionNonce,
     [property: Key(3)] NetworkAnimationActionKind ActionKind,
     [property: Key(4)] string VariantId,
-    [property: Key(5)] long EquipmentInstanceId);
+    [property: Key(5)] long EquipmentInstanceId,
+    [property: Key(6)] int DurationTicks = 0,
+    [property: Key(7)] int? CommitOffsetTicks = null);
 
 [MessagePackObject]
 public sealed record NetworkAnimationActionStartedMessage(

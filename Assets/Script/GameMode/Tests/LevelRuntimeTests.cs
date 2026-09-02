@@ -234,7 +234,7 @@ namespace CGame.Tests.Gameplay
                 var root = new GameObject($"EnemyCandidate{calls}");
                 root.transform.SetPositionAndRotation(position, rotation);
                 root.SetActive(false);
-                return Task.FromResult(new Pawn(root, new ActorComponent[] { new HealthDeathComponent(100f) }));
+                return Task.FromResult(new Pawn(root, new ActorComponent[] { new HealthComponent() }));
             }
         }
     }

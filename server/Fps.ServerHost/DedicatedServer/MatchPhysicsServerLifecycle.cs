@@ -67,6 +67,9 @@ public sealed class MatchPhysicsServerLifecycle : IMatchPhysicsServerLifecycle
     public Task StopAsync(long matchId, CancellationToken cancellationToken) =>
         processManager.StopAsync(matchId, cancellationToken);
 
+    public Task<long?> GetAuthorityTickAsync(long matchId, CancellationToken cancellationToken) =>
+        processManager.GetAuthorityTickAsync(matchId, cancellationToken);
+
     private static int AllocateLoopbackPort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);

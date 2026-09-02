@@ -18,10 +18,16 @@ namespace CGame
 
         protected virtual void Awake()
         {
-#if UNITY_SERVER
+#if UNITY_SERVER && !UNITY_EDITOR
             enabled = false;
             return;
 #endif
+            EnsureRuntimeWorldStarted();
+        }
+
+        public void EnsureRuntimeWorldStarted()
+        {
+            if (!Application.isPlaying || RuntimeWorld != null || initializationCancellation != null) return;
             RuntimeWorld = World.Create(worldConfiguration);
             initializationCancellation = new CancellationTokenSource();
             InitializationTask = InitializeWorldAsync(initializationCancellation.Token);
@@ -49,6 +55,11 @@ namespace CGame
         }
 
         protected virtual void OnDestroy()
+        {
+            ShutdownRuntimeWorld();
+        }
+
+        public void ShutdownRuntimeWorld()
         {
             initializationCancellation?.Cancel();
             initializationCancellation?.Dispose();
