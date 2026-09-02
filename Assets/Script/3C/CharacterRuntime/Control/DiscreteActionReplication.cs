@@ -21,6 +21,19 @@ namespace CGame
             int durationTicks,
             int? commitOffsetTicks);
         void RegisterPredictedPlayback(long predictionNonce, object playbackHandle);
-        void RegisterCommit(long predictionNonce, Action callback);
+        void RegisterCommit(long predictionNonce, Action<DiscreteActionCommit> callback);
+    }
+
+    public readonly struct DiscreteActionCommit
+    {
+        public DiscreteActionCommit(int? authoritativeMagazineAmmo, int? authoritativeReserveAmmo)
+        {
+            AuthoritativeMagazineAmmo = authoritativeMagazineAmmo;
+            AuthoritativeReserveAmmo = authoritativeReserveAmmo;
+        }
+
+        public int? AuthoritativeMagazineAmmo { get; }
+        public int? AuthoritativeReserveAmmo { get; }
+        public bool HasAuthoritativeAmmo => AuthoritativeMagazineAmmo.HasValue && AuthoritativeReserveAmmo.HasValue;
     }
 }

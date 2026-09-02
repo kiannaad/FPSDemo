@@ -23,7 +23,6 @@ namespace CGame
         {
             this.pawn = pawn ?? throw new ArgumentNullException(nameof(pawn));
             this.animation = animation ?? throw new ArgumentNullException(nameof(animation));
-            RemoteRecoilPresentationDriver.Ensure(this.pawn);
             if (inventory == null) return;
             for (int index = 0; index < inventory.ItemDefinitions.Count; index++)
             {
@@ -50,6 +49,13 @@ namespace CGame
             }
         }
 
+        public Pawn Pawn => pawn;
+
+        public void AdvanceRecoil(float deltaTime)
+        {
+            pawn.AdvanceRecoil(deltaTime);
+        }
+
         public bool TryPlay(NetworkAnimationActionStarted action, float elapsedSeconds, out object playbackHandle)
         {
             playbackHandle = null;
@@ -66,14 +72,6 @@ namespace CGame
                 && weaponsByInstanceId.TryGetValue(action.EquipmentInstanceId, out WeaponDefinition reloadWeapon))
             {
                 reloadPlayback = RemoteWeaponReloadPlayback.TryStart(weaponPresentation, reloadWeapon, elapsedSeconds);
-            }
-            if (action.ActionKind == NetworkAnimationActionKind.Recoil
-                && weaponsByInstanceId.TryGetValue(action.EquipmentInstanceId, out WeaponDefinition recoilWeapon)
-                && pawn.ApplySuccessfulShot(recoilWeapon.RecoilProfile).Succeeded)
-            {
-                pawn.AdvanceRecoil(elapsedSeconds);
-                playbackHandle = RemoteRecoilPlayback.Instance;
-                return true;
             }
             if (clips.TryGetValue(action.VariantId, out AnimationClipAsset clip))
             {
@@ -110,6 +108,44 @@ namespace CGame
                 animation.AnimInstance?.StopAbilityAnimation(clipHandle);
             else if (playbackHandle is IkMotionLayerSettings motion)
                 animation.AnimInstance?.TryStopWeaponIkMotion(motion);
+        }
+
+        public bool ApplyCommittedFire(long equipmentInstanceId, string recoilProfileId)
+        {
+            if (equipmentInstanceId > 0 && weaponsByInstanceId.TryGetValue(equipmentInstanceId, out WeaponDefinition equippedWeapon))
+            {
+                if (equippedWeapon?.RecoilProfile == null)
+                {
+                    Debug.LogWarning($"[Network][045] RemoteRecoilRejected Pawn={pawn.Root.name} Equipment={equipmentInstanceId} Reason=ProfileMissing");
+                    return false;
+                }
+
+                FireResult equippedResult = pawn.ApplySuccessfulShot(equippedWeapon.RecoilProfile);
+                Debug.Log($"[Network][045] RemoteRecoilApplied Pawn={pawn.Root.name} Equipment={equipmentInstanceId} Profile={equippedWeapon.RecoilProfile.name} Succeeded={equippedResult.Succeeded} Sequence={equippedResult.ShotSequence}");
+                return equippedResult.Succeeded;
+            }
+
+            WeaponDefinition weapon = null;
+            foreach (WeaponDefinition candidate in weaponsByInstanceId.Values)
+            {
+                if (candidate?.RecoilProfile == null) continue;
+                if (string.IsNullOrWhiteSpace(recoilProfileId) || recoilProfileId == "Default" ||
+                    string.Equals(candidate.RecoilProfile.name, recoilProfileId, StringComparison.Ordinal))
+                {
+                    weapon = candidate;
+                    break;
+                }
+                weapon ??= candidate;
+            }
+            if (weapon?.RecoilProfile == null)
+            {
+                Debug.LogWarning($"[Network][045] RemoteRecoilRejected Pawn={pawn.Root.name} Equipment={equipmentInstanceId} Reason=ProfileNotFound");
+                return false;
+            }
+
+            FireResult fallbackResult = pawn.ApplySuccessfulShot(weapon.RecoilProfile);
+            Debug.Log($"[Network][045] RemoteRecoilApplied Pawn={pawn.Root.name} Equipment={equipmentInstanceId} Profile={weapon.RecoilProfile.name} Succeeded={fallbackResult.Succeeded} Sequence={fallbackResult.ShotSequence}");
+            return fallbackResult.Succeeded;
         }
 
         private void AddClip(AnimationClipAsset clip)
@@ -221,27 +257,5 @@ namespace CGame
             }
         }
 
-        private sealed class RemoteRecoilPlayback
-        {
-            public static readonly RemoteRecoilPlayback Instance = new RemoteRecoilPlayback();
-        }
-
-        private sealed class RemoteRecoilPresentationDriver : MonoBehaviour
-        {
-            private Pawn pawn;
-
-            public static void Ensure(Pawn pawn)
-            {
-                if (pawn.Root == null) return;
-                RemoteRecoilPresentationDriver driver = pawn.Root.GetComponent<RemoteRecoilPresentationDriver>();
-                if (driver == null) driver = pawn.Root.AddComponent<RemoteRecoilPresentationDriver>();
-                driver.pawn = pawn;
-            }
-
-            private void Update()
-            {
-                pawn?.AdvanceRecoil(Time.deltaTime);
-            }
-        }
     }
 }

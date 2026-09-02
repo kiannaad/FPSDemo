@@ -28,6 +28,8 @@ namespace CGame.Network
         public event Action<AuthoritySnapshot> AuthoritySnapshotReceived;
         public event Action<NetworkAnimationActionStarted> AnimationActionStartedReceived;
         public event Action<NetworkAnimationActionTerminal> AnimationActionTerminalReceived;
+        public event Action<FireCommitted> FireCommittedReceived;
+        public event Action<FireRejected> FireRejectedReceived;
 
         protected override Task OnInitializeAsync(CancellationToken cancellationToken)
         {
@@ -147,12 +149,39 @@ namespace CGame.Network
             return started;
         }
 
+        public async Task SendFireRequestAsync(FireRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (ClientWorld.MatchId <= 0)
+                throw new InvalidOperationException("Cannot send fire before MatchStarting.");
+
+            Debug.Log($"[Network][044] FireRequestSend MatchId={ClientWorld.MatchId} PawnId={request.PawnId} PredictionNonce={request.PredictionNonce} ClientShotSequence={request.ClientShotSequence}");
+            NetworkRpcResponse response = await rpcClient.RequestAsync(
+                NetworkMessageId.FireRequest,
+                NetworkMessageSerializer.Serialize(request),
+                TimeSpan.FromSeconds(definition.RequestTimeoutSeconds),
+                ClientWorld.MatchId);
+            switch (response.Header.MessageId)
+            {
+                case NetworkMessageId.FireCommitted:
+                    FireCommittedReceived?.Invoke(NetworkMessageSerializer.Deserialize<FireCommitted>(response.Payload));
+                    break;
+                case NetworkMessageId.FireRejected:
+                    FireRejectedReceived?.Invoke(NetworkMessageSerializer.Deserialize<FireRejected>(response.Payload));
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected Fire response: {response.Header.MessageId}.");
+            }
+        }
+
         public void SendPawnMove(PawnMove move)
         {
             if (!IsMovementConnected) throw new InvalidOperationException("Movement data channel is not connected.");
             movementChannel.Send(move);
             if (move.Sequence % 60 == 0)
                 Debug.Log($"[Network][038] MoveCreated PawnId={move.PawnId} Sequence={move.Sequence} ClientTick={move.ClientTick}");
+            if (move.Flags != PawnMoveFlags.None)
+                Debug.Log($"[Network][043] InputMoveSendTrace MatchId={move.MatchId} PawnId={move.PawnId} Sequence={move.Sequence} ClientTick={move.ClientTick} Flags={move.Flags}");
         }
 
         private Task<NetworkRpcResponse> SendRequestAsync<TRequest>(NetworkMessageId messageId, TRequest request)
@@ -188,6 +217,12 @@ namespace CGame.Network
                 case NetworkMessageId.AnimationActionCancelled:
                     AnimationActionTerminalReceived?.Invoke(
                         NetworkMessageSerializer.Deserialize<NetworkAnimationActionTerminal>(response.Payload));
+                    break;
+                case NetworkMessageId.FireCommitted:
+                    FireCommittedReceived?.Invoke(NetworkMessageSerializer.Deserialize<FireCommitted>(response.Payload));
+                    break;
+                case NetworkMessageId.FireRejected:
+                    FireRejectedReceived?.Invoke(NetworkMessageSerializer.Deserialize<FireRejected>(response.Payload));
                     break;
             }
         }

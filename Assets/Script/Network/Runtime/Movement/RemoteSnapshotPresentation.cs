@@ -72,5 +72,6 @@ namespace CGame.Network
                 Mathf.DeltaAngle(previous.y, next.y),
                 -Mathf.DeltaAngle(previous.x, next.x));
         }
+
     }
 }

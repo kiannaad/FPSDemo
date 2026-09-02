@@ -48,4 +48,6 @@ public sealed record NetworkAnimationActionTerminalMessage(
     [property: Key(1)] long PossessionRevision,
     [property: Key(2)] long ActionSequence,
     [property: Key(3)] long ServerTick,
-    [property: Key(4)] NetworkAnimationActionTerminalKind TerminalKind);
+    [property: Key(4)] NetworkAnimationActionTerminalKind TerminalKind,
+    [property: Key(5)] int? AuthoritativeMagazineAmmo = null,
+    [property: Key(6)] int? AuthoritativeReserveAmmo = null);

@@ -44,7 +44,7 @@ namespace CGame.Network
         public long LastElapsedTicks { get; private set; }
         public int ActiveActionCount => activeHandles.Count;
         public event Action<long, long> PredictionConfirmed;
-        public event Action<long> ActionCommitted;
+        public event Action<NetworkAnimationActionTerminal> ActionCommitted;
 
         public long BeginPredicted(
             NetworkAnimationActionKind actionKind,
@@ -155,7 +155,7 @@ namespace CGame.Network
             observedSequences.Add(terminal.ActionSequence);
             if (terminal.TerminalKind == NetworkAnimationActionTerminalKind.Committed)
             {
-                ActionCommitted?.Invoke(terminal.ActionSequence);
+                ActionCommitted?.Invoke(terminal);
                 Debug.Log($"[Network][042] AnimationActionCommitted PawnId={pawnId} ActionSequence={terminal.ActionSequence}");
                 return activeHandles.ContainsKey(terminal.ActionSequence);
             }

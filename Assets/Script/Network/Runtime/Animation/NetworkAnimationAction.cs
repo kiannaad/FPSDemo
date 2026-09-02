@@ -54,5 +54,7 @@ namespace CGame.Network
         [Key(2)] public long ActionSequence { get; set; }
         [Key(3)] public long ServerTick { get; set; }
         [Key(4)] public NetworkAnimationActionTerminalKind TerminalKind { get; set; }
+        [Key(5)] public int? AuthoritativeMagazineAmmo { get; set; }
+        [Key(6)] public int? AuthoritativeReserveAmmo { get; set; }
     }
 }

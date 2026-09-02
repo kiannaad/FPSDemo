@@ -72,6 +72,8 @@ namespace CGame.Network
             prediction.Add(move);
             MoveCreatedCount++;
             if (MoveCreatedCount == 1) Debug.Log($"[Network][038] MoveCreated Sequence={move.Sequence} ClientTick={clientTick}");
+            if (flags != PawnMoveFlags.None)
+                Debug.Log($"[Network][043] InputMoveTrace MatchId={matchId} PawnId={binding.PawnId} Sequence={move.Sequence} ClientTick={clientTick} Flags={flags}");
             network.SendPawnMove(move);
         }
 

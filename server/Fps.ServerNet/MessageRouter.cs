@@ -90,6 +90,7 @@ public sealed class MessageRouter
             MessageId.JoinRoomRequest => Task.FromResult(RouteJoinRoom(connectionId, header, payload.Span)),
             MessageId.SetReadyRequest => RouteSetReadyAsync(connectionId, header, payload, cancellationToken),
             MessageId.AnimationActionRequest => Task.FromResult(RouteAnimationAction(connectionId, header, payload.Span)),
+            MessageId.FireRequest => RouteFireAsync(connectionId, header, payload, cancellationToken),
             _ => throw new InvalidDataException("The request message is not supported.")
         };
     }
@@ -253,6 +254,9 @@ public sealed class MessageRouter
                 commitOffset,
                 commit,
                 () => equipment.Complete(request.ActionKind),
+                request.ActionKind == NetworkAnimationActionKind.Reload
+                    ? () => (equipment.MagazineAmmo, equipment.ReserveAmmo)
+                    : null,
                 out NetworkAnimationActionStartedMessage? started,
                 out string reason))
         {
@@ -272,6 +276,67 @@ public sealed class MessageRouter
         return messages;
     }
 
+    private async Task<IReadOnlyList<RoutedOutboundMessage>> RouteFireAsync(
+        string connectionId,
+        PacketHeader header,
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken)
+    {
+        if (!animationMatchesById.TryGetValue(header.MatchId, out ActiveAnimationMatch? match))
+            throw new InvalidDataException($"Fire match is not active: MatchId={header.MatchId}.");
+        ServerPlayer player = match.Players.Single(candidate => candidate.ConnectionId == connectionId);
+        if (!match.EquipmentByPawnId.TryGetValue(player.ControlledPawnId, out AuthorityActionEquipmentState? equipment))
+            throw new InvalidDataException("AuthorityPawnEquipmentMissing");
+
+        FireRequestMessage request = MessagePackSerializer.Deserialize<FireRequestMessage>(payload.ToArray());
+        AuthorityFireQueryResult? query = await physicsServerLifecycle.QueryFireAsync(
+            header.MatchId,
+            new AuthorityFireQuery(
+                player.ControlledPawnId,
+                request.OriginX,
+                request.OriginY,
+                request.OriginZ,
+                request.DirectionX,
+                request.DirectionY,
+                request.DirectionZ),
+            cancellationToken);
+        AuthorityFireProcessor fireProcessor = match.FireByPawnId[player.ControlledPawnId];
+        FireResolution resolution = query is { Accepted: true }
+            ? fireProcessor.Process(
+                request,
+                player.ControlledPawnId,
+                player.PossessionRevision,
+                match.AuthorityTick,
+                equipment,
+                new AuthorityFireImpact(
+                    query.Hit,
+                    query.PositionX,
+                    query.PositionY,
+                    query.PositionZ,
+                    query.NormalX,
+                    query.NormalY,
+                    query.NormalZ,
+                    query.SurfaceId))
+            : fireProcessor.RejectAuthorityUnavailable(request, equipment.MagazineAmmo);
+        if (resolution.Committed is FireCommittedMessage committed)
+        {
+            var messages = new List<RoutedOutboundMessage>
+            {
+                new(connectionId, new RoutedMessage(
+                    new PacketHeader(ProtocolVersion.Current, MessageId.FireCommitted, PacketFlags.Response, header.RequestId, header.MatchId),
+                    MessagePackSerializer.Serialize(committed)))
+            };
+            foreach (string target in match.ConnectionIds)
+                if (target != connectionId) messages.Add(Event(target, header.MatchId, MessageId.FireCommitted, committed));
+            Console.WriteLine($"[Server][045] FireCommitted MatchId={header.MatchId} PawnId={committed.PawnId} ShotSequence={committed.ShotSequence} Magazine={committed.AuthoritativeMagazineAmmo} Hit={committed.HasImpact} ImpactId={committed.ImpactId} Surface={committed.SurfaceId}");
+            return messages;
+        }
+
+        FireRejectedMessage rejected = resolution.Rejected!;
+        Console.WriteLine($"[Server][045] FireRejected MatchId={header.MatchId} PawnId={rejected.PawnId} ClientShotSequence={rejected.ClientShotSequence} Reason={rejected.Reason}");
+        return Respond(connectionId, header, MessageId.FireRejected, rejected);
+    }
+
     private sealed class ImmediateMatchPhysicsServerLifecycle : IMatchPhysicsServerLifecycle
     {
         public Task<MatchPhysicsServerReady> StartAsync(
@@ -280,6 +345,12 @@ public sealed class MessageRouter
                 new MatchPhysicsServerReady(request.MatchId, "loopback", "development"));
 
         public Task StopAsync(long matchId, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<AuthorityFireQueryResult?> QueryFireAsync(
+            long matchId,
+            AuthorityFireQuery query,
+            CancellationToken cancellationToken) => Task.FromResult<AuthorityFireQueryResult?>(
+            new AuthorityFireQueryResult(true, false, 0f, 0f, 0f, 0f, 0f, 0f, string.Empty, null));
     }
 
     private sealed class ActiveAnimationMatch
@@ -289,13 +360,17 @@ public sealed class MessageRouter
             Players = players.ToArray();
             ConnectionIds = connectionIds.ToArray();
             foreach (ServerPlayer player in Players)
+            {
                 EquipmentByPawnId.Add(player.ControlledPawnId, new AuthorityActionEquipmentState());
+                FireByPawnId.Add(player.ControlledPawnId, new AuthorityFireProcessor());
+            }
         }
 
         public ServerPlayer[] Players { get; }
         public string[] ConnectionIds { get; }
         public AuthorityAnimationActionTimeline Timeline { get; } = new();
         public Dictionary<long, AuthorityActionEquipmentState> EquipmentByPawnId { get; } = new();
+        public Dictionary<long, AuthorityFireProcessor> FireByPawnId { get; } = new();
         public long AuthorityTick { get; set; }
     }
 

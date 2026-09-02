@@ -288,9 +288,16 @@ public RecoilComponent Recoil => recoilComponent;
 
         public IDiscreteActionReplicationGateway DiscreteActionReplicationGateway { get; private set; }
 
+        public IFireAuthorityGateway FireAuthorityGateway { get; private set; }
+
         public void BindDiscreteActionReplicationGateway(IDiscreteActionReplicationGateway gateway)
         {
             DiscreteActionReplicationGateway = gateway;
+        }
+
+        public void BindFireAuthorityGateway(IFireAuthorityGateway gateway)
+        {
+            FireAuthorityGateway = gateway;
         }
 
         public Vector3 PeekingMovementInput() => movementInput;

@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using CGame.Ability.Cues;
+using CGame.Ability.Effects;
+using CGame.GameplayTags;
 using CGame.Network;
 using UnityEngine;
 
@@ -16,6 +19,7 @@ namespace CGame
         private readonly Dictionary<long, RemoteSnapshotBuffer> remoteSnapshotBuffersById = new Dictionary<long, RemoteSnapshotBuffer>();
         private readonly Dictionary<long, RemoteSnapshotPresentation> remoteSnapshotPresentationsById = new Dictionary<long, RemoteSnapshotPresentation>();
         private readonly Dictionary<long, NetworkAnimationActionBridge> remoteAnimationActionBridgesById = new Dictionary<long, NetworkAnimationActionBridge>();
+        private readonly Dictionary<long, RemotePawnNetworkAnimationActionPresenter> remoteFirePresentersById = new Dictionary<long, RemotePawnNetworkAnimationActionPresenter>();
         private readonly NetworkPawnAnimationActionRouter animationActionRouter = new NetworkPawnAnimationActionRouter();
         private readonly NetworkTickClock networkTickClock = new NetworkTickClock();
         private readonly List<ClientPawnState> pendingRemotePawns = new List<ClientPawnState>();
@@ -27,6 +31,7 @@ namespace CGame
         private Pawn ownerPawn;
         private NetworkPawnBinding ownerNetworkBinding;
         private NetworkAnimationActionBridge ownerAnimationActionBridge;
+        private NetworkFireBridge ownerFireBridge;
         private readonly NetworkLoopAnimationPhaseSynchronizer ownerLoopPhaseSynchronizer =
             new NetworkLoopAnimationPhaseSynchronizer();
         private bool ownerPawnSpawnRequested;
@@ -51,6 +56,8 @@ namespace CGame
             network.AuthoritySnapshotReceived += OnAuthoritySnapshotReceived;
             network.AnimationActionStartedReceived += OnAnimationActionStartedReceived;
             network.AnimationActionTerminalReceived += OnAnimationActionTerminalReceived;
+            network.FireCommittedReceived += OnFireCommittedReceived;
+            network.FireRejectedReceived += OnFireRejectedReceived;
             world.GameplayReady += OnGameplayReady;
             characterPhysics = world.GetSubSystem<CharacterPhysicsSubSystem>();
             characterPhysics.FixedStepCompleted += OnFixedStepCompleted;
@@ -160,6 +167,8 @@ namespace CGame
             network.AuthoritySnapshotReceived -= OnAuthoritySnapshotReceived;
             network.AnimationActionStartedReceived -= OnAnimationActionStartedReceived;
             network.AnimationActionTerminalReceived -= OnAnimationActionTerminalReceived;
+            network.FireCommittedReceived -= OnFireCommittedReceived;
+            network.FireRejectedReceived -= OnFireRejectedReceived;
             if (characterPhysics != null) characterPhysics.FixedStepCompleted -= OnFixedStepCompleted;
             World.GameplayReady -= OnGameplayReady;
             if (ownerPawnRegistration != null && !ownerPawnRegistration.IsDisposed)
@@ -175,6 +184,7 @@ namespace CGame
             remoteSnapshotBuffersById.Clear();
             remoteSnapshotPresentationsById.Clear();
             remoteAnimationActionBridgesById.Clear();
+            remoteFirePresentersById.Clear();
             animationActionRouter.Clear();
             movementPrediction.Clear();
         }
@@ -234,6 +244,11 @@ namespace CGame
                         pawn.PossessionRevision,
                         network,
                         ownerAnimationActionBridge));
+                ownerFireBridge = new NetworkFireBridge(pawn.PawnId, pawn.PossessionRevision);
+                ownerPawn.BindFireAuthorityGateway(new OwnerNetworkFireGateway(
+                    network,
+                    ownerFireBridge,
+                    () => networkTickClock.EstimatedServerTick));
                 NetworkStatus = "Owner pawn possessed";
                 initialOwnerPawnReady.TrySetResult(true);
                 TryCompleteNetworkStart();
@@ -265,15 +280,17 @@ namespace CGame
                 if (World.State == WorldState.Playing) World.ActivateActor(remoteRegistration);
                 remoteSnapshotBuffersById.Add(pawn.PawnId, new RemoteSnapshotBuffer());
                 remoteSnapshotPresentationsById.Add(pawn.PawnId, new RemoteSnapshotPresentation(remotePawn));
+                var remoteFirePresenter = new RemotePawnNetworkAnimationActionPresenter(
+                    remotePawn,
+                    remotePawn.GetComponent<PawnAnimationComponent>(),
+                    playerStateDefinition.InitialInventorySet);
                 var remoteBridge = new NetworkAnimationActionBridge(
                         pawn.PawnId,
                         pawn.PossessionRevision,
                         networkTickClock,
-                        new RemotePawnNetworkAnimationActionPresenter(
-                            remotePawn,
-                            remotePawn.GetComponent<PawnAnimationComponent>(),
-                            playerStateDefinition.InitialInventorySet));
+                        remoteFirePresenter);
                 remoteAnimationActionBridgesById.Add(pawn.PawnId, remoteBridge);
+                remoteFirePresentersById.Add(pawn.PawnId, remoteFirePresenter);
                 animationActionRouter.AddRemote(pawn.PawnId, remoteBridge);
                 NetworkStatus = $"Remote pawn {pawn.PawnId} spawned";
             }
@@ -302,6 +319,8 @@ namespace CGame
         {
             FixedStepObservedCount++;
             networkTickClock.AdvanceOneTick();
+            foreach (RemotePawnNetworkAnimationActionPresenter presenter in remoteFirePresentersById.Values)
+                presenter.AdvanceRecoil(Time.fixedDeltaTime);
             ApplyRemoteSnapshots();
             movementPrediction.OnFixedStepCompleted(clientTick);
         }
@@ -344,6 +363,76 @@ namespace CGame
         private void OnAnimationActionTerminalReceived(NetworkAnimationActionTerminal terminal)
         {
             animationActionRouter.ApplyTerminal(terminal);
+        }
+
+        private void OnFireCommittedReceived(FireCommitted committed)
+        {
+            if (committed == null)
+            {
+                Debug.LogWarning("[Network][045] FireCommittedIgnored Reason=NullPayload");
+                return;
+            }
+
+            Debug.Log($"[Network][045] FireCommittedReceived PawnId={committed.PawnId} ShotSequence={committed.ShotSequence} Equipment={committed.EquipmentInstanceId} HasImpact={committed.HasImpact} ImpactId={committed.ImpactId}");
+            if (committed != null && ownerNetworkBinding != null &&
+                committed.PawnId == ownerNetworkBinding.PawnId)
+            {
+                ownerFireBridge?.ApplyCommitted(committed);
+                ApplyOwnerAuthoritativeMagazine(committed.AuthoritativeMagazineAmmo);
+                ExecuteAuthorityImpactCue(ownerPawn, committed, "Owner");
+                return;
+            }
+            if (committed != null && remoteFirePresentersById.TryGetValue(committed.PawnId, out RemotePawnNetworkAnimationActionPresenter presenter))
+            {
+                bool applied = presenter.ApplyCommittedFire(committed.EquipmentInstanceId, committed.RecoilProfileId);
+                Debug.Log($"[Network][045] RemoteFireCommitted PawnId={committed.PawnId} ShotSequence={committed.ShotSequence} Equipment={committed.EquipmentInstanceId} RecoilApplied={applied}");
+                ExecuteAuthorityImpactCue(presenter.Pawn, committed, "Remote");
+                return;
+            }
+
+            Debug.LogWarning($"[Network][045] FireCommittedIgnored PawnId={committed.PawnId} Reason=NoPresentation");
+        }
+
+        private static void ExecuteAuthorityImpactCue(Pawn sourcePawn, FireCommitted committed, string receiver)
+        {
+            if (!committed.HasImpact || committed.ImpactId <= 0)
+            {
+                Debug.Log($"[CueDebug][045] ImpactSkipped Receiver={receiver} ShotSequence={committed.ShotSequence} Reason=NoAuthorityImpact");
+                return;
+            }
+
+            if (GameplayCueRouter.Current == null ||
+                !GameplayTagManager.Instance.TryRequestTag("GameplayCue.Weapon.Impact", out GameplayTag impactTag))
+            {
+                Debug.LogWarning($"[CueDebug][045] ImpactSkipped Receiver={receiver} ImpactId={committed.ImpactId} Reason=RouteUnavailable");
+                return;
+            }
+
+            Vector3 position = new Vector3(committed.ImpactPositionX, committed.ImpactPositionY, committed.ImpactPositionZ);
+            Vector3 normal = new Vector3(committed.ImpactNormalX, committed.ImpactNormalY, committed.ImpactNormalZ);
+            var context = new GameplayEffectContext(sourcePawn, sourcePawn?.Root, null);
+            GameplayCueRouter.Current.Execute(
+                impactTag,
+                new GameplayCueParameters(context, sourcePawn, position, true, normal, normal.sqrMagnitude > 0.0001f));
+            Debug.Log($"[CueDebug][045] ImpactExecuted Receiver={receiver} ImpactId={committed.ImpactId} Position={position} Normal={normal} Surface={committed.SurfaceId}");
+        }
+
+        private void OnFireRejectedReceived(FireRejected rejected)
+        {
+            if (ownerFireBridge?.ApplyRejected(rejected) == true)
+                ApplyOwnerAuthoritativeMagazine(rejected.AuthoritativeMagazineAmmo);
+        }
+
+        private void ApplyOwnerAuthoritativeMagazine(int authoritativeMagazineAmmo)
+        {
+            if (authoritativeMagazineAmmo < 0 || ownerPawn == null ||
+                !ownerPawn.TryGetComponent(out EquipmentManagerComponent equipment) ||
+                equipment.CurrentWeapon == null)
+                return;
+            equipment.CurrentWeapon.Item.SetAmmo(
+                authoritativeMagazineAmmo,
+                equipment.CurrentWeapon.Item.ReserveAmmo);
+            Debug.Log($"[Network][044] OwnerAmmoReconciled Magazine={authoritativeMagazineAmmo}");
         }
 
         private void ApplyRemoteSnapshots()

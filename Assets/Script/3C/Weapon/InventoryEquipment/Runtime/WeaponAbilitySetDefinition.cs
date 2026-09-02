@@ -270,6 +270,20 @@ namespace CGame.InventoryEquipment
                 return FireResult.Failed("Queued shot weapon has no ammunition.", pawn.RecoilShotSequence);
             }
 
+            if (pawn.FireAuthorityGateway != null)
+            {
+                long predictionNonce = pawn.FireAuthorityGateway.BeginPredicted(
+                    weapon.ItemHandle.Value,
+                    weapon.Item.MagazineAmmo,
+                    origin,
+                    direction);
+                FireResult predictedRecoil = pawn.ApplySuccessfulShot(weapon.Definition.RecoilProfile);
+                if (!predictedRecoil.Succeeded) return predictedRecoil;
+                DispatchGameplayCues(abilitySystem, weapon, pawn, null);
+                Debug.Log($"[Network][044] FirePredicted PredictionNonce={predictionNonce}");
+                return new FireResult(true, predictedRecoil.ShotSequence, null);
+            }
+
             GameplayAbilityTargetDataHandle targetData =
                 weapon.QueryTargetData(origin, direction);
             GameplayHitResult? hitResult = targetData.Count > 0
@@ -284,15 +298,6 @@ namespace CGame.InventoryEquipment
             if (!recoilResult.Succeeded)
             {
                 return recoilResult;
-            }
-
-            long recoilPredictionNonce = pawn.DiscreteActionReplicationGateway?.BeginPredicted(
-                DiscreteActionKind.Recoil,
-                weapon.Definition.name,
-                weapon.ItemHandle.Value) ?? 0;
-            if (recoilPredictionNonce > 0)
-            {
-                pawn.DiscreteActionReplicationGateway.RegisterPredictedPlayback(recoilPredictionNonce, new object());
             }
 
             string hitObject = hitResult.HasValue && hitResult.Value.Collider != null

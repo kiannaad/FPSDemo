@@ -9,6 +9,7 @@ public sealed class AuthorityAnimationActionTimeline
         public required NetworkAnimationActionStartedMessage Started;
         public required Action Commit;
         public required Action Complete;
+        public Func<(int MagazineAmmo, int ReserveAmmo)>? CaptureAuthoritativeAmmo;
         public bool Committed;
     }
 
@@ -38,6 +39,33 @@ public sealed class AuthorityAnimationActionTimeline
         int? commitOffsetTicks,
         Action commit,
         Action complete,
+        out NetworkAnimationActionStartedMessage? started,
+        out string reason)
+    {
+        return TryStart(
+            request,
+            expectedPawnId,
+            expectedPossessionRevision,
+            serverTick,
+            durationTicks,
+            commitOffsetTicks,
+            commit,
+            complete,
+            null,
+            out started,
+            out reason);
+    }
+
+    public bool TryStart(
+        NetworkAnimationActionRequestMessage request,
+        long expectedPawnId,
+        long expectedPossessionRevision,
+        long serverTick,
+        int durationTicks,
+        int? commitOffsetTicks,
+        Action commit,
+        Action complete,
+        Func<(int MagazineAmmo, int ReserveAmmo)>? captureAuthoritativeAmmo,
         out NetworkAnimationActionStartedMessage? started,
         out string reason)
     {
@@ -72,7 +100,8 @@ public sealed class AuthorityAnimationActionTimeline
         {
             Started = started,
             Commit = commit ?? (() => { }),
-            Complete = complete ?? (() => { })
+            Complete = complete ?? (() => { }),
+            CaptureAuthoritativeAmmo = captureAuthoritativeAmmo
         });
         reason = string.Empty;
         return true;
@@ -87,7 +116,8 @@ public sealed class AuthorityAnimationActionTimeline
             {
                 action.Commit();
                 action.Committed = true;
-                events.Add(Terminal(action, serverTick, NetworkAnimationActionTerminalKind.Committed));
+                (int MagazineAmmo, int ReserveAmmo)? ammo = action.CaptureAuthoritativeAmmo?.Invoke();
+                events.Add(Terminal(action, serverTick, NetworkAnimationActionTerminalKind.Committed, ammo));
             }
             if (serverTick < action.Started.ServerStartTick + action.Started.DurationTicks) continue;
             events.Add(Terminal(action, serverTick, NetworkAnimationActionTerminalKind.Ended));
@@ -107,10 +137,13 @@ public sealed class AuthorityAnimationActionTimeline
     private static NetworkAnimationActionTerminalMessage Terminal(
         ActiveAction action,
         long serverTick,
-        NetworkAnimationActionTerminalKind kind) => new(
+        NetworkAnimationActionTerminalKind kind,
+        (int MagazineAmmo, int ReserveAmmo)? ammo = null) => new(
             action.Started.PawnId,
             action.Started.PossessionRevision,
             action.Started.ActionSequence,
             serverTick,
-            kind);
+            kind,
+            ammo?.MagazineAmmo,
+            ammo?.ReserveAmmo);
 }

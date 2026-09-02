@@ -161,6 +161,7 @@ public BoneProfile ActiveProfile => activeProfile;
                 throw new ArgumentNullException(nameof(profile));
             }
             profile.Validate(rigComponent.Rig);
+            if (activeProfile == profile && !shouldLinkProfile) return;
             nextProfile = profile;
             shouldLinkProfile = true;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD

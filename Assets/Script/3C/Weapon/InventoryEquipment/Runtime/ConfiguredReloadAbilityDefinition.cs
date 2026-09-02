@@ -196,11 +196,21 @@ namespace CGame.InventoryEquipment
             EndAbility(AbilityEndReason.Cancelled);
         }
 
-        private void CommitReloadFromAuthority()
+        private void CommitReloadFromAuthority(DiscreteActionCommit commit)
         {
             if (State != AbilityInstanceState.Active || reloadCommitted || weapon == null) return;
             reloadCommitted = true;
-            int loadedAmmo = weapon.Item.ReloadMagazine(weapon.MagazineCapacity);
+            int previousMagazineAmmo = weapon.Item.MagazineAmmo;
+            if (commit.HasAuthoritativeAmmo)
+            {
+                weapon.Item.SetAmmo(commit.AuthoritativeMagazineAmmo.Value, commit.AuthoritativeReserveAmmo.Value);
+            }
+            else
+            {
+                weapon.Item.ReloadMagazine(weapon.MagazineCapacity);
+                Debug.LogWarning("[Network][042] ReloadAuthorityCommit fell back to local reload because authority ammo was absent.");
+            }
+            int loadedAmmo = weapon.Item.MagazineAmmo - previousMagazineAmmo;
             weapon.NotifyReloadCommitted(loadedAmmo);
             Debug.Log($"[Network][042] ReloadAuthorityCommit loaded={loadedAmmo} magazine={weapon.Item.MagazineAmmo} reserve={weapon.Item.ReserveAmmo}");
         }

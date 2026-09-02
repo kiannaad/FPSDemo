@@ -165,11 +165,88 @@ public sealed class MessageRouterTests
 
         terminal.AddRange(router.AdvanceAnimationActions(1, 320));
         Assert.That(terminal.Any(message => message.Message.Header.MessageId == MessageId.AnimationActionCommit), Is.True);
+        NetworkAnimationActionTerminalMessage reloadCommit = MessagePackSerializer.Deserialize<NetworkAnimationActionTerminalMessage>(
+            terminal.First(message => message.Message.Header.MessageId == MessageId.AnimationActionCommit).Message.Payload);
+        Assert.That(reloadCommit.AuthoritativeMagazineAmmo, Is.EqualTo(30));
+        Assert.That(reloadCommit.AuthoritativeReserveAmmo, Is.EqualTo(12));
+    }
+
+    [Test]
+    public async Task FireRequest_AcceptedAuthorityQuery_CommitsToOwnerAndRemoteExactlyOnce()
+    {
+        var lifecycle = new FireQueryMatchPhysicsServerLifecycle(true, hit: true);
+        var router = new MessageRouter("server-045", new[] { "spawn-a", "spawn-b" }, lifecycle);
+        string roomId = MessagePackSerializer.Deserialize<CreateRoomResponse>(
+            (await router.RouteAsync("connection-a", Request(1, MessageId.CreateRoomRequest),
+                MessagePackSerializer.Serialize(new CreateRoomRequest("room"))))[0].Message.Payload).RoomId;
+        await router.RouteAsync("connection-b", Request(2, MessageId.JoinRoomRequest),
+            MessagePackSerializer.Serialize(new JoinRoomRequest(roomId)));
+        await router.RouteAsync("connection-a", Request(3, MessageId.SetReadyRequest),
+            MessagePackSerializer.Serialize(new SetReadyRequest(roomId, true)));
+        IReadOnlyList<RoutedOutboundMessage> starting = await router.RouteAsync(
+            "connection-b", Request(4, MessageId.SetReadyRequest),
+            MessagePackSerializer.Serialize(new SetReadyRequest(roomId, true)));
+        PossessionChangedEvent possession = starting
+            .Where(message => message.ConnectionId == "connection-a" && message.Message.Header.MessageId == MessageId.PossessionChanged)
+            .Select(message => MessagePackSerializer.Deserialize<PossessionChangedEvent>(message.Message.Payload))
+            .Single(value => value.PlayerId == 1);
+
+        await router.RouteAsync("connection-a",
+            new PacketHeader(ProtocolVersion.Current, MessageId.AnimationActionRequest, PacketFlags.Request, 9, 1),
+            MessagePackSerializer.Serialize(new NetworkAnimationActionRequestMessage(
+                possession.PawnId, possession.PossessionRevision, 1,
+                NetworkAnimationActionKind.Equip, "Equip", 9, 1, null)));
+
+        var request = new FireRequestMessage(possession.PawnId, possession.PossessionRevision, 1, 1, 9, 1,
+            0f, 1.6f, 0f, 0f, 0f, 1f);
+        IReadOnlyList<RoutedOutboundMessage> routed = await router.RouteAsync("connection-a",
+            new PacketHeader(ProtocolVersion.Current, MessageId.FireRequest, PacketFlags.Request, 10, 1),
+            MessagePackSerializer.Serialize(request));
+
+        Assert.That(lifecycle.QueryCount, Is.EqualTo(1));
+        Assert.That(routed.Count(message => message.Message.Header.MessageId == MessageId.FireCommitted), Is.EqualTo(2));
+        FireCommittedMessage committed = MessagePackSerializer.Deserialize<FireCommittedMessage>(
+            routed.Single(message => message.ConnectionId == "connection-a").Message.Payload);
+        Assert.That(committed.AuthoritativeMagazineAmmo, Is.EqualTo(11));
+        Assert.That(committed.HasImpact, Is.True);
+        Assert.That(committed.ImpactId, Is.EqualTo(committed.ShotSequence));
+        Assert.That(committed.SurfaceId, Is.EqualTo("Ground"));
     }
 
     private static PacketHeader Request(ulong requestId, MessageId messageId)
     {
         return new PacketHeader(ProtocolVersion.Current, messageId, PacketFlags.Request, requestId, 0);
+    }
+
+    private sealed class FireQueryMatchPhysicsServerLifecycle : Fps.ServerNet.Matches.IMatchPhysicsServerLifecycle
+    {
+        private readonly bool accepted;
+        private readonly bool hit;
+
+        public FireQueryMatchPhysicsServerLifecycle(bool accepted, bool hit = false)
+        {
+            this.accepted = accepted;
+            this.hit = hit;
+        }
+
+        public int QueryCount { get; private set; }
+
+        public Task<Fps.ServerNet.Matches.MatchPhysicsServerReady> StartAsync(
+            Fps.ServerNet.Matches.MatchPhysicsServerRequest request,
+            CancellationToken cancellationToken) => Task.FromResult(
+            new Fps.ServerNet.Matches.MatchPhysicsServerReady(request.MatchId, "loopback", "test"));
+
+        public Task StopAsync(long matchId, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<Fps.ServerNet.Matches.AuthorityFireQueryResult?> QueryFireAsync(
+            long matchId,
+            Fps.ServerNet.Matches.AuthorityFireQuery query,
+            CancellationToken cancellationToken)
+        {
+            QueryCount++;
+            return Task.FromResult<Fps.ServerNet.Matches.AuthorityFireQueryResult?>(
+                new Fps.ServerNet.Matches.AuthorityFireQueryResult(accepted, hit, 1f, 2f, 3f, 0f, 1f, 0f, hit ? "Ground" : string.Empty, null));
+        }
     }
 
     private sealed class RejectingMatchPhysicsServerLifecycle : Fps.ServerNet.Matches.IMatchPhysicsServerLifecycle

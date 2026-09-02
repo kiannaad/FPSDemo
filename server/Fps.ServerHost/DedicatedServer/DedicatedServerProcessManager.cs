@@ -1,3 +1,7 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+using Fps.ServerNet.Matches;
+
 namespace Fps.ServerHost.DedicatedServer;
 
 public sealed class DedicatedServerProcessManager
@@ -135,6 +139,40 @@ public sealed class DedicatedServerProcessManager
         return health.FixedStepCount;
     }
 
+    public async Task<AuthorityFireQueryResult?> QueryFireAsync(
+        long matchId,
+        AuthorityFireQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        DedicatedServerLease? lease;
+        lock (sync)
+        {
+            activeLeasesByMatchId.TryGetValue(matchId, out lease);
+        }
+        if (lease == null) return null;
+
+        using var client = new HttpClient();
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            new Uri($"http://127.0.0.1:{lease.Health.HealthPort}/fire-query"),
+            new DedicatedFireQueryHttpRequest(matchId, query),
+            new JsonSerializerOptions { PropertyNamingPolicy = null },
+            cancellationToken);
+        if (!response.IsSuccessStatusCode) return null;
+        DedicatedFireQueryHttpResult? result = await response.Content.ReadFromJsonAsync<DedicatedFireQueryHttpResult>(
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }, cancellationToken);
+        return result == null ? null : new AuthorityFireQueryResult(
+            result.Accepted,
+            result.Hit,
+            result.PositionX,
+            result.PositionY,
+            result.PositionZ,
+            result.NormalX,
+            result.NormalY,
+            result.NormalZ,
+            result.SurfaceId ?? string.Empty,
+            result.Failure);
+    }
+
     private async Task StopAndDisposeAsync(IDedicatedServerProcess? process)
     {
         if (process == null)
@@ -180,4 +218,30 @@ public sealed class DedicatedServerProcessManager
             throw new InvalidDataException("Dedicated server PhysicsReady health does not match the launch request.");
         }
     }
+}
+
+internal sealed record DedicatedFireQueryHttpRequest(long MatchId, AuthorityFireQuery Query)
+{
+    public long PawnId => Query.PawnId;
+    public float OriginX => Query.OriginX;
+    public float OriginY => Query.OriginY;
+    public float OriginZ => Query.OriginZ;
+    public float DirectionX => Query.DirectionX;
+    public float DirectionY => Query.DirectionY;
+    public float DirectionZ => Query.DirectionZ;
+    public float Range => Query.Range;
+}
+
+internal sealed class DedicatedFireQueryHttpResult
+{
+    public bool Accepted { get; set; }
+    public bool Hit { get; set; }
+    public float PositionX { get; set; }
+    public float PositionY { get; set; }
+    public float PositionZ { get; set; }
+    public float NormalX { get; set; }
+    public float NormalY { get; set; }
+    public float NormalZ { get; set; }
+    public string? SurfaceId { get; set; }
+    public string? Failure { get; set; }
 }

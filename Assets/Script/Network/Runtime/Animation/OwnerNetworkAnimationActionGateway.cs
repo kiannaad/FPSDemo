@@ -10,8 +10,8 @@ namespace CGame.Network
         private readonly long possessionRevision;
         private readonly ClientNetworkSubSystem network;
         private readonly NetworkAnimationActionBridge bridge;
-        private readonly Dictionary<long, Action> pendingCommitsByNonce = new Dictionary<long, Action>();
-        private readonly Dictionary<long, Action> pendingCommitsBySequence = new Dictionary<long, Action>();
+        private readonly Dictionary<long, Action<DiscreteActionCommit>> pendingCommitsByNonce = new Dictionary<long, Action<DiscreteActionCommit>>();
+        private readonly Dictionary<long, Action<DiscreteActionCommit>> pendingCommitsBySequence = new Dictionary<long, Action<DiscreteActionCommit>>();
 
         public OwnerNetworkAnimationActionGateway(
             long pawnId,
@@ -58,7 +58,7 @@ namespace CGame.Network
             return nonce;
         }
 
-        public void RegisterCommit(long predictionNonce, Action callback)
+        public void RegisterCommit(long predictionNonce, Action<DiscreteActionCommit> callback)
         {
             if (predictionNonce <= 0) throw new ArgumentOutOfRangeException(nameof(predictionNonce));
             pendingCommitsByNonce[predictionNonce] = callback ?? throw new ArgumentNullException(nameof(callback));
@@ -72,16 +72,16 @@ namespace CGame.Network
 
         private void OnPredictionConfirmed(long predictionNonce, long actionSequence)
         {
-            if (!pendingCommitsByNonce.TryGetValue(predictionNonce, out Action callback)) return;
+            if (!pendingCommitsByNonce.TryGetValue(predictionNonce, out Action<DiscreteActionCommit> callback)) return;
             pendingCommitsByNonce.Remove(predictionNonce);
             pendingCommitsBySequence[actionSequence] = callback;
         }
 
-        private void OnActionCommitted(long actionSequence)
+        private void OnActionCommitted(NetworkAnimationActionTerminal terminal)
         {
-            if (!pendingCommitsBySequence.TryGetValue(actionSequence, out Action callback)) return;
-            pendingCommitsBySequence.Remove(actionSequence);
-            callback();
+            if (!pendingCommitsBySequence.TryGetValue(terminal.ActionSequence, out Action<DiscreteActionCommit> callback)) return;
+            pendingCommitsBySequence.Remove(terminal.ActionSequence);
+            callback(new DiscreteActionCommit(terminal.AuthoritativeMagazineAmmo, terminal.AuthoritativeReserveAmmo));
         }
 
         private async System.Threading.Tasks.Task SendAsync(NetworkAnimationActionRequest request)

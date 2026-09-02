@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -18,6 +19,8 @@ namespace CGame.Network
             new Dictionary<long, DedicatedMotorMoveSimulation>();
         private readonly Dictionary<long, AuthorityMoveInbox> pendingMovesByPawnId =
             new Dictionary<long, AuthorityMoveInbox>();
+        private readonly ConcurrentQueue<FireQueryOperation> pendingFireQueries =
+            new ConcurrentQueue<FireQueryOperation>();
         private DedicatedServerLaunchConfiguration launch;
         private DedicatedServerHealthServer healthServer;
         private DedicatedDataServer dataServer;
@@ -57,6 +60,7 @@ namespace CGame.Network
             previousFixedDeltaTime = Time.fixedDeltaTime;
             Time.fixedDeltaTime = CharacterPhysicsSubSystem.FixedStepSeconds;
             healthServer = new DedicatedServerHealthServer();
+            healthServer.FireQueryAsync = QueueFireQueryAsync;
             healthServer.Start(launch.HealthPort, CreateHealth("Starting", null));
             dataServer = new DedicatedDataServer(launch);
             dataServer.MoveReceived += OnMoveReceived;
@@ -153,6 +157,7 @@ namespace CGame.Network
         private void FixedUpdate()
         {
             dataServer?.PollEvents();
+            ProcessFireQueries();
             if (world?.State != WorldState.Playing) return;
 
             int simulationSteps = GetSimulationStepCount();
@@ -218,6 +223,14 @@ namespace CGame.Network
 
         private void OnDestroy()
         {
+            while (pendingFireQueries.TryDequeue(out FireQueryOperation operation))
+            {
+                operation.Completion.TrySetResult(new DedicatedFireQueryResult
+                {
+                    Accepted = false,
+                    Failure = "AuthorityShutdown"
+                });
+            }
             if (previousFixedDeltaTime > 0f) Time.fixedDeltaTime = previousFixedDeltaTime;
             healthServer?.Dispose();
             dataServer?.Dispose();
@@ -225,6 +238,68 @@ namespace CGame.Network
             {
                 world.ShutdownAsync().GetAwaiter().GetResult();
             }
+        }
+
+        private Task<DedicatedFireQueryResult> QueueFireQueryAsync(DedicatedFireQueryRequest request)
+        {
+            var operation = new FireQueryOperation(request);
+            pendingFireQueries.Enqueue(operation);
+            return operation.Completion.Task;
+        }
+
+        private void ProcessFireQueries()
+        {
+            while (pendingFireQueries.TryDequeue(out FireQueryOperation operation))
+            {
+                DedicatedFireQueryRequest request = operation.Request;
+                if (!IsPhysicsReady || request.MatchId != launch.MatchId ||
+                    !moveProcessors.ContainsKey(request.PawnId))
+                {
+                    operation.Completion.TrySetResult(new DedicatedFireQueryResult { Accepted = false, Failure = "AuthorityUnavailable" });
+                    continue;
+                }
+
+                Vector3 origin = new Vector3(request.OriginX, request.OriginY, request.OriginZ);
+                Vector3 direction = new Vector3(request.DirectionX, request.DirectionY, request.DirectionZ);
+                if (direction.sqrMagnitude <= Mathf.Epsilon || request.Range <= 0f)
+                {
+                    operation.Completion.TrySetResult(new DedicatedFireQueryResult { Accepted = false, Failure = "InvalidRay" });
+                    continue;
+                }
+
+                bool hit = Physics.Raycast(
+                    origin,
+                    direction.normalized,
+                    out RaycastHit raycastHit,
+                    request.Range,
+                    Physics.DefaultRaycastLayers,
+                    QueryTriggerInteraction.Ignore);
+                operation.Completion.TrySetResult(new DedicatedFireQueryResult
+                {
+                    Accepted = true,
+                    Hit = hit,
+                    PositionX = hit ? raycastHit.point.x : 0f,
+                    PositionY = hit ? raycastHit.point.y : 0f,
+                    PositionZ = hit ? raycastHit.point.z : 0f,
+                    NormalX = hit ? raycastHit.normal.x : 0f,
+                    NormalY = hit ? raycastHit.normal.y : 0f,
+                    NormalZ = hit ? raycastHit.normal.z : 0f,
+                    SurfaceId = hit ? (raycastHit.collider.sharedMaterial?.name ?? raycastHit.collider.name) : string.Empty
+                });
+            }
+        }
+
+        private sealed class FireQueryOperation
+        {
+            public FireQueryOperation(DedicatedFireQueryRequest request)
+            {
+                Request = request;
+                Completion = new TaskCompletionSource<DedicatedFireQueryResult>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            public DedicatedFireQueryRequest Request { get; }
+            public TaskCompletionSource<DedicatedFireQueryResult> Completion { get; }
         }
 
         private void OnMoveReceived(DedicatedDataIdentity identity, PawnMove move)

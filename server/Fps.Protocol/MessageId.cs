@@ -20,5 +20,8 @@ public enum MessageId : ushort
     AnimationActionStarted = 41,
     AnimationActionCommit = 42,
     AnimationActionEnded = 43,
-    AnimationActionCancelled = 44
+    AnimationActionCancelled = 44,
+    FireRequest = 50,
+    FireCommitted = 51,
+    FireRejected = 52
 }
