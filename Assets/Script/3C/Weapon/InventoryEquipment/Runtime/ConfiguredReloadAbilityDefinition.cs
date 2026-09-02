@@ -59,6 +59,7 @@ namespace CGame.InventoryEquipment
         private WeaponInstance weapon;
         private CharacterAnimInstance characterAnimation;
         private AnimationPlaybackHandle characterPlayback;
+        private bool authorityDrivenCommit;
         private bool reloadCommitted;
 
         public override bool CanActivate(AbilityActivationContext context)
@@ -100,8 +101,22 @@ namespace CGame.InventoryEquipment
         protected override void OnActivate()
         {
             reloadCommitted = false;
+            authorityDrivenCommit = false;
             weapon = (WeaponInstance)ActivationContext.SourceObject;
             weapon.ResetHeat();
+            if (ActivationContext.AbilitySystem.Avatar is Pawn pawn)
+            {
+                IDiscreteActionReplicationGateway gateway = pawn.DiscreteActionReplicationGateway;
+                if (gateway != null)
+                {
+                    long nonce = gateway.BeginPredicted(
+                        DiscreteActionKind.Reload,
+                        weapon.Definition.ReloadDefinition.CharacterAnimation.name,
+                        weapon.ItemHandle.Value);
+                    authorityDrivenCommit = true;
+                    gateway.RegisterCommit(nonce, CommitReloadFromAuthority);
+                }
+            }
             Debug.Log($"[ReloadTrace] Ability activated: weapon={weapon.Definition.name}, magazine={weapon.Item.MagazineAmmo}, reserve={weapon.Item.ReserveAmmo}");
             if (!weapon.TryGetCharacterAnimation(out characterAnimation))
             {
@@ -159,7 +174,7 @@ namespace CGame.InventoryEquipment
 
             if (state == AnimationPlaybackState.Completed)
             {
-                if (!reloadCommitted && TryCommit())
+                if (!authorityDrivenCommit && !reloadCommitted && TryCommit())
                 {
                     reloadCommitted = true;
                     int loadedAmmo = weapon.Item.ReloadMagazine(weapon.MagazineCapacity);
@@ -174,6 +189,15 @@ namespace CGame.InventoryEquipment
 
             Debug.LogWarning($"[ReloadTrace] Animation ended abnormally: state={state}, committed={reloadCommitted}");
             EndAbility(AbilityEndReason.Cancelled);
+        }
+
+        private void CommitReloadFromAuthority()
+        {
+            if (State != AbilityInstanceState.Active || reloadCommitted || weapon == null) return;
+            reloadCommitted = true;
+            int loadedAmmo = weapon.Item.ReloadMagazine(weapon.MagazineCapacity);
+            weapon.NotifyReloadCommitted(loadedAmmo);
+            Debug.Log($"[Network][042] ReloadAuthorityCommit loaded={loadedAmmo} magazine={weapon.Item.MagazineAmmo} reserve={weapon.Item.ReserveAmmo}");
         }
     }
 

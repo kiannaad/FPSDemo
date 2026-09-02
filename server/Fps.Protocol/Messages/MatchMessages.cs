@@ -5,7 +5,9 @@ namespace Fps.Protocol;
 [MessagePackObject]
 public sealed record MatchStartingEvent(
     [property: Key(0)] long MatchId,
-    [property: Key(1)] long StartTick);
+    [property: Key(1)] long StartTick,
+    [property: Key(2)] string DataEndpoint,
+    [property: Key(3)] string CredentialId);
 
 [MessagePackObject]
 public sealed record PawnSpawnedEvent(

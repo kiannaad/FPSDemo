@@ -16,7 +16,37 @@ namespace CGame.Network
         SetReadyResponse = 15,
         MatchStarting = 20,
         PawnSpawned = 21,
-        PossessionChanged = 22
+        PossessionChanged = 22,
+        PawnMove = 30,
+        OwnerReconcile = 31,
+        AuthoritySnapshot = 32,
+        AnimationActionRequest = 40,
+        AnimationActionStarted = 41,
+        AnimationActionCommit = 42,
+        AnimationActionEnded = 43,
+        AnimationActionCancelled = 44
+    }
+
+    public enum NetworkDelivery
+    {
+        ReliableOrdered,
+        UnreliableSequenced
+    }
+
+    public static class NetworkDeliveryPolicy
+    {
+        public static NetworkDelivery For(NetworkMessageId messageId)
+        {
+            switch (messageId)
+            {
+                case NetworkMessageId.PawnMove:
+                case NetworkMessageId.OwnerReconcile:
+                case NetworkMessageId.AuthoritySnapshot:
+                    return NetworkDelivery.UnreliableSequenced;
+                default:
+                    return NetworkDelivery.ReliableOrdered;
+            }
+        }
     }
 
     [Flags]
@@ -182,6 +212,8 @@ namespace CGame.Network
     {
         [Key(0)] public long MatchId { get; set; }
         [Key(1)] public long StartTick { get; set; }
+        [Key(2)] public string DataEndpoint { get; set; }
+        [Key(3)] public string CredentialId { get; set; }
     }
 
     [MessagePackObject]

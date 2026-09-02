@@ -56,6 +56,20 @@ public sealed class RoomMatchTests
     }
 
     [Test]
+    public void Stop_AfterStart_IsIdempotentAndReleasesPawnsAndSpawnPoints()
+    {
+        ServerMatch match = CreateMatch();
+        match.Start();
+
+        match.Stop();
+        match.Stop();
+
+        Assert.That(match.Pawns, Is.Empty);
+        Assert.That(match.AvailableSpawnPointCount, Is.EqualTo(2));
+        Assert.That(match.Players.All(player => player.ControlledPawnId == 0), Is.True);
+    }
+
+    [Test]
     public void PossessionRevision_RejectsOlderControlPackets()
     {
         var player = new ServerPlayer(1, "connection-a");

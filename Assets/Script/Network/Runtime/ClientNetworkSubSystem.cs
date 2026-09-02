@@ -10,6 +10,7 @@ namespace CGame.Network
     {
         private readonly ClientNetworkDefinition definition;
         private NetworkRpcClient rpcClient;
+        private ClientMovementNetworkChannel movementChannel;
         private Task<NetworkRpcResponse> helloTask;
         private bool helloRequested;
 
@@ -22,6 +23,11 @@ namespace CGame.Network
         public string Failure { get; private set; } = string.Empty;
         public HelloResponse HelloResponse { get; private set; }
         public ClientWorld ClientWorld { get; } = new ClientWorld();
+        public bool IsMovementConnected => movementChannel?.IsConnected == true;
+        public event Action<OwnerReconcile> OwnerReconcileReceived;
+        public event Action<AuthoritySnapshot> AuthoritySnapshotReceived;
+        public event Action<NetworkAnimationActionStarted> AnimationActionStartedReceived;
+        public event Action<NetworkAnimationActionTerminal> AnimationActionTerminalReceived;
 
         protected override Task OnInitializeAsync(CancellationToken cancellationToken)
         {
@@ -40,6 +46,10 @@ namespace CGame.Network
         protected override Task OnShutdownAsync()
         {
             if (rpcClient != null) rpcClient.EventReceived -= OnNetworkEvent;
+            if (movementChannel != null) movementChannel.OwnerReconcileReceived -= OnOwnerReconcileReceived;
+            if (movementChannel != null) movementChannel.AuthoritySnapshotReceived -= OnAuthoritySnapshotReceived;
+            movementChannel?.Dispose();
+            movementChannel = null;
             rpcClient?.Dispose();
             rpcClient = null;
             return Task.CompletedTask;
@@ -48,6 +58,7 @@ namespace CGame.Network
         private void Tick(float deltaTime)
         {
             rpcClient.Tick();
+            movementChannel?.PollEvents();
             if (!helloRequested && rpcClient.IsConnected)
             {
                 helloRequested = true;
@@ -120,6 +131,30 @@ namespace CGame.Network
             return MessagePackSerializer.Deserialize<SetReadyResponse>(response.Payload);
         }
 
+        public async Task<NetworkAnimationActionStarted> SendAnimationActionRequestAsync(
+            NetworkAnimationActionRequest request)
+        {
+            if (ClientWorld.MatchId <= 0)
+                throw new InvalidOperationException("Cannot send an animation action before MatchStarting.");
+            Debug.Log($"[Network][042] ActionRequestSend MatchId={ClientWorld.MatchId} PawnId={request.PawnId} Kind={request.ActionKind} PredictionNonce={request.PredictionNonce}");
+            NetworkRpcResponse response = await rpcClient.RequestAsync(
+                NetworkMessageId.AnimationActionRequest,
+                MessagePackSerializer.Serialize(request),
+                TimeSpan.FromSeconds(definition.RequestTimeoutSeconds),
+                ClientWorld.MatchId);
+            NetworkAnimationActionStarted started = NetworkMessageSerializer.Deserialize<NetworkAnimationActionStarted>(response.Payload);
+            AnimationActionStartedReceived?.Invoke(started);
+            return started;
+        }
+
+        public void SendPawnMove(PawnMove move)
+        {
+            if (!IsMovementConnected) throw new InvalidOperationException("Movement data channel is not connected.");
+            movementChannel.Send(move);
+            if (move.Sequence % 60 == 0)
+                Debug.Log($"[Network][038] MoveCreated PawnId={move.PawnId} Sequence={move.Sequence} ClientTick={move.ClientTick}");
+        }
+
         private Task<NetworkRpcResponse> SendRequestAsync<TRequest>(NetworkMessageId messageId, TRequest request)
         {
             if (rpcClient == null) throw new InvalidOperationException("Client network is not initialized.");
@@ -131,7 +166,12 @@ namespace CGame.Network
             switch (response.Header.MessageId)
             {
                 case NetworkMessageId.MatchStarting:
-                    ClientWorld.OnMatchStarting(MessagePackSerializer.Deserialize<MatchStartingEvent>(response.Payload));
+                    MatchStartingEvent starting = MessagePackSerializer.Deserialize<MatchStartingEvent>(response.Payload);
+                    ClientWorld.OnMatchStarting(starting);
+                    movementChannel = new ClientMovementNetworkChannel(new LiteNetClientNetworkTransport());
+                    movementChannel.OwnerReconcileReceived += OnOwnerReconcileReceived;
+                    movementChannel.AuthoritySnapshotReceived += OnAuthoritySnapshotReceived;
+                    movementChannel.Connect(starting.MatchId, starting.DataEndpoint, starting.CredentialId);
                     break;
                 case NetworkMessageId.PawnSpawned:
                     ClientWorld.OnPawnSpawned(MessagePackSerializer.Deserialize<PawnSpawnedEvent>(response.Payload));
@@ -139,7 +179,33 @@ namespace CGame.Network
                 case NetworkMessageId.PossessionChanged:
                     ClientWorld.OnPossessionChanged(MessagePackSerializer.Deserialize<PossessionChangedEvent>(response.Payload));
                     break;
+                case NetworkMessageId.AnimationActionStarted:
+                    AnimationActionStartedReceived?.Invoke(
+                        NetworkMessageSerializer.Deserialize<NetworkAnimationActionStarted>(response.Payload));
+                    break;
+                case NetworkMessageId.AnimationActionCommit:
+                case NetworkMessageId.AnimationActionEnded:
+                case NetworkMessageId.AnimationActionCancelled:
+                    AnimationActionTerminalReceived?.Invoke(
+                        NetworkMessageSerializer.Deserialize<NetworkAnimationActionTerminal>(response.Payload));
+                    break;
             }
+        }
+
+        private void OnOwnerReconcileReceived(NetworkRpcResponse response)
+        {
+            OwnerReconcile reconcile = NetworkMessageSerializer.Deserialize<OwnerReconcileWireMessage>(response.Payload).ToValue();
+            OwnerReconcileReceived?.Invoke(reconcile);
+            if (reconcile.Kind != OwnerReconcileKind.Ack || reconcile.AckSequence % 60 == 0)
+                Debug.Log($"[Network][038] ReconcileReceived Sequence={reconcile.AckSequence} Kind={reconcile.Kind} Reason={reconcile.Reason ?? "None"}");
+        }
+
+        private void OnAuthoritySnapshotReceived(NetworkRpcResponse response)
+        {
+            AuthoritySnapshot snapshot = NetworkMessageSerializer
+                .Deserialize<AuthoritySnapshotWireMessage>(response.Payload)
+                .ToValue();
+            AuthoritySnapshotReceived?.Invoke(snapshot);
         }
     }
 }

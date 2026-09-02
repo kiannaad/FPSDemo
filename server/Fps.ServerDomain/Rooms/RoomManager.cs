@@ -86,6 +86,8 @@ public sealed class RoomManager
 
     public void ResetToWaiting(string roomId) => GetRoom(roomId).ResetToWaiting();
 
+    public ServerRoomState GetRoomState(string roomId) => GetRoom(roomId).State;
+
     private ServerRoom GetRoom(string roomId)
     {
         if (string.IsNullOrWhiteSpace(roomId) || !roomsById.TryGetValue(roomId, out ServerRoom? room))

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using CGame.Animation;
 using CGame.Animation.Rig;
 using UnityEngine;
 
@@ -15,6 +16,76 @@ namespace CGame
             Vector3 position,
             Quaternion rotation,
             CancellationToken cancellationToken = default)
+        {
+            return await CreateConfiguredAsync(definition, inputProfile, position, rotation, true, null, null, cancellationToken);
+        }
+
+        public Task<Pawn> CreateAsync(
+            PawnDefinition definition,
+            InputProfile inputProfile,
+            Vector3 position,
+            Quaternion rotation,
+            ActorComponent supplementalComponent,
+            CancellationToken cancellationToken = default)
+        {
+            return CreateConfiguredAsync(
+                definition,
+                inputProfile,
+                position,
+                rotation,
+                true,
+                supplementalComponent,
+                null,
+                cancellationToken);
+        }
+
+        public virtual Task<Pawn> CreateRemoteAsync(
+            PawnDefinition definition,
+            Vector3 position,
+            Quaternion rotation,
+            CancellationToken cancellationToken = default)
+        {
+            return CreateRemoteAsync(definition, position, rotation, null, cancellationToken);
+        }
+
+        public virtual Task<Pawn> CreateRemoteAsync(
+            PawnDefinition definition,
+            Vector3 position,
+            Quaternion rotation,
+            ActorComponent supplementalComponent,
+            CancellationToken cancellationToken = default)
+        {
+            return CreateRemoteAsync(definition, position, rotation, supplementalComponent, null, cancellationToken);
+        }
+
+        public virtual Task<Pawn> CreateRemoteAsync(
+            PawnDefinition definition,
+            Vector3 position,
+            Quaternion rotation,
+            ActorComponent supplementalComponent,
+            Func<Transform, IAnimationCharacterSource> characterSourceFactory,
+            CancellationToken cancellationToken = default)
+        {
+            return CreateConfiguredAsync(
+                definition,
+                null,
+                position,
+                rotation,
+                false,
+                supplementalComponent,
+                characterSourceFactory,
+                cancellationToken);
+        }
+
+        private async Task<Pawn> CreateConfiguredAsync(
+            PawnDefinition definition,
+            InputProfile inputProfile,
+            Vector3 position,
+            Quaternion rotation,
+            bool includeLocalComponents,
+            ActorComponent supplementalComponent,
+            Func<Transform, IAnimationCharacterSource> characterSourceFactory,
+            CancellationToken cancellationToken)
         {
             if (definition == null)
             {
@@ -39,18 +110,30 @@ namespace CGame
 
                 CharacterPhysicsMotor motor = root.GetComponent<CharacterPhysicsMotor>();
                 Animator animator = ResolveAnimator(root);
-                Camera camera = root.GetComponentInChildren<Camera>(true);
                 KRigComponent rigComponent = ResolveRigComponent(animator, definition.Rig);
                 root.name = $"Pawn:{definition.name}";
                 var components = new List<ActorComponent>
                 {
                     new PawnMovementComponent(motor),
-                    new PawnAnimationComponent(animator, motor, definition.AnimationConfig, rigComponent),
-                    new EquipmentManagerComponent(),
-                    new PawnHeroComponent(inputProfile),
-                    new PawnCameraComponent(camera, definition.RequireCamera),
-                    new PawnShotQueryComponent()
+                    new PawnAnimationComponent(
+                        animator,
+                        motor,
+                        definition.AnimationConfig,
+                        rigComponent,
+                        characterSourceFactory?.Invoke(motor != null ? motor.transform : root.transform))
                 };
+                if (supplementalComponent != null)
+                {
+                    components.Add(supplementalComponent);
+                }
+                if (includeLocalComponents)
+                {
+                    Camera camera = root.GetComponentInChildren<Camera>(true);
+                    components.Add(new EquipmentManagerComponent());
+                    components.Add(new PawnHeroComponent(inputProfile));
+                    components.Add(new PawnCameraComponent(camera, definition.RequireCamera));
+                    components.Add(new PawnShotQueryComponent());
+                }
                 return new Pawn(root, components);
             }
             catch

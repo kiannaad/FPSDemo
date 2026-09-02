@@ -212,6 +212,10 @@ public bool CanAcceptDirectSlotSelection(int slotIndex)
                                 return;
                             }
 
+                            ReplicateSwitchAction(
+                                DiscreteActionKind.Unequip,
+                                pending.OldWeapon.Definition.UnequipIkMotion,
+                                pending.OldWeapon.ItemHandle.Value);
                             pending.UnequipMotionStarted = true;
                             return;
                         }
@@ -283,6 +287,10 @@ public bool CanAcceptDirectSlotSelection(int slotIndex)
                                 return;
                             }
 
+                            ReplicateSwitchAction(
+                                DiscreteActionKind.Equip,
+                                pending.Weapon.Definition.EquipIkMotion,
+                                pending.Weapon.ItemHandle.Value);
                             pending.EquipMotionStarted = true;
                             pending.RequiredAnimationEvaluationCount = GetCompletedAnimationEvaluationCount();
                             return;
@@ -558,6 +566,18 @@ private void WaitForSwitchPhaseOrRollback(string failure, float deltaTime)
             return weapon != null
                 && animation?.AnimInstance != null
                 && animation.AnimInstance.TryPlayWeaponIkMotion(motion);
+        }
+
+        private void ReplicateSwitchAction(
+            DiscreteActionKind actionKind,
+            IkMotionLayerSettings motion,
+            long equipmentInstanceId)
+        {
+            if (Owner is Pawn pawn)
+                pawn.DiscreteActionReplicationGateway?.BeginPredicted(
+                    actionKind,
+                    motion != null ? motion.name : actionKind.ToString(),
+                    equipmentInstanceId);
         }
 
         private bool IsWeaponMotionComplete(WeaponInstance weapon, IkMotionLayerSettings motion)

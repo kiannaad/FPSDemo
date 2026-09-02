@@ -154,6 +154,10 @@ namespace CGame.InventoryEquipment
                         && attackClip != null
                         && weapon.TryGetCharacterAnimation(out CharacterAnimInstance characterAnimation))
                     {
+                        meleePawn.DiscreteActionReplicationGateway?.BeginPredicted(
+                            DiscreteActionKind.Melee,
+                            attackClip.name,
+                            weapon.ItemHandle.Value);
                         characterPlayback = characterAnimation.PlayAbilityAnimation(attackClip, 0);
                         if (characterPlayback == null || characterPlayback.State == AnimationPlaybackState.Failed)
                         {

@@ -11,18 +11,21 @@ namespace CGame
         private readonly CharacterPhysicsMotor motor;
         private readonly CharacterAnimationConfig animationConfig;
         private readonly KRigComponent rigComponent;
+        private IAnimationCharacterSource characterSource;
         private CharacterAnimInstance animInstance;
 
         public PawnAnimationComponent(
             Animator animator,
             CharacterPhysicsMotor motor,
             CharacterAnimationConfig animationConfig,
-            KRigComponent rigComponent)
+            KRigComponent rigComponent,
+            IAnimationCharacterSource characterSource = null)
         {
             this.animator = animator;
             this.motor = motor;
             this.animationConfig = animationConfig;
             this.rigComponent = rigComponent;
+            this.characterSource = characterSource;
             AddDependency<PawnMovementComponent>();
         }
 
@@ -31,10 +34,17 @@ namespace CGame
         public CharacterAnimInstance AnimInstance => animInstance;
 
         public KRigComponent RigComponent => rigComponent;
+        public IAnimationCharacterSource CharacterSource => characterSource;
 
         public int PreAnimationTickCount { get; private set; }
 
         public int PostAnimationTickCount { get; private set; }
+
+        public void SetCharacterSource(IAnimationCharacterSource source)
+        {
+            if (animInstance != null) throw new InvalidOperationException("Animation source must be selected before actor initialization.");
+            characterSource = source ?? throw new ArgumentNullException(nameof(source));
+        }
 
         protected override void OnInitialize()
         {
@@ -47,7 +57,7 @@ namespace CGame
             {
                 animInstance = new CharacterAnimInstance(
                     pawn,
-                    new AnimationCharacterSource(motor),
+                    characterSource ?? new AnimationCharacterSource(motor),
                     animator,
                     rigComponent,
                     animationConfig.UpperBodyMask);

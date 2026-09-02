@@ -65,6 +65,48 @@ namespace CGame.Network.Tests
             Assert.That(clientWorld.ControlledPawnId, Is.EqualTo(100));
         }
 
+        [Test]
+        public void ClientWorld_AssignsOnlyCurrentLocalPossessionTheLocalAutonomousRole()
+        {
+            var clientWorld = new ClientWorld();
+            clientWorld.SetLocalPlayer(7);
+            clientWorld.OnPawnSpawned(new PawnSpawnedEvent { PawnId = 99, OwnerPlayerId = 7, SpawnPointId = "owner" });
+            clientWorld.OnPawnSpawned(new PawnSpawnedEvent { PawnId = 100, OwnerPlayerId = 8, SpawnPointId = "remote" });
+            clientWorld.OnPossessionChanged(new PossessionChangedEvent { PlayerId = 7, PawnId = 99, PossessionRevision = 1 });
+
+            ClientPawnState owner = clientWorld.Pawns.Single(pawn => pawn.PawnId == 99);
+            ClientPawnState remote = clientWorld.Pawns.Single(pawn => pawn.PawnId == 100);
+
+            Assert.That(owner.Role, Is.EqualTo(NetworkPawnRole.LocalAutonomous));
+            Assert.That(remote.Role, Is.EqualTo(NetworkPawnRole.RemoteSimulated));
+        }
+
+        [Test]
+        public void ClientWorld_ReleasingPawnClearsItsCachedRoleAndControlledPawn()
+        {
+            var clientWorld = new ClientWorld();
+            clientWorld.SetLocalPlayer(7);
+            clientWorld.OnPawnSpawned(new PawnSpawnedEvent { PawnId = 99, OwnerPlayerId = 7, SpawnPointId = "owner" });
+            clientWorld.OnPossessionChanged(new PossessionChangedEvent { PlayerId = 7, PawnId = 99, PossessionRevision = 1 });
+
+            bool released = clientWorld.ReleasePawn(99);
+
+            Assert.That(released, Is.True);
+            Assert.That(clientWorld.ControlledPawnId, Is.Zero);
+            Assert.That(clientWorld.Pawns, Is.Empty);
+        }
+
+        [Test]
+        public void NetworkPawnBinding_RecordsImmutableNetworkIdentity()
+        {
+            var binding = new NetworkPawnBinding(101, 7, 3, NetworkPawnRole.RemoteSimulated);
+            Assert.That(binding.IsBound, Is.True);
+            Assert.That(binding.PawnId, Is.EqualTo(101));
+            Assert.That(binding.OwnerPlayerId, Is.EqualTo(7));
+            Assert.That(binding.PossessionRevision, Is.EqualTo(3));
+            Assert.That(binding.Role, Is.EqualTo(NetworkPawnRole.RemoteSimulated));
+        }
+
         [UnityTest]
         public IEnumerator WorldClient_CompletesHelloAgainstIndependentServer()
         {

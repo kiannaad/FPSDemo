@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using CGame.Ability;
 using CGame.GameplayTags;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace CGame
 {
@@ -12,6 +13,7 @@ namespace CGame
         private readonly List<IDisposable> bindings = new List<IDisposable>();
         private AbilitySystemComponent abilitySystem;
         private Pawn pawn;
+        private GameplayTag meleeInputTag;
 
         public PawnHeroComponent(InputProfile inputProfile)
         {
@@ -20,6 +22,11 @@ namespace CGame
 
         public bool IsBound => abilitySystem != null;
         public bool HasInputProfile => inputProfile != null;
+
+        protected override void OnInitialize()
+        {
+            AddTickTask("Pawn.HeroMeleeInput", TickGroup.TG_Input, TickMeleeInput);
+        }
 
         public void Bind(InputHandle inputHandle, AbilitySystemComponent abilitySystem, Pawn pawn = null)
         {
@@ -34,6 +41,7 @@ namespace CGame
             {
                 foreach (InputTagBinding binding in inputProfile.InputTagConfig.Bindings)
                 {
+                    if (binding.ActionReference?.action?.name == "Melee") meleeInputTag = binding.InputTag;
                     bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Started, _ =>
                     {
                         if (binding.InputTag.ToString() == "InputTag.Weapon.Fire")
@@ -69,6 +77,14 @@ namespace CGame
             abilitySystem?.ClearAbilityInput();
             abilitySystem = null;
             pawn = null;
+            meleeInputTag = default;
+        }
+
+        private void TickMeleeInput(float deltaTime)
+        {
+            if (abilitySystem == null || meleeInputTag.IsEmpty || Keyboard.current == null) return;
+            if (Keyboard.current.vKey.wasPressedThisFrame) abilitySystem.AbilityInputTagPressed(meleeInputTag);
+            if (Keyboard.current.vKey.wasReleasedThisFrame) abilitySystem.AbilityInputTagReleased(meleeInputTag);
         }
 
         protected override void OnShutdown() => Unbind();

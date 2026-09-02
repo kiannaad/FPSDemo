@@ -26,7 +26,7 @@ namespace CGame.Network
         event Action<string> Disconnected;
         bool IsConnected { get; }
         void Connect(string host, int port, string connectionKey);
-        void Send(byte[] packet);
+        void Send(byte[] packet, NetworkDelivery delivery);
         void PollEvents();
     }
 
@@ -67,11 +67,15 @@ namespace CGame.Network
             candidate.Connect(host, port, connectionKey);
         }
 
-        public void Send(byte[] packet)
+        public void Send(byte[] packet, NetworkDelivery delivery)
         {
             if (packet == null) throw new ArgumentNullException(nameof(packet));
             if (peer == null) throw new InvalidOperationException("The client transport is not connected.");
-            peer.Send(packet, DeliveryMethod.ReliableOrdered);
+            peer.Send(
+                packet,
+                delivery == NetworkDelivery.UnreliableSequenced
+                    ? DeliveryMethod.Sequenced
+                    : DeliveryMethod.ReliableOrdered);
         }
 
         public void PollEvents()
@@ -138,7 +142,11 @@ namespace CGame.Network
             transport.Connect(host, port, connectionKey);
         }
 
-        public Task<NetworkRpcResponse> RequestAsync(NetworkMessageId messageId, byte[] payload, TimeSpan timeout)
+        public Task<NetworkRpcResponse> RequestAsync(
+            NetworkMessageId messageId,
+            byte[] payload,
+            TimeSpan timeout,
+            long matchId = 0)
         {
             ThrowIfDisposed();
             if (payload == null) throw new ArgumentNullException(nameof(payload));
@@ -148,8 +156,10 @@ namespace CGame.Network
             ulong requestId = checked(++nextRequestId);
             var completionSource = new TaskCompletionSource<NetworkRpcResponse>();
             pendingRequests.Add(requestId, new PendingRequest(DateTime.UtcNow.Add(timeout), completionSource));
-            var header = new NetworkPacketHeader(NetworkPacketCodec.ProtocolVersion, messageId, NetworkPacketFlags.Request, requestId, 0);
-            transport.Send(NetworkPacketCodec.Encode(header, payload));
+            var header = new NetworkPacketHeader(NetworkPacketCodec.ProtocolVersion, messageId, NetworkPacketFlags.Request, requestId, matchId);
+            transport.Send(
+                NetworkPacketCodec.Encode(header, payload),
+                NetworkDeliveryPolicy.For(messageId));
             return completionSource.Task;
         }
 

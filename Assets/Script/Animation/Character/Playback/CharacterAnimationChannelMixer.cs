@@ -77,7 +77,8 @@ namespace CGame.Animation
             bool autoBlendOut,
             bool useOverrideMask,
             bool startAtFullWeight = false,
-            bool dispatchNotifies = true)
+            bool dispatchNotifies = true,
+            float elapsedSeconds = 0f)
         {
             if (isDisposed || !mixer.IsValid() || isUpdating)
             {
@@ -109,6 +110,7 @@ namespace CGame.Animation
                     playbackId,
                     requestId,
                     autoBlendOut,
+                    elapsedSeconds,
                     out CharacterAnimationPlayable animation,
                     out string error))
             {

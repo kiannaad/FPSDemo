@@ -14,7 +14,8 @@
     "CGame.CharacterPhysics",
     "CGame.InventoryEquipment",
     "CGame.Input",
-    "CGame.Network"
+    "CGame.Network",
+    "CGame.Animation"
   ],
   "autoReferenced": true
 }

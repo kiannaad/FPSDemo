@@ -49,6 +49,16 @@ namespace CGame.Animation
             return !isDisposed && boneController.TryPlayWeaponIkMotion(motion);
         }
 
+        public bool TryPlayWeaponIkMotionAtSeconds(IkMotionLayerSettings motion, float elapsedSeconds)
+        {
+            return !isDisposed && boneController.TryPlayWeaponIkMotionAtSeconds(motion, elapsedSeconds);
+        }
+
+        public bool TryStopWeaponIkMotion(IkMotionLayerSettings motion)
+        {
+            return !isDisposed && boneController.TryStopWeaponIkMotion(motion);
+        }
+
         public bool IsWeaponIkMotionComplete(IkMotionLayerSettings motion)
         {
             return !isDisposed && boneController.IsWeaponIkMotionComplete(motion);
@@ -247,6 +257,19 @@ public CharacterBoneController BoneController => boneController;
             return isDisposed
                 ? null
                 : playablesController.PlayAnimation(asset, requestId);
+        }
+
+        public AnimationPlaybackHandle PlayAbilityAnimationAtSeconds(
+            AnimationClipAsset asset,
+            long actionSequence,
+            float elapsedSeconds)
+        {
+            return isDisposed
+                ? null
+                : playablesController.PlayAnimationAtSeconds(
+                    asset,
+                    actionSequence,
+                    Mathf.Max(0f, elapsedSeconds));
         }
 
         public bool StopAbilityAnimation(AnimationPlaybackHandle handle)

@@ -11,6 +11,9 @@ namespace CGame.Network
 
         public long LocalPlayerId { get; private set; }
         public long ControlledPawnId { get; private set; }
+        public long MatchId { get; private set; }
+        public string DataEndpoint { get; private set; }
+        public string CredentialId { get; private set; }
         public IReadOnlyCollection<ClientPawnState> Pawns => pawnsById.Values;
         public event Action<ClientPawnState> PawnSpawned;
         public event Action<ClientPawnState> OwnerPossessionApplied;
@@ -37,6 +40,13 @@ namespace CGame.Network
             ApplyPendingPossession(pawnSpawned.OwnerPlayerId);
         }
 
+        public bool ReleasePawn(long pawnId)
+        {
+            if (!pawnsById.Remove(pawnId)) return false;
+            if (ControlledPawnId == pawnId) ControlledPawnId = 0;
+            return true;
+        }
+
         public void OnPossessionChanged(PossessionChangedEvent possessionChanged)
         {
             if (possessionChanged == null || possessionChanged.PlayerId <= 0 || possessionChanged.PawnId <= 0)
@@ -55,6 +65,9 @@ namespace CGame.Network
         {
             if (matchStarting == null || matchStarting.MatchId <= 0)
                 throw new ArgumentException("MatchStarting data is invalid.", nameof(matchStarting));
+            MatchId = matchStarting.MatchId;
+            DataEndpoint = matchStarting.DataEndpoint;
+            CredentialId = matchStarting.CredentialId;
             MatchStarting?.Invoke(matchStarting.MatchId);
         }
 
@@ -64,8 +77,16 @@ namespace CGame.Network
                 || !pawnsById.TryGetValue(pending.PawnId, out ClientPawnState pawn)) return;
             pendingPossessionsByPlayerId.Remove(playerId);
             appliedPossessionRevisionsByPlayerId[playerId] = pending.Revision;
+            if (ControlledPawnId != 0 && pawnsById.TryGetValue(ControlledPawnId, out ClientPawnState previousPawn))
+            {
+                previousPawn.IsLocallyControlled = false;
+                previousPawn.Role = NetworkPawnRole.RemoteSimulated;
+            }
             pawn.PossessionRevision = pending.Revision;
             pawn.IsLocallyControlled = playerId == LocalPlayerId;
+            pawn.Role = pawn.IsLocallyControlled
+                ? NetworkPawnRole.LocalAutonomous
+                : NetworkPawnRole.RemoteSimulated;
             if (pawn.IsLocallyControlled)
             {
                 ControlledPawnId = pawn.PawnId;
@@ -93,6 +114,7 @@ namespace CGame.Network
             PawnId = pawnId;
             OwnerPlayerId = ownerPlayerId;
             SpawnPointId = spawnPointId;
+            Role = NetworkPawnRole.RemoteSimulated;
         }
 
         public long PawnId { get; }
@@ -100,5 +122,6 @@ namespace CGame.Network
         public string SpawnPointId { get; }
         public long PossessionRevision { get; internal set; }
         public bool IsLocallyControlled { get; internal set; }
+        public NetworkPawnRole Role { get; internal set; }
     }
 }

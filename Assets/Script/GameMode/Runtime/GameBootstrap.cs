@@ -9,7 +9,7 @@ using UnityEngine.SceneManagement;
 namespace CGame
 {
     [CreateAssetMenu(fileName = "GameBootstrap", menuName = "CGame/World/Game Bootstrap")]
-    public sealed class GameBootstrap : WorldConfiguration
+    public sealed class GameBootstrap : WorldConfiguration, IDedicatedServerBootstrapConfiguration
     {
         [SerializeField] private string resourcePackageName = "DefaultPackage";
         [SerializeField] private bool initializeResources = true;
@@ -87,6 +87,10 @@ namespace CGame
         }
 
         public LevelDefinition LevelDefinition => levelDefinition;
+
+        public CharacterPhysicsSettings CharacterPhysicsSettings => characterPhysicsSettings;
+
+        public PawnDefinition PlayerPawnDefinition => gameModeDefinition?.PlayerStateDefinition?.PawnData;
 
         public GameModeDefinition GameModeDefinition => gameModeDefinition;
 

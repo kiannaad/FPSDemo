@@ -18,6 +18,10 @@ namespace CGame
 
         protected virtual void Awake()
         {
+#if UNITY_SERVER
+            enabled = false;
+            return;
+#endif
             RuntimeWorld = World.Create(worldConfiguration);
             initializationCancellation = new CancellationTokenSource();
             InitializationTask = InitializeWorldAsync(initializationCancellation.Token);

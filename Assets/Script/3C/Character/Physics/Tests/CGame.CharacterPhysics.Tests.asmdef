@@ -1,0 +1,13 @@
+{
+  "name": "CGame.CharacterPhysics.Tests",
+  "rootNamespace": "CGame.CharacterPhysics.Tests",
+  "references": [
+    "CGame.CharacterPhysics"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "includePlatforms": [
+    "Editor"],
+  "autoReferenced": false
+}
