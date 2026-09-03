@@ -28,6 +28,7 @@ namespace CGame.Network
         public float NormalY;
         public float NormalZ;
         public string SurfaceId;
+        public string TargetId;
         public string Failure;
     }
 }

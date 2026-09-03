@@ -22,6 +22,8 @@ namespace CGame
         private readonly Dictionary<long, RemotePawnNetworkAnimationActionPresenter> remoteFirePresentersById = new Dictionary<long, RemotePawnNetworkAnimationActionPresenter>();
         private readonly NetworkPawnAnimationActionRouter animationActionRouter = new NetworkPawnAnimationActionRouter();
         private readonly NetworkTickClock networkTickClock = new NetworkTickClock();
+        private readonly NetworkTargetRegistry targetRegistry = new NetworkTargetRegistry();
+        private EnemySpawnGameComponent enemySpawnComponent;
         private readonly List<ClientPawnState> pendingRemotePawns = new List<ClientPawnState>();
         private readonly TaskCompletionSource<bool> initialOwnerPawnReady = new TaskCompletionSource<bool>();
         private readonly TaskCompletionSource<bool> networkStartReady = new TaskCompletionSource<bool>();
@@ -58,6 +60,15 @@ namespace CGame
             network.AnimationActionTerminalReceived += OnAnimationActionTerminalReceived;
             network.FireCommittedReceived += OnFireCommittedReceived;
             network.FireRejectedReceived += OnFireRejectedReceived;
+            network.TargetStateChangedReceived += OnTargetStateChangedReceived;
+            network.TargetStateSnapshotReceived += OnTargetStateSnapshotReceived;
+            if (world.GameState is DefaultGameState gameState &&
+                gameState.ExperienceManager.Components.TryGet(out enemySpawnComponent))
+            {
+                enemySpawnComponent.HandleSpawned += OnTargetHandleSpawned;
+                enemySpawnComponent.HandleDisposed += OnTargetHandleDisposed;
+                foreach (EnemySpawnHandle handle in enemySpawnComponent.Handles) OnTargetHandleSpawned(handle);
+            }
             world.GameplayReady += OnGameplayReady;
             characterPhysics = world.GetSubSystem<CharacterPhysicsSubSystem>();
             characterPhysics.FixedStepCompleted += OnFixedStepCompleted;
@@ -169,6 +180,15 @@ namespace CGame
             network.AnimationActionTerminalReceived -= OnAnimationActionTerminalReceived;
             network.FireCommittedReceived -= OnFireCommittedReceived;
             network.FireRejectedReceived -= OnFireRejectedReceived;
+            network.TargetStateChangedReceived -= OnTargetStateChangedReceived;
+            network.TargetStateSnapshotReceived -= OnTargetStateSnapshotReceived;
+            if (enemySpawnComponent != null)
+            {
+                enemySpawnComponent.HandleSpawned -= OnTargetHandleSpawned;
+                enemySpawnComponent.HandleDisposed -= OnTargetHandleDisposed;
+                enemySpawnComponent = null;
+            }
+            targetRegistry.Dispose();
             if (characterPhysics != null) characterPhysics.FixedStepCompleted -= OnFixedStepCompleted;
             World.GameplayReady -= OnGameplayReady;
             if (ownerPawnRegistration != null && !ownerPawnRegistration.IsDisposed)
@@ -305,6 +325,22 @@ namespace CGame
             startedMatchId = matchId;
             movementPrediction.SetMatchId(matchId);
             TryCompleteNetworkStart();
+        }
+
+        private void OnTargetStateChangedReceived(TargetStateMessage state)
+        {
+            targetRegistry.Apply(state);
+            Debug.Log($"[Network][049] TargetStateReceived MatchId={network.ClientWorld.MatchId} TargetId={state?.TargetId} Revision={state?.Revision} Health={state?.Health} IsDead={state?.IsDead}");
+        }
+
+        private void OnTargetStateSnapshotReceived(TargetStateSnapshotMessage snapshot) => targetRegistry.ApplySnapshot(snapshot);
+
+        private void OnTargetHandleSpawned(EnemySpawnHandle handle) => targetRegistry.Register(handle);
+
+        private void OnTargetHandleDisposed(EnemySpawnHandle handle)
+        {
+            targetRegistry.Unregister(handle);
+            Debug.Log($"[Network][049] TargetHandleDisposed MatchId={network.ClientWorld.MatchId} TargetId={handle?.PointId}");
         }
 
         private void TryCompleteNetworkStart()

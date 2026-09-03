@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using CGame.GameplayTags;
 using CGame.Ability.Cues;
 using CGame.InventoryEquipment;
@@ -91,6 +92,22 @@ namespace CGame
         public CharacterPhysicsSettings CharacterPhysicsSettings => characterPhysicsSettings;
 
         public PawnDefinition PlayerPawnDefinition => gameModeDefinition?.PlayerStateDefinition?.PawnData;
+
+        public DedicatedTargetSpawnDefinition DedicatedTargetSpawnDefinition
+        {
+            get
+            {
+                EnemySpawnGameFeatureAction targetAction = gameModeDefinition?.ExperienceDefinition?.GameFeatures
+                    .SelectMany(feature => feature.Actions)
+                    .OfType<EnemySpawnGameFeatureAction>()
+                    .SingleOrDefault();
+                if (targetAction?.EnemyDefinition?.PlayerStateDefinition?.PawnPrefab == null)
+                    throw new System.InvalidOperationException("Dedicated bootstrap requires one configured Enemy target spawn action.");
+                return new DedicatedTargetSpawnDefinition(
+                    targetAction.EnemyDefinition.PlayerStateDefinition.PawnPrefab,
+                    targetAction.InitialSpawnCount);
+            }
+        }
 
         public GameModeDefinition GameModeDefinition => gameModeDefinition;
 

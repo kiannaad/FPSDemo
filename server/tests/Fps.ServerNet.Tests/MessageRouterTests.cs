@@ -88,6 +88,12 @@ public sealed class MessageRouterTests
         Assert.That(credentialA, Does.StartWith("development:"));
         Assert.That(credentialB, Does.StartWith("development:"));
         Assert.That(credentialA, Is.Not.EqualTo(credentialB));
+        Assert.That(messages.Count(message => message.Message.Header.MessageId == MessageId.TargetStateSnapshot), Is.EqualTo(2));
+        TargetStateSnapshotMessage snapshot = MessagePackSerializer.Deserialize<TargetStateSnapshotMessage>(messages
+            .Single(message => message.ConnectionId == "connection-a" && message.Message.Header.MessageId == MessageId.TargetStateSnapshot)
+            .Message.Payload);
+        Assert.That(snapshot.Targets.Select(target => target.TargetId), Is.EqualTo(new[] { "target-a", "target-b", "target-c" }));
+        Assert.That(snapshot.Targets.All(target => target.Health == 60f && target.MaxHealth == 60f && target.Revision == 0 && !target.IsDead), Is.True);
     }
 
     [Test]
@@ -206,11 +212,21 @@ public sealed class MessageRouterTests
         Assert.That(lifecycle.QueryCount, Is.EqualTo(1));
         Assert.That(routed.Count(message => message.Message.Header.MessageId == MessageId.FireCommitted), Is.EqualTo(2));
         FireCommittedMessage committed = MessagePackSerializer.Deserialize<FireCommittedMessage>(
-            routed.Single(message => message.ConnectionId == "connection-a").Message.Payload);
+            routed.Single(message => message.ConnectionId == "connection-a" && message.Message.Header.MessageId == MessageId.FireCommitted).Message.Payload);
         Assert.That(committed.AuthoritativeMagazineAmmo, Is.EqualTo(11));
         Assert.That(committed.HasImpact, Is.True);
         Assert.That(committed.ImpactId, Is.EqualTo(committed.ShotSequence));
         Assert.That(committed.SurfaceId, Is.EqualTo("Ground"));
+        TargetStateMessage targetState = MessagePackSerializer.Deserialize<TargetStateMessage>(routed
+            .Single(message => message.ConnectionId == "connection-a" && message.Message.Header.MessageId == MessageId.TargetStateChanged)
+            .Message.Payload);
+        Assert.That(targetState, Is.EqualTo(new TargetStateMessage("EnemyPoint 1", 1, 40f, 60f, false, possession.PawnId, committed.ShotSequence)));
+        Assert.That(routed.Count(message => message.Message.Header.MessageId == MessageId.TargetStateChanged), Is.EqualTo(2));
+
+        IReadOnlyList<RoutedOutboundMessage> replay = await router.RouteAsync("connection-a",
+            new PacketHeader(ProtocolVersion.Current, MessageId.FireRequest, PacketFlags.Request, 11, 1),
+            MessagePackSerializer.Serialize(request));
+        Assert.That(replay.Count(message => message.Message.Header.MessageId == MessageId.TargetStateChanged), Is.EqualTo(0));
     }
 
     private static PacketHeader Request(ulong requestId, MessageId messageId)
@@ -234,7 +250,7 @@ public sealed class MessageRouterTests
         public Task<Fps.ServerNet.Matches.MatchPhysicsServerReady> StartAsync(
             Fps.ServerNet.Matches.MatchPhysicsServerRequest request,
             CancellationToken cancellationToken) => Task.FromResult(
-            new Fps.ServerNet.Matches.MatchPhysicsServerReady(request.MatchId, "loopback", "test"));
+            new Fps.ServerNet.Matches.MatchPhysicsServerReady(request.MatchId, "loopback", "test", new[] { "EnemyPoint 1", "EnemyPoint 2", "EnemyPoint 3" }));
 
         public Task StopAsync(long matchId, CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -245,7 +261,7 @@ public sealed class MessageRouterTests
         {
             QueryCount++;
             return Task.FromResult<Fps.ServerNet.Matches.AuthorityFireQueryResult?>(
-                new Fps.ServerNet.Matches.AuthorityFireQueryResult(accepted, hit, 1f, 2f, 3f, 0f, 1f, 0f, hit ? "Ground" : string.Empty, null));
+                new Fps.ServerNet.Matches.AuthorityFireQueryResult(accepted, hit, 1f, 2f, 3f, 0f, 1f, 0f, hit ? "Ground" : string.Empty, null, hit ? "EnemyPoint 1" : null));
         }
     }
 
@@ -276,6 +292,6 @@ public sealed class MessageRouterTests
         public Task StopAsync(long matchId, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public void PublishReady() => ready.TrySetResult(
-            new Fps.ServerNet.Matches.MatchPhysicsServerReady(1, "127.0.0.1:31000", "match-1"));
+            new Fps.ServerNet.Matches.MatchPhysicsServerReady(1, "127.0.0.1:31000", "match-1", new[] { "EnemyPoint 1", "EnemyPoint 2", "EnemyPoint 3" }));
     }
 }

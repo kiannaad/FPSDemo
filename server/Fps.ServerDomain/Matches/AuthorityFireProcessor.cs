@@ -18,7 +18,7 @@ public sealed class AuthorityFireProcessor
     {
         if (request is null) throw new ArgumentNullException(nameof(request));
         if (equipment is null) throw new ArgumentNullException(nameof(equipment));
-        if (resolutionsByClientSequence.TryGetValue(request.ClientShotSequence, out FireResolution cached)) return cached;
+        if (resolutionsByClientSequence.TryGetValue(request.ClientShotSequence, out FireResolution cached)) return cached with { IsReplay = true };
 
         FireResolution resolution;
         if (request.PawnId != expectedPawnId || request.PossessionRevision != expectedPossessionRevision ||
@@ -57,7 +57,7 @@ public sealed class AuthorityFireProcessor
                 resolvedImpact.NormalX,
                 resolvedImpact.NormalY,
                 resolvedImpact.NormalZ,
-                resolvedImpact.SurfaceId ?? string.Empty), null);
+                resolvedImpact.SurfaceId ?? string.Empty), null, false);
         }
         resolutionsByClientSequence.Add(request.ClientShotSequence, resolution);
         return resolution;
@@ -66,7 +66,7 @@ public sealed class AuthorityFireProcessor
     public FireResolution RejectAuthorityUnavailable(FireRequestMessage request, int authoritativeMagazineAmmo)
     {
         if (request is null) throw new ArgumentNullException(nameof(request));
-        if (resolutionsByClientSequence.TryGetValue(request.ClientShotSequence, out FireResolution cached)) return cached;
+        if (resolutionsByClientSequence.TryGetValue(request.ClientShotSequence, out FireResolution cached)) return cached with { IsReplay = true };
 
         FireResolution rejected = Reject(request, FireRejectionReason.AuthorityUnavailable, authoritativeMagazineAmmo);
         resolutionsByClientSequence.Add(request.ClientShotSequence, rejected);
@@ -78,7 +78,7 @@ public sealed class AuthorityFireProcessor
         new FireRejectedMessage(request.PawnId, request.PossessionRevision, request.PredictionNonce, request.ClientShotSequence, reason, ammo));
 }
 
-public readonly record struct FireResolution(FireCommittedMessage? Committed, FireRejectedMessage? Rejected);
+public readonly record struct FireResolution(FireCommittedMessage? Committed, FireRejectedMessage? Rejected, bool IsReplay = false);
 
 public readonly record struct AuthorityFireImpact(
     bool Hit,

@@ -19,6 +19,7 @@ public sealed class AuthorityFireProcessorTests
 
         Assert.That(first.Committed, Is.Not.Null);
         Assert.That(repeated.Committed!.ShotSequence, Is.EqualTo(first.Committed!.ShotSequence));
+        Assert.That(repeated.IsReplay, Is.True);
         Assert.That(equipment.MagazineAmmo, Is.EqualTo(11));
     }
 

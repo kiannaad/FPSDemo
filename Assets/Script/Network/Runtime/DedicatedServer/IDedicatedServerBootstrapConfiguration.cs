@@ -5,5 +5,6 @@ namespace CGame.Network
         CharacterPhysicsSettings CharacterPhysicsSettings { get; }
         LevelDefinition LevelDefinition { get; }
         PawnDefinition PlayerPawnDefinition { get; }
+        DedicatedTargetSpawnDefinition DedicatedTargetSpawnDefinition { get; }
     }
 }

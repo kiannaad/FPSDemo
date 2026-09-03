@@ -1,6 +1,7 @@
 using Fps.ServerNet.Matches;
 using System.Net;
 using System.Net.Sockets;
+using System.Linq;
 
 namespace Fps.ServerHost.DedicatedServer;
 
@@ -57,11 +58,19 @@ public sealed class MatchPhysicsServerLifecycle : IMatchPhysicsServerLifecycle
             startupTimeout,
             logPath);
 
-        await processManager.StartAsync(launchRequest, cancellationToken);
+        DedicatedServerLease lease = await processManager.StartAsync(launchRequest, cancellationToken);
+        IReadOnlyList<string>? targetIds = lease.Health.TargetIds;
+        if (targetIds == null || targetIds.Count != 3 || targetIds.Any(string.IsNullOrWhiteSpace) ||
+            targetIds.Distinct(StringComparer.Ordinal).Count() != 3)
+        {
+            await processManager.StopAsync(request.MatchId, cancellationToken);
+            throw new InvalidDataException("Dedicated server Target roster must contain exactly three unique PointIds.");
+        }
         return new MatchPhysicsServerReady(
             request.MatchId,
             $"127.0.0.1:{dataPort}",
-            credential);
+            credential,
+            targetIds);
     }
 
     public Task StopAsync(long matchId, CancellationToken cancellationToken) =>

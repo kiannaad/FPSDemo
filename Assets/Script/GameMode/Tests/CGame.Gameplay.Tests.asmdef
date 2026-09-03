@@ -12,7 +12,8 @@
     "CGame.Pawn",
     "CGame.PlayerController",
     "CGame.CharacterRuntime",
-    "CGame.Gameplay.Editor"
+    "CGame.Gameplay.Editor",
+    "CGame.Network"
   ],
   "optionalUnityReferences": ["TestAssemblies"],
   "includePlatforms": ["Editor"],

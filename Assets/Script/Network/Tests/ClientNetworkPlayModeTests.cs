@@ -193,6 +193,97 @@ namespace CGame.Network.Tests
             }
         }
 
+        [UnityTest]
+        [Category("Network042")]
+        public IEnumerator WorldClient_RequestsFourDiscreteActionsWithoutRecoilAndReceivesAuthorityTerminals()
+        {
+            ClientNetworkDefinition definition = ScriptableObject.CreateInstance<ClientNetworkDefinition>();
+            NetworkTestConfiguration configuration = ScriptableObject.CreateInstance<NetworkTestConfiguration>();
+            configuration.Configure(definition);
+            World world = World.Create(configuration);
+            using var secondClient = new NetworkRpcClient(new LiteNetClientNetworkTransport());
+            var startedActions = new List<NetworkAnimationActionStarted>();
+            var terminalActions = new List<NetworkAnimationActionTerminal>();
+            try
+            {
+                world.InitializeAsync().GetAwaiter().GetResult();
+                world.StartPlay();
+                ClientNetworkSubSystem firstClient = world.GetSubSystem<ClientNetworkSubSystem>();
+                firstClient.AnimationActionStartedReceived += startedActions.Add;
+                firstClient.AnimationActionTerminalReceived += terminalActions.Add;
+                yield return TickUntil(world, secondClient, () => firstClient.IsHelloComplete, 6f);
+
+                Task<CreateRoomResponse> createTask = firstClient.CreateRoomAsync("network-042");
+                yield return TickUntil(world, secondClient, () => createTask.IsCompleted, 6f);
+                Assert.That(createTask.IsFaulted, Is.False);
+                string roomId = createTask.Result.RoomId;
+
+                secondClient.Connect("127.0.0.1", 29000, "fps-v1");
+                yield return TickUntil(world, secondClient, () => secondClient.IsConnected, 6f);
+                Task<NetworkRpcResponse> joinTask = secondClient.RequestAsync(
+                    NetworkMessageId.JoinRoomRequest,
+                    NetworkMessageSerializer.Serialize(new JoinRoomRequest { RoomId = roomId }),
+                    System.TimeSpan.FromSeconds(5));
+                yield return TickUntil(world, secondClient, () => joinTask.IsCompleted, 6f);
+                Assert.That(joinTask.IsFaulted, Is.False);
+
+                Task<SetReadyResponse> firstReadyTask = firstClient.SetReadyAsync(roomId, true);
+                yield return TickUntil(world, secondClient, () => firstReadyTask.IsCompleted, 6f);
+                Task<NetworkRpcResponse> secondReadyTask = secondClient.RequestAsync(
+                    NetworkMessageId.SetReadyRequest,
+                    NetworkMessageSerializer.Serialize(new SetReadyRequest { RoomId = roomId, IsReady = true }),
+                    System.TimeSpan.FromSeconds(10));
+                yield return TickUntil(world, secondClient, () => secondReadyTask.IsCompleted, 10f);
+                Assert.That(secondReadyTask.IsFaulted, Is.False);
+                yield return TickUntil(world, secondClient, () =>
+                    firstClient.ClientWorld.MatchId > 0 && firstClient.ClientWorld.ControlledPawnId > 0, 10f);
+
+                long pawnId = firstClient.ClientWorld.ControlledPawnId;
+                long revision = firstClient.ClientWorld.Pawns.Single(pawn => pawn.PawnId == pawnId).PossessionRevision;
+                foreach (NetworkAnimationActionKind actionKind in new[]
+                         {
+                             NetworkAnimationActionKind.Equip,
+                             NetworkAnimationActionKind.Melee,
+                             NetworkAnimationActionKind.Reload,
+                             NetworkAnimationActionKind.Unequip
+                         })
+                {
+                    Task<NetworkAnimationActionStarted> request = firstClient.SendAnimationActionRequestAsync(
+                        new NetworkAnimationActionRequest
+                        {
+                            PawnId = pawnId,
+                            PossessionRevision = revision,
+                            PredictionNonce = (long)actionKind,
+                            ActionKind = actionKind,
+                            VariantId = actionKind.ToString(),
+                            EquipmentInstanceId = 9
+                        });
+                    yield return TickUntil(world, secondClient, () => request.IsCompleted, 10f);
+                    Assert.That(request.IsFaulted, Is.False, request.Exception?.GetBaseException().Message);
+                    long sequence = request.Result.ActionSequence;
+                    yield return TickUntil(world, secondClient, () =>
+                        terminalActions.Any(terminal => terminal.ActionSequence == sequence &&
+                            terminal.TerminalKind == NetworkAnimationActionTerminalKind.Ended), 10f);
+                }
+
+                Assert.That(startedActions.Select(action => action.ActionKind), Is.EqualTo(new[]
+                {
+                    NetworkAnimationActionKind.Equip,
+                    NetworkAnimationActionKind.Melee,
+                    NetworkAnimationActionKind.Reload,
+                    NetworkAnimationActionKind.Unequip
+                }));
+                Assert.That(startedActions.Any(action => action.ActionKind == NetworkAnimationActionKind.Recoil), Is.False);
+                Assert.That(terminalActions.Count(terminal => terminal.TerminalKind == NetworkAnimationActionTerminalKind.Committed), Is.EqualTo(1));
+            }
+            finally
+            {
+                world.ShutdownAsync().GetAwaiter().GetResult();
+                Object.DestroyImmediate(configuration);
+                Object.DestroyImmediate(definition);
+            }
+        }
+
         private static IEnumerator TickUntil(
             World world,
             NetworkRpcClient secondClient,

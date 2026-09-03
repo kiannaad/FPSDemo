@@ -1,4 +1,5 @@
 using Fps.ServerHost.DedicatedServer;
+using Fps.ServerNet.Matches;
 using NUnit.Framework;
 using System.Net;
 using System.Text;
@@ -275,6 +276,83 @@ public sealed class DedicatedServerProcessManagerTests
         Assert.That(process.StopCount, Is.EqualTo(1));
         Assert.That(process.DisposeCount, Is.EqualTo(1));
         Assert.That(manager.ActiveMatchCount, Is.Zero);
+    }
+
+    [Test]
+    public void MatchPhysicsServerLifecycle_WhenDedicatedRosterIsMissing_StopsAndRejectsMatch()
+    {
+        var process = new RecordingDedicatedServerProcess();
+        var manager = new DedicatedServerProcessManager(
+            new SingleProcessFactory(process),
+            new ReadyHealthProbe(new DedicatedServerHealth(
+                DedicatedServerHealthStatus.PhysicsReady,
+                17,
+                31000,
+                31001,
+                "SampleScene",
+                "v1",
+                2,
+                1,
+                null)));
+        var lifecycle = new MatchPhysicsServerLifecycle(
+            manager,
+            "dedicated-server.exe",
+            "SampleScene",
+            "v1",
+            TimeSpan.FromSeconds(1),
+            "dedicated-logs",
+            new Queue<int>(new[] { 31000, 31001 }).Dequeue);
+
+        Func<Task> startMatch = () => lifecycle.StartAsync(
+            new MatchPhysicsServerRequest(17, new[]
+            {
+                new MatchPhysicsPawn(100, 1, 1, "PlayerPoint 1", "connection-a"),
+                new MatchPhysicsPawn(200, 2, 1, "PlayerPoint 2", "connection-b")
+            }),
+            CancellationToken.None);
+        Assert.ThrowsAsync<InvalidDataException>(startMatch);
+        Assert.That(process.StopCount, Is.EqualTo(1));
+        Assert.That(manager.ActiveMatchCount, Is.Zero);
+    }
+
+    [Test]
+    public async Task MatchPhysicsServerLifecycle_WithThreeDedicatedTargets_ReturnsVerifiedRoster()
+    {
+        string[] targetIds = { "EnemyPoint 1", "EnemyPoint 2", "EnemyPoint 3" };
+        var process = new RecordingDedicatedServerProcess();
+        var manager = new DedicatedServerProcessManager(
+            new SingleProcessFactory(process),
+            new ReadyHealthProbe(new DedicatedServerHealth(
+                DedicatedServerHealthStatus.PhysicsReady,
+                17,
+                31000,
+                31001,
+                "SampleScene",
+                "v1",
+                2,
+                1,
+                null,
+                targetIds)));
+        var lifecycle = new MatchPhysicsServerLifecycle(
+            manager,
+            "dedicated-server.exe",
+            "SampleScene",
+            "v1",
+            TimeSpan.FromSeconds(1),
+            "dedicated-logs",
+            new Queue<int>(new[] { 31000, 31001 }).Dequeue);
+
+        MatchPhysicsServerReady ready = await lifecycle.StartAsync(
+            new MatchPhysicsServerRequest(17, new[]
+            {
+                new MatchPhysicsPawn(100, 1, 1, "PlayerPoint 1", "connection-a"),
+                new MatchPhysicsPawn(200, 2, 1, "PlayerPoint 2", "connection-b")
+            }),
+            CancellationToken.None);
+
+        Assert.That(ready.TargetIds, Is.EqualTo(targetIds));
+        await lifecycle.StopAsync(17, CancellationToken.None);
+        Assert.That(process.StopCount, Is.EqualTo(1));
     }
 
     private static DedicatedServerLaunchRequest CreateRequest(TimeSpan? readyTimeout = null) => new(

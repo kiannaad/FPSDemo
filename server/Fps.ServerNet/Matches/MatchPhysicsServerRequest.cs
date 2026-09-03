@@ -14,4 +14,5 @@ public sealed record MatchPhysicsServerRequest(
 public sealed record MatchPhysicsServerReady(
     long MatchId,
     string DataEndpoint,
-    string CredentialId);
+    string CredentialId,
+    IReadOnlyList<string>? TargetIds = null);

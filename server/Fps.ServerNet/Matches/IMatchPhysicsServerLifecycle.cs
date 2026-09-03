@@ -38,4 +38,5 @@ public sealed record AuthorityFireQueryResult(
     float NormalY,
     float NormalZ,
     string SurfaceId,
-    string? Failure);
+    string? Failure,
+    string? TargetId = null);

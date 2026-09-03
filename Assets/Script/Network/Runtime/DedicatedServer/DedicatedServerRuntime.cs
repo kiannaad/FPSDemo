@@ -21,6 +21,9 @@ namespace CGame.Network
             new Dictionary<long, AuthorityMoveInbox>();
         private readonly ConcurrentQueue<FireQueryOperation> pendingFireQueries =
             new ConcurrentQueue<FireQueryOperation>();
+        private readonly DedicatedTargetIdentityRegistry targetIdentityRegistry =
+            new DedicatedTargetIdentityRegistry();
+        private readonly List<GameObject> dedicatedTargetRoots = new List<GameObject>();
         private DedicatedServerLaunchConfiguration launch;
         private DedicatedServerHealthServer healthServer;
         private DedicatedDataServer dataServer;
@@ -68,6 +71,7 @@ namespace CGame.Network
             if (loadLevel)
             {
                 levelScene = await LoadLevelAsync(launch.LevelId);
+                Debug.Log($"[DedicatedServer][047] LevelLoaded MatchId={launch.MatchId} Scene={levelScene.name}");
             }
             else
             {
@@ -78,10 +82,12 @@ namespace CGame.Network
                 throw new InvalidOperationException("Dedicated bootstrap configuration is incompatible.");
             if (dedicatedBootstrap != null)
             {
+                DisableLevelBehaviours(levelScene);
                 var dedicatedConfiguration = ScriptableObject.CreateInstance<DedicatedServerWorldConfiguration>();
                 dedicatedConfiguration.Initialize(dedicatedBootstrap, levelScene);
                 world = World.Create(dedicatedConfiguration);
                 physics = world.GetSubSystem<CharacterPhysicsSubSystem>();
+                Debug.Log($"[DedicatedServer][047] WorldCreated MatchId={launch.MatchId}");
             }
             else
             {
@@ -89,6 +95,9 @@ namespace CGame.Network
                 world = World.Create(new WorldSubSystem[] { physics });
             }
             await world.InitializeAsync();
+            Debug.Log($"[DedicatedServer][047] WorldInitialized MatchId={launch.MatchId}");
+            if (dedicatedBootstrap != null) SpawnDedicatedTargets(dedicatedBootstrap.DedicatedTargetSpawnDefinition);
+            Debug.Log($"[DedicatedServer][047] TargetsSpawned MatchId={launch.MatchId} Count={targetIdentityRegistry.TargetIds.Count}");
 
             foreach (DedicatedAuthorityPawnConfiguration pawnConfiguration in launch.AuthorityPawns)
             {
@@ -102,7 +111,7 @@ namespace CGame.Network
                 if (dedicatedBootstrap != null)
                 {
                     SpawnPointStatus spawn = world.LevelRuntime.GetStatus(pawnConfiguration.SpawnPointId);
-                    pawn = await new PawnFactory().CreateRemoteAsync(
+                    pawn = CreateDedicatedAuthorityPawn(
                         dedicatedBootstrap.PlayerPawnDefinition,
                         spawn.Transform.position,
                         spawn.Transform.rotation,
@@ -115,7 +124,9 @@ namespace CGame.Network
                     fallbackTransform = root.transform;
                 }
                 authorityPawns.Add(pawn);
+                Debug.Log($"[DedicatedServer][047] AuthorityPawnReady MatchId={launch.MatchId} PawnId={pawnConfiguration.PawnId}");
                 pawnRegistrations.Add(world.RegisterActor(pawn, critical: true));
+                Debug.Log($"[DedicatedServer][047] AuthorityPawnRegistered MatchId={launch.MatchId} PawnId={pawnConfiguration.PawnId}");
                 IAuthorityMoveSimulation simulation;
                 if (dedicatedBootstrap != null)
                 {
@@ -123,6 +134,7 @@ namespace CGame.Network
                     motorSimulations.Add(pawnConfiguration.PawnId, motorSimulation);
                     pendingMovesByPawnId.Add(pawnConfiguration.PawnId, new AuthorityMoveInbox());
                     simulation = motorSimulation;
+                    Debug.Log($"[DedicatedServer][047] AuthorityPawnSimulationReady MatchId={launch.MatchId} PawnId={pawnConfiguration.PawnId}");
                 }
                 else
                 {
@@ -138,7 +150,49 @@ namespace CGame.Network
                     positionErrorThresholdMillimeters: 50));
             }
 
+            Debug.Log($"[DedicatedServer][047] WorldStartPlayRequested MatchId={launch.MatchId}");
             world.StartPlay();
+            Debug.Log($"[DedicatedServer][047] WorldPlaying MatchId={launch.MatchId}");
+        }
+
+        private static Pawn CreateDedicatedAuthorityPawn(
+            PawnDefinition definition,
+            Vector3 position,
+            Quaternion rotation,
+            NetworkPawnBinding binding)
+        {
+            if (definition == null || definition.PawnPrefab == null)
+                throw new InvalidOperationException("Dedicated authority PawnDefinition must specify a PawnPrefab.");
+
+            GameObject root = null;
+            try
+            {
+                root = Instantiate(definition.PawnPrefab, position, rotation);
+                root.name = $"DedicatedAuthorityPawn:{definition.name}";
+                root.SetActive(false);
+                foreach (Camera camera in root.GetComponentsInChildren<Camera>(true))
+                    camera.enabled = false;
+                foreach (AudioListener listener in root.GetComponentsInChildren<AudioListener>(true))
+                    listener.enabled = false;
+
+                CharacterPhysicsMotor motor = root.GetComponent<CharacterPhysicsMotor>();
+                if (motor == null)
+                    throw new InvalidOperationException("Dedicated authority PawnPrefab requires a CharacterPhysicsMotor.");
+                foreach (Behaviour behaviour in root.GetComponentsInChildren<Behaviour>(true))
+                {
+                    behaviour.enabled = behaviour is CharacterPhysicsMotor;
+                }
+                return new Pawn(root, new ActorComponent[]
+                {
+                    new PawnMovementComponent(motor),
+                    binding
+                });
+            }
+            catch
+            {
+                if (root != null) Destroy(root);
+                throw;
+            }
         }
 
         private static Task<Scene> LoadLevelAsync(string levelId)
@@ -150,11 +204,23 @@ namespace CGame.Network
             }
 
             var completion = new TaskCompletionSource<Scene>();
-            operation.completed += _ => completion.TrySetResult(SceneManager.GetSceneByName(levelId));
+            Debug.Log($"[DedicatedServer][047] LevelLoadRequested Scene={levelId} IsDone={operation.isDone}");
+            if (operation.isDone)
+            {
+                completion.TrySetResult(SceneManager.GetSceneByName(levelId));
+            }
+            else
+            {
+                operation.completed += _ =>
+                {
+                    Debug.Log($"[DedicatedServer][047] LevelLoadCompleted Scene={levelId}");
+                    completion.TrySetResult(SceneManager.GetSceneByName(levelId));
+                };
+            }
             return completion.Task;
         }
 
-        private void FixedUpdate()
+        private void Update()
         {
             dataServer?.PollEvents();
             ProcessFireQueries();
@@ -202,7 +268,7 @@ namespace CGame.Network
                 movesForTick.Add(new KeyValuePair<long, AcceptedAuthorityMove>(entry.Key, pending));
                 motorSimulations[entry.Key].ApplyControlIntent(pending.Move);
             }
-            world.FixedTick(Time.fixedDeltaTime);
+            world.FixedTick(CharacterPhysicsSubSystem.FixedStepSeconds);
             foreach (KeyValuePair<long, AcceptedAuthorityMove> entry in movesForTick)
             {
                 DedicatedMotorMoveSimulation simulation = motorSimulations[entry.Key];
@@ -238,6 +304,69 @@ namespace CGame.Network
             {
                 world.ShutdownAsync().GetAwaiter().GetResult();
             }
+            for (int index = dedicatedTargetRoots.Count - 1; index >= 0; index--)
+            {
+                if (dedicatedTargetRoots[index] != null) Destroy(dedicatedTargetRoots[index]);
+            }
+            dedicatedTargetRoots.Clear();
+        }
+
+        private void SpawnDedicatedTargets(DedicatedTargetSpawnDefinition definition)
+        {
+            if (definition == null) throw new InvalidOperationException("Dedicated target spawn definition is missing.");
+            IReadOnlyList<SpawnPointReservation> reservations = world.LevelRuntime.ReserveRandomEnemyPoints(
+                definition.Count,
+                new System.Random(20260830));
+            try
+            {
+                for (int index = 0; index < reservations.Count; index++)
+                {
+                    SpawnPointReservation reservation = reservations[index];
+                    GameObject target = Instantiate(
+                        definition.Prefab,
+                        reservation.Transform.position,
+                        reservation.Transform.rotation);
+                    target.name = $"DedicatedTarget-{reservation.PointId}";
+                    foreach (Behaviour behaviour in target.GetComponentsInChildren<Behaviour>(true))
+                    {
+                        behaviour.enabled = false;
+                    }
+                    targetIdentityRegistry.Register(reservation.PointId, target);
+                    dedicatedTargetRoots.Add(target);
+                }
+            }
+            catch
+            {
+                for (int index = dedicatedTargetRoots.Count - 1; index >= 0; index--)
+                    if (dedicatedTargetRoots[index] != null) DestroyImmediate(dedicatedTargetRoots[index]);
+                dedicatedTargetRoots.Clear();
+                throw;
+            }
+            finally
+            {
+                for (int index = reservations.Count - 1; index >= 0; index--) reservations[index].Dispose();
+            }
+        }
+
+        private static void DisableLevelBehaviours(Scene levelScene)
+        {
+            if (!levelScene.IsValid() || !levelScene.isLoaded)
+            {
+                throw new InvalidOperationException("Dedicated Server level is not loaded.");
+            }
+
+            int disabledCount = 0;
+            foreach (GameObject root in levelScene.GetRootGameObjects())
+            {
+                foreach (Behaviour behaviour in root.GetComponentsInChildren<Behaviour>(true))
+                {
+                    if (!behaviour.enabled) continue;
+                    behaviour.enabled = false;
+                    disabledCount++;
+                }
+            }
+
+            Debug.Log($"[DedicatedServer][047] LevelBehavioursDisabled Scene={levelScene.name} Count={disabledCount}");
         }
 
         private Task<DedicatedFireQueryResult> QueueFireQueryAsync(DedicatedFireQueryRequest request)
@@ -284,7 +413,8 @@ namespace CGame.Network
                     NormalX = hit ? raycastHit.normal.x : 0f,
                     NormalY = hit ? raycastHit.normal.y : 0f,
                     NormalZ = hit ? raycastHit.normal.z : 0f,
-                    SurfaceId = hit ? (raycastHit.collider.sharedMaterial?.name ?? raycastHit.collider.name) : string.Empty
+                    SurfaceId = hit ? (raycastHit.collider.sharedMaterial?.name ?? raycastHit.collider.name) : string.Empty,
+                    TargetId = hit ? targetIdentityRegistry.Resolve(raycastHit.collider) : null
                 });
             }
         }
@@ -361,6 +491,7 @@ namespace CGame.Network
                 contentVersion = launch.ContentVersion,
                 authorityPawnCount = authorityPawns.Count,
                 fixedStepCount = FixedStepCount,
+                targetIds = new List<string>(targetIdentityRegistry.TargetIds).ToArray(),
                 failure = failure
             };
         }

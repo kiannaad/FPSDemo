@@ -13,6 +13,7 @@ namespace CGame
         public float MaxHealth => healthSet?.MaxHealth.CurrentValue ?? 0f;
         public bool IsBound => healthSet != null;
         public bool IsDead { get; private set; }
+        public long AppliedAuthoritativeRevision { get; private set; } = -1;
 
         public event Action<float, float> HealthChanged;
         public event Action DeathStarted;
@@ -36,6 +37,7 @@ namespace CGame
             abilitySystem = targetAbilitySystem;
             healthSet = targetHealthSet;
             IsDead = healthSet.Health.CurrentValue <= 0f;
+            AppliedAuthoritativeRevision = -1;
             healthSet.HealthChanged += OnHealthChanged;
             healthSet.OutOfHealth += OnOutOfHealth;
         }
@@ -51,6 +53,21 @@ namespace CGame
             abilitySystem = null;
             healthSet = null;
             IsDead = false;
+            AppliedAuthoritativeRevision = -1;
+        }
+
+        public bool ApplyAuthoritativeState(float health, float maxHealth, long revision, bool isDead)
+        {
+            if (healthSet == null) throw new InvalidOperationException("HealthComponent must be bound before applying authority state.");
+            if (revision <= AppliedAuthoritativeRevision) return false;
+            if (IsDead) return false;
+            if (float.IsNaN(health) || float.IsInfinity(health) ||
+                float.IsNaN(maxHealth) || float.IsInfinity(maxHealth) ||
+                maxHealth < 0f || health < 0f || health > maxHealth || (isDead && health != 0f))
+                throw new ArgumentOutOfRangeException(nameof(health));
+            AppliedAuthoritativeRevision = revision;
+            healthSet.ApplyAuthoritativeState(health, maxHealth, isDead);
+            return true;
         }
 
         protected override void OnShutdown()

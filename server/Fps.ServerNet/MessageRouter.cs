@@ -162,7 +162,8 @@ public sealed class MessageRouter
             return messages;
         }
         long matchId = checked(++nextMatchId);
-        animationMatchesById.Add(matchId, new ActiveAnimationMatch(players, room.ConnectionIds));
+        IReadOnlyList<string> targetIds = physicsReady!.TargetIds ?? throw new InvalidDataException("Dedicated target roster is missing.");
+        animationMatchesById.Add(matchId, new ActiveAnimationMatch(players, room.ConnectionIds, targetIds));
         foreach (ServerPlayer player in players)
         {
             Console.WriteLine($"[Server][034] MatchStarted MatchId={matchId} ConnectionId={player.ConnectionId} PlayerId={player.PlayerId} ControlledPawnId={player.ControlledPawnId}");
@@ -182,6 +183,10 @@ public sealed class MessageRouter
                 0,
                 physicsReady.DataEndpoint,
                 dataCredential)));
+            ActiveAnimationMatch activeMatch = animationMatchesById[matchId];
+            messages.Add(Event(targetConnectionId, matchId, MessageId.TargetStateSnapshot,
+                new TargetStateSnapshotMessage(activeMatch.Targets.Snapshot().Select(state =>
+                    new TargetStateMessage(state.TargetId, state.Revision, state.Health, state.MaxHealth, state.IsDead, 0, 0)).ToArray())));
         }
 
         return messages;
@@ -328,6 +333,19 @@ public sealed class MessageRouter
             };
             foreach (string target in match.ConnectionIds)
                 if (target != connectionId) messages.Add(Event(target, header.MatchId, MessageId.FireCommitted, committed));
+            AuthorityTargetStateChange? targetChange = resolution.IsReplay
+                ? null
+                : match.Targets.ApplyAcceptedHit(query?.TargetId, committed.PawnId, committed.ShotSequence, 20f);
+            if (targetChange is not null)
+            {
+                AuthorityTargetState state = targetChange.State;
+                var targetMessage = new TargetStateMessage(
+                    state.TargetId, state.Revision, state.Health, state.MaxHealth, state.IsDead,
+                    targetChange.CausingPawnId, targetChange.CausingShotSequence);
+                foreach (string target in match.ConnectionIds)
+                    messages.Add(Event(target, header.MatchId, MessageId.TargetStateChanged, targetMessage));
+                Console.WriteLine($"[Server][048] TargetStateChanged MatchId={header.MatchId} TargetId={state.TargetId} PawnId={committed.PawnId} ShotSequence={committed.ShotSequence} Revision={state.Revision} Health={state.Health}");
+            }
             Console.WriteLine($"[Server][045] FireCommitted MatchId={header.MatchId} PawnId={committed.PawnId} ShotSequence={committed.ShotSequence} Magazine={committed.AuthoritativeMagazineAmmo} Hit={committed.HasImpact} ImpactId={committed.ImpactId} Surface={committed.SurfaceId}");
             return messages;
         }
@@ -342,7 +360,7 @@ public sealed class MessageRouter
         public Task<MatchPhysicsServerReady> StartAsync(
             MatchPhysicsServerRequest request,
             CancellationToken cancellationToken) => Task.FromResult(
-                new MatchPhysicsServerReady(request.MatchId, "loopback", "development"));
+                new MatchPhysicsServerReady(request.MatchId, "loopback", "development", new[] { "target-a", "target-b", "target-c" }));
 
         public Task StopAsync(long matchId, CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -355,7 +373,7 @@ public sealed class MessageRouter
 
     private sealed class ActiveAnimationMatch
     {
-        public ActiveAnimationMatch(IEnumerable<ServerPlayer> players, IEnumerable<string> connectionIds)
+        public ActiveAnimationMatch(IEnumerable<ServerPlayer> players, IEnumerable<string> connectionIds, IEnumerable<string> targetIds)
         {
             Players = players.ToArray();
             ConnectionIds = connectionIds.ToArray();
@@ -364,6 +382,7 @@ public sealed class MessageRouter
                 EquipmentByPawnId.Add(player.ControlledPawnId, new AuthorityActionEquipmentState());
                 FireByPawnId.Add(player.ControlledPawnId, new AuthorityFireProcessor());
             }
+            Targets = AuthorityTargetRegistry.Create(targetIds.Select(targetId => new AuthorityTargetDefinition(targetId, 60f)));
         }
 
         public ServerPlayer[] Players { get; }
@@ -371,6 +390,7 @@ public sealed class MessageRouter
         public AuthorityAnimationActionTimeline Timeline { get; } = new();
         public Dictionary<long, AuthorityActionEquipmentState> EquipmentByPawnId { get; } = new();
         public Dictionary<long, AuthorityFireProcessor> FireByPawnId { get; } = new();
+        public AuthorityTargetRegistry Targets { get; }
         public long AuthorityTick { get; set; }
     }
 

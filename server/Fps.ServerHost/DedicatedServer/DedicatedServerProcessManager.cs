@@ -170,7 +170,8 @@ public sealed class DedicatedServerProcessManager
             result.NormalY,
             result.NormalZ,
             result.SurfaceId ?? string.Empty,
-            result.Failure);
+            result.Failure,
+            result.TargetId);
     }
 
     private async Task StopAndDisposeAsync(IDedicatedServerProcess? process)
@@ -243,5 +244,6 @@ internal sealed class DedicatedFireQueryHttpResult
     public float NormalY { get; set; }
     public float NormalZ { get; set; }
     public string? SurfaceId { get; set; }
+    public string? TargetId { get; set; }
     public string? Failure { get; set; }
 }

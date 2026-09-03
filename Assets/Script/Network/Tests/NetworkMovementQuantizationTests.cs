@@ -44,6 +44,9 @@ namespace CGame.Network.Tests
         [TestCase(NetworkMessageId.PawnMove, NetworkDelivery.UnreliableSequenced)]
         [TestCase(NetworkMessageId.OwnerReconcile, NetworkDelivery.UnreliableSequenced)]
         [TestCase(NetworkMessageId.AuthoritySnapshot, NetworkDelivery.UnreliableSequenced)]
+        [TestCase(NetworkMessageId.FireRequest, NetworkDelivery.ReliableOrdered)]
+        [TestCase(NetworkMessageId.FireCommitted, NetworkDelivery.ReliableOrdered)]
+        [TestCase(NetworkMessageId.FireRejected, NetworkDelivery.ReliableOrdered)]
         public void DeliveryPolicy_MapsControlAndPhysicsDataPlanes(
             NetworkMessageId messageId,
             NetworkDelivery expected)

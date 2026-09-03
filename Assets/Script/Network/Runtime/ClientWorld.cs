@@ -77,11 +77,6 @@ namespace CGame.Network
                 || !pawnsById.TryGetValue(pending.PawnId, out ClientPawnState pawn)) return;
             pendingPossessionsByPlayerId.Remove(playerId);
             appliedPossessionRevisionsByPlayerId[playerId] = pending.Revision;
-            if (ControlledPawnId != 0 && pawnsById.TryGetValue(ControlledPawnId, out ClientPawnState previousPawn))
-            {
-                previousPawn.IsLocallyControlled = false;
-                previousPawn.Role = NetworkPawnRole.RemoteSimulated;
-            }
             pawn.PossessionRevision = pending.Revision;
             pawn.IsLocallyControlled = playerId == LocalPlayerId;
             pawn.Role = pawn.IsLocallyControlled
@@ -89,6 +84,11 @@ namespace CGame.Network
                 : NetworkPawnRole.RemoteSimulated;
             if (pawn.IsLocallyControlled)
             {
+                if (ControlledPawnId != 0 && pawnsById.TryGetValue(ControlledPawnId, out ClientPawnState previousPawn))
+                {
+                    previousPawn.IsLocallyControlled = false;
+                    previousPawn.Role = NetworkPawnRole.RemoteSimulated;
+                }
                 ControlledPawnId = pawn.PawnId;
                 OwnerPossessionApplied?.Invoke(pawn);
             }

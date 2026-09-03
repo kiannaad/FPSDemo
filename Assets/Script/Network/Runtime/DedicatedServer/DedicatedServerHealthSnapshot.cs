@@ -13,6 +13,7 @@ namespace CGame.Network
         public string contentVersion;
         public int authorityPawnCount;
         public long fixedStepCount;
+        public string[] targetIds;
         public string failure;
     }
 }

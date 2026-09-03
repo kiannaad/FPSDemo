@@ -26,6 +26,19 @@ namespace CGame.Ability.Attributes
         public event Action<float, float> HealthChanged;
         public event Action OutOfHealth;
 
+        public void ApplyAuthoritativeState(float health, float maxHealth, bool isDead)
+        {
+            if (float.IsNaN(health) || float.IsInfinity(health) || float.IsNaN(maxHealth) || float.IsInfinity(maxHealth) || maxHealth < 0f)
+                throw new ArgumentOutOfRangeException(nameof(health));
+            float oldHealth = Health.CurrentValue;
+            float resolvedHealth = isDead ? 0f : Math.Max(0f, Math.Min(maxHealth, health));
+            MaxHealth.SetBaseAndCurrentValue(maxHealth);
+            Health.SetBaseAndCurrentValue(resolvedHealth);
+            Damage.SetBaseAndCurrentValue(0f);
+            if (oldHealth != resolvedHealth) HealthChanged?.Invoke(oldHealth, resolvedHealth);
+            if (oldHealth > 0f && resolvedHealth <= 0f) OutOfHealth?.Invoke();
+        }
+
         protected internal override void PostGameplayEffectExecute(
             GameplayAttribute attribute,
             GameplayEffectContext context,

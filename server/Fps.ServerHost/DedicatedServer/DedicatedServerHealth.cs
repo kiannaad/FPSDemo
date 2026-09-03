@@ -16,4 +16,5 @@ public sealed record DedicatedServerHealth(
     string ContentVersion,
     int AuthorityPawnCount,
     long FixedStepCount,
-    string? Failure);
+    string? Failure,
+    IReadOnlyList<string>? TargetIds = null);

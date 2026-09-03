@@ -30,6 +30,8 @@ namespace CGame.Network
         public event Action<NetworkAnimationActionTerminal> AnimationActionTerminalReceived;
         public event Action<FireCommitted> FireCommittedReceived;
         public event Action<FireRejected> FireRejectedReceived;
+        public event Action<TargetStateMessage> TargetStateChangedReceived;
+        public event Action<TargetStateSnapshotMessage> TargetStateSnapshotReceived;
 
         protected override Task OnInitializeAsync(CancellationToken cancellationToken)
         {
@@ -169,6 +171,12 @@ namespace CGame.Network
                 case NetworkMessageId.FireRejected:
                     FireRejectedReceived?.Invoke(NetworkMessageSerializer.Deserialize<FireRejected>(response.Payload));
                     break;
+                case NetworkMessageId.TargetStateChanged:
+                    TargetStateChangedReceived?.Invoke(MessagePackSerializer.Deserialize<TargetStateMessage>(response.Payload));
+                    break;
+                case NetworkMessageId.TargetStateSnapshot:
+                    TargetStateSnapshotReceived?.Invoke(MessagePackSerializer.Deserialize<TargetStateSnapshotMessage>(response.Payload));
+                    break;
                 default:
                     throw new InvalidOperationException($"Unexpected Fire response: {response.Header.MessageId}.");
             }
@@ -223,6 +231,12 @@ namespace CGame.Network
                     break;
                 case NetworkMessageId.FireRejected:
                     FireRejectedReceived?.Invoke(NetworkMessageSerializer.Deserialize<FireRejected>(response.Payload));
+                    break;
+                case NetworkMessageId.TargetStateChanged:
+                    TargetStateChangedReceived?.Invoke(MessagePackSerializer.Deserialize<TargetStateMessage>(response.Payload));
+                    break;
+                case NetworkMessageId.TargetStateSnapshot:
+                    TargetStateSnapshotReceived?.Invoke(MessagePackSerializer.Deserialize<TargetStateSnapshotMessage>(response.Payload));
                     break;
             }
         }

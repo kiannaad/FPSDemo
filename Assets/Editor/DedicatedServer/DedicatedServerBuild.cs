@@ -34,7 +34,17 @@ namespace CGame.Editor
                 subtarget = (int)StandaloneBuildSubtarget.Server,
                 options = BuildOptions.Development
             };
-            BuildReport report = BuildPipeline.BuildPlayer(options);
+            bool previousRunInBackground = PlayerSettings.runInBackground;
+            BuildReport report;
+            try
+            {
+                PlayerSettings.runInBackground = true;
+                report = BuildPipeline.BuildPlayer(options);
+            }
+            finally
+            {
+                PlayerSettings.runInBackground = previousRunInBackground;
+            }
             if (report.summary.result != BuildResult.Succeeded)
             {
                 throw new InvalidOperationException(
