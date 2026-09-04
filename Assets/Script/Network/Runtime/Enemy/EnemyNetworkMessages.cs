@@ -23,13 +23,17 @@ namespace CGame.Network
         [Key(4)] public QuantizedVector3WireMessage PlanarVelocity { get; set; }
         [Key(5)] public long PoseDiscontinuitySequence { get; set; }
         [Key(6)] public int Health { get; set; }
+        [Key(7)] public bool IsGrounded { get; set; }
+        [Key(8)] public EnemyBrainState BrainState { get; set; }
+        [Key(9)] public long TargetPawnId { get; set; }
     }
 
     public enum EnemyActionKind : byte
     {
         Fire = 1,
         Hit = 2,
-        Death = 3
+        Death = 3,
+        NoAmmo = 4
     }
 
     [MessagePackObject]

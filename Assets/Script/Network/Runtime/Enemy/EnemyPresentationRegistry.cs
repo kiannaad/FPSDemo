@@ -9,11 +9,13 @@ namespace CGame.Network
         private const float InterpolationSeconds = 0.1f;
         private const float StreamFreezeSeconds = 0.5f;
         private readonly EnemyPresentationCatalog catalog;
+        private readonly IEnemyActionCueSink cueSink;
         private readonly Dictionary<long, Entry> entriesByEnemyId = new Dictionary<long, Entry>();
 
-        public EnemyPresentationRegistry(EnemyPresentationCatalog catalog)
+        public EnemyPresentationRegistry(EnemyPresentationCatalog catalog, IEnemyActionCueSink cueSink = null)
         {
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            this.cueSink = cueSink;
         }
 
         public int Count => entriesByEnemyId.Count;
@@ -42,8 +44,9 @@ namespace CGame.Network
             entry.TargetPosition = snapshot.Position.ToValue().ToMeters();
             entry.TargetRotation = snapshot.Rotation.ToValue().ToQuaternion();
             entry.LastSnapshotReceivedAtSeconds = Time.realtimeSinceStartup;
-            Vector3 velocity = snapshot.PlanarVelocity.ToValue().ToMeters();
-            entry.Presentation?.ApplyMovement(velocity.magnitude, new Vector2(velocity.x, velocity.z));
+            entry.Presentation?.ApplyRemoteAnimationState(
+                RemoteEnemyAnimationState.FromSnapshot(snapshot),
+                Time.deltaTime);
             return true;
         }
 
@@ -63,6 +66,7 @@ namespace CGame.Network
         public bool ApplyAction(EnemyActionEvent action)
         {
             if (action == null || !entriesByEnemyId.TryGetValue(action.EnemyId, out Entry entry)) return false;
+            cueSink?.TryExecute(action, entry.Root);
             if (action.ActionKind == EnemyActionKind.Fire) entry.Presentation?.PlayFire();
             if (action.ActionKind == EnemyActionKind.Hit) entry.Presentation?.PlayHit();
             if (action.ActionKind == EnemyActionKind.Death) Remove(action.EnemyId);

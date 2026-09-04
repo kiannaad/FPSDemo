@@ -10,10 +10,10 @@ namespace CGame.Network.Tests
         {
             var state = new DedicatedPawnCombatState(7, 100, 12, 30, "Default");
 
-            DedicatedPawnVitalsResult hit = state.ApplyEnemyDamage(101, 4, 25);
+            DedicatedPawnVitalsResult hit = DedicatedGameplayEffectApplier.ApplyEnemyDamageEffect(state, 101, 4, 25);
             DedicatedPawnEquipmentResult fire = state.TryConsumeFire(1);
             DedicatedPawnEquipmentResult duplicateFire = state.TryConsumeFire(1);
-            DedicatedPawnVitalsResult duplicate = state.ApplyEnemyDamage(101, 4, 25);
+            DedicatedPawnVitalsResult duplicate = DedicatedGameplayEffectApplier.ApplyEnemyDamageEffect(state, 101, 4, 25);
 
             Assert.That(hit.Health, Is.EqualTo(75));
             Assert.That(hit.VitalsRevision, Is.EqualTo(1));

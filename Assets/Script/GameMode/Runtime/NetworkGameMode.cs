@@ -55,7 +55,9 @@ namespace CGame
             this.playerStateDefinition = playerStateDefinition ?? throw new ArgumentNullException(nameof(playerStateDefinition));
             this.network = network ?? throw new ArgumentNullException(nameof(network));
             this.pawnFactory = pawnFactory ?? new PawnFactory();
-            enemyPresentationRegistry = enemyPresentationCatalog == null ? null : new EnemyPresentationRegistry(enemyPresentationCatalog);
+            enemyPresentationRegistry = enemyPresentationCatalog == null ? null : new EnemyPresentationRegistry(
+                enemyPresentationCatalog,
+                new EnemyGameplayCueBridge());
             movementPrediction = new LocalMovementPredictionCoordinator(network);
             network.ClientWorld.PawnSpawned += OnPawnSpawned;
             network.ClientWorld.OwnerPossessionApplied += OnOwnerPossessionApplied;
@@ -365,6 +367,11 @@ namespace CGame
         {
             if (!enemyReplicationTracker.ApplySpawn(spawned)) return;
             enemyPresentationRegistry?.Spawn(spawned);
+            // A reliable action can arrive before its entity-spawn packet.  The
+            // tracker retains the accepted latest action for that case; replay it
+            // after the presentation root exists instead of silently losing it.
+            if (enemyReplicationTracker.TryGet(spawned.EnemyId, out EnemyReplicationState state) && state.LatestAction != null)
+                enemyPresentationRegistry?.ApplyAction(state.LatestAction);
             Debug.Log($"[Network][051] EnemySpawned MatchId={network.ClientWorld.MatchId} EnemyId={spawned.EnemyId} ArchetypeId={spawned.ArchetypeId} ServerTick={spawned.AuthorityServerTick}");
         }
 

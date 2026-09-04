@@ -15,6 +15,10 @@ namespace CGame.Network
 
         public event Action<NetworkRpcResponse> OwnerReconcileReceived;
         public event Action<NetworkRpcResponse> AuthoritySnapshotReceived;
+        public event Action<NetworkRpcResponse> EnemySpawnedReceived;
+        public event Action<NetworkRpcResponse> EnemySnapshotReceived;
+        public event Action<NetworkRpcResponse> EnemyActionReceived;
+        public event Action<NetworkRpcResponse> OwnerGameplayStateReceived;
         public bool IsConnected => transport.IsConnected;
 
         public void Connect(long targetMatchId, string endpoint, string credential)
@@ -51,6 +55,14 @@ namespace CGame.Network
                 OwnerReconcileReceived?.Invoke(response);
             else if (response.Header.MatchId == matchId && response.Header.MessageId == NetworkMessageId.AuthoritySnapshot)
                 AuthoritySnapshotReceived?.Invoke(response);
+            else if (response.Header.MatchId == matchId && response.Header.MessageId == NetworkMessageId.EnemySpawned)
+                EnemySpawnedReceived?.Invoke(response);
+            else if (response.Header.MatchId == matchId && response.Header.MessageId == NetworkMessageId.EnemySnapshot)
+                EnemySnapshotReceived?.Invoke(response);
+            else if (response.Header.MatchId == matchId && response.Header.MessageId == NetworkMessageId.EnemyAction)
+                EnemyActionReceived?.Invoke(response);
+            else if (response.Header.MatchId == matchId && response.Header.MessageId == NetworkMessageId.OwnerGameplayState)
+                OwnerGameplayStateReceived?.Invoke(response);
         }
 
         private static bool TryParseEndpoint(string endpoint, out string host, out int port)

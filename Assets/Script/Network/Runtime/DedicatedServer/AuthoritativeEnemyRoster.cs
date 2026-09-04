@@ -50,7 +50,7 @@ namespace CGame.Network
             if (entries == null) throw new ArgumentNullException(nameof(entries));
             if (factory == null) throw new ArgumentNullException(nameof(factory));
             if (entities.Count != 0) throw new InvalidOperationException("Authoritative enemy roster can only be created once.");
-            if (entries.Count != 3) throw new InvalidOperationException("Authoritative enemy roster requires exactly three entries.");
+            if (entries.Count == 0) throw new InvalidOperationException("Authoritative enemy roster requires at least one entry.");
 
             var enemyIds = new HashSet<long>();
             var spawnPointIds = new HashSet<string>(StringComparer.Ordinal);

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -13,14 +14,46 @@ namespace CGame.GameplayCue.PlayModeTests
 {
     public sealed class DedicatedServerRuntimePlayModeTests
     {
-        [UnityTest]
-        public IEnumerator StartAsync_CreatesAuthorityPawnsAndAdvancesSixtyHertzPhysics()
+        [UnityTearDown]
+        public IEnumerator TearDown()
         {
+            yield return StopSceneWorlds();
+
+            DedicatedServerRuntime[] runtimes = Object.FindObjectsOfType<DedicatedServerRuntime>();
+            foreach (DedicatedServerRuntime runtime in runtimes)
+            {
+                if (runtime != null) Object.Destroy(runtime.gameObject);
+            }
+
+            yield return null;
+        }
+
+        private static IEnumerator StopSceneWorlds()
+        {
+            GameInstance[] gameInstances = Object.FindObjectsOfType<GameInstance>();
+            foreach (GameInstance gameInstance in gameInstances)
+            {
+                if (gameInstance != null)
+                {
+                    gameInstance.ShutdownRuntimeWorld();
+                    Object.Destroy(gameInstance);
+                }
+            }
+
+            yield return null;
+
             if (World.Current != null)
             {
                 Task shutdown = World.Current.ShutdownAsync();
                 while (!shutdown.IsCompleted) yield return null;
             }
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator StartAsync_CreatesAuthorityPawnsAndAdvancesSixtyHertzPhysics()
+        {
+            yield return StopSceneWorlds();
 
             var launch = new DedicatedServerLaunchConfiguration(
                 17,
@@ -63,11 +96,7 @@ namespace CGame.GameplayCue.PlayModeTests
         [Category("Network039")]
         public IEnumerator DataPlane_AuthenticatedMove_ReturnsOwnerAck()
         {
-            if (World.Current != null)
-            {
-                Task shutdown = World.Current.ShutdownAsync();
-                while (!shutdown.IsCompleted) yield return null;
-            }
+            yield return StopSceneWorlds();
 
             int dataPort = AllocatePort();
             var launch = new DedicatedServerLaunchConfiguration(
@@ -138,11 +167,7 @@ namespace CGame.GameplayCue.PlayModeTests
         [Category("Network038")]
         public IEnumerator FormalBootstrap_CreatesMotorAuthorityWithoutLocalInputOrCamera()
         {
-            if (World.Current != null)
-            {
-                Task shutdown = World.Current.ShutdownAsync();
-                while (!shutdown.IsCompleted) yield return null;
-            }
+            yield return StopSceneWorlds();
 
             AsyncOperation load = SceneManager.LoadSceneAsync("DedicatedServerBootstrap", LoadSceneMode.Additive);
             while (!load.isDone) yield return null;
@@ -167,8 +192,28 @@ namespace CGame.GameplayCue.PlayModeTests
 
             var channel = new ClientMovementNetworkChannel(new LiteNetClientNetworkTransport());
             OwnerReconcile? received = null;
+            var spawnedEnemies = new List<EnemySpawnedEvent>();
+            var snapshotsByEnemyId = new Dictionary<long, List<EnemySnapshotEvent>>();
+            var enemyActions = new List<EnemyActionEvent>();
+            var ownerGameplayStates = new List<OwnerGameplayStateEvent>();
             channel.OwnerReconcileReceived += response =>
                 received = NetworkMessageSerializer.Deserialize<OwnerReconcileWireMessage>(response.Payload).ToValue();
+            channel.EnemySpawnedReceived += response =>
+                spawnedEnemies.Add(NetworkMessageSerializer.Deserialize<EnemySpawnedEvent>(response.Payload));
+            channel.EnemySnapshotReceived += response =>
+            {
+                EnemySnapshotEvent snapshot = NetworkMessageSerializer.Deserialize<EnemySnapshotEvent>(response.Payload);
+                if (!snapshotsByEnemyId.TryGetValue(snapshot.EnemyId, out List<EnemySnapshotEvent> snapshots))
+                {
+                    snapshots = new List<EnemySnapshotEvent>();
+                    snapshotsByEnemyId.Add(snapshot.EnemyId, snapshots);
+                }
+                snapshots.Add(snapshot);
+            };
+            channel.EnemyActionReceived += response =>
+                enemyActions.Add(NetworkMessageSerializer.Deserialize<EnemyActionEvent>(response.Payload));
+            channel.OwnerGameplayStateReceived += response =>
+                ownerGameplayStates.Add(NetworkMessageSerializer.Deserialize<OwnerGameplayStateEvent>(response.Payload));
             channel.Connect(18, $"127.0.0.1:{dataPort}", "formal-credential:100");
             for (int frame = 0; frame < 60 && !channel.IsConnected; frame++)
             {
@@ -176,6 +221,67 @@ namespace CGame.GameplayCue.PlayModeTests
                 yield return new WaitForFixedUpdate();
             }
             Assert.That(channel.IsConnected, Is.True);
+            for (int frame = 0; frame < 150 &&
+                 (spawnedEnemies.Count < 3 || snapshotsByEnemyId.Count < 3 ||
+                  snapshotsByEnemyId.Values.Any(snapshots => snapshots.Count < 2)); frame++)
+            {
+                channel.PollEvents();
+                yield return new WaitForFixedUpdate();
+            }
+            Assert.That(spawnedEnemies, Has.Count.EqualTo(3));
+            Assert.That(spawnedEnemies.ConvertAll(spawned => spawned.ArchetypeId), Is.EquivalentTo(new[]
+            {
+                "Enemy.Pistol", "Enemy.Rifle", "Enemy.Ak"
+            }));
+            Assert.That(snapshotsByEnemyId, Has.Count.EqualTo(3));
+            foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Values)
+                Assert.That(snapshots[snapshots.Count - 1].AuthorityServerTick, Is.GreaterThan(snapshots[0].AuthorityServerTick));
+
+            for (int frame = 0; frame < 180 && snapshotsByEnemyId.Values.Any(snapshots =>
+                     !snapshots.Any(snapshot => snapshot.PlanarVelocity.ToValue().ToMeters().sqrMagnitude > 0.01f)); frame++)
+            {
+                channel.PollEvents();
+                yield return new WaitForFixedUpdate();
+            }
+            foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Values)
+            {
+                bool movedTowardPossessedPawn = snapshots.Any(snapshot =>
+                    snapshot.PlanarVelocity.ToValue().ToMeters().sqrMagnitude > 0.01f);
+                Assert.That(movedTowardPossessedPawn, Is.True,
+                    "Each archetype must receive a server-authoritative Chase motor intent for the possessed Pawn.");
+            }
+
+            for (int frame = 0; frame < 180 &&
+                 (!enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Fire) ||
+                  !enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Hit) ||
+                  !enemyActions.Exists(action => action.ActionKind == EnemyActionKind.NoAmmo) ||
+                  !ownerGameplayStates.Exists(state => state.PawnId == 100 && state.Health < 100)); frame++)
+            {
+                channel.PollEvents();
+                yield return new WaitForFixedUpdate();
+            }
+            Assert.That(enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Fire), Is.True,
+                "Dedicated hitscan must publish a reliable Fire action.");
+            Assert.That(enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Hit), Is.True,
+                "Only a confirmed hitscan target may publish a Hit action.");
+            Assert.That(enemyActions.Exists(action => action.ActionKind == EnemyActionKind.NoAmmo), Is.True,
+                "A depleted enemy magazine must publish NoAmmo exactly through the authoritative action stream.");
+            Assert.That(ownerGameplayStates.Exists(state => state.PawnId == 100 && state.Health < 100 && state.VitalsRevision > 0), Is.True,
+                "Only the Dedicated GameplayEffect result may advance the owner's vitals revision.");
+            foreach (IGrouping<long, EnemyActionEvent> actionsByEnemy in enemyActions.GroupBy(action => action.EnemyId))
+                Assert.That(actionsByEnemy.Select(action => action.ActionSequence), Is.Ordered.Ascending,
+                    "Reliable enemy ActionSequence values must be strictly ordered per enemy.");
+
+            for (int frame = 0; frame < 180 && snapshotsByEnemyId.Values.Any(snapshots =>
+                     !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.NoAmmo)); frame++)
+            {
+                channel.PollEvents();
+                yield return new WaitForFixedUpdate();
+            }
+            foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Values)
+                Assert.That(snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.NoAmmo), Is.True,
+                    "NoAmmo is a stationary terminal state in this V1; Reload is deliberately out of scope.");
+
             channel.Send(new PawnMove(
                 18, 100, 1, 1, System.Math.Max(1, runtime.FixedStepCount),
                 new QuantizedInput(short.MaxValue, 0), new QuantizedView(0, 0), PawnMoveFlags.None,
@@ -189,6 +295,15 @@ namespace CGame.GameplayCue.PlayModeTests
             Assert.That(received.Value.Kind, Is.EqualTo(OwnerReconcileKind.Correction));
             Assert.That(received.Value.Reason, Is.EqualTo("PositionError"));
             Assert.That(received.Value.AuthorityState.Rotation.W, Is.Not.Zero);
+
+            int actionCountAtNoAmmo = enemyActions.Count;
+            for (int frame = 0; frame < 120; frame++)
+            {
+                channel.PollEvents();
+                yield return new WaitForFixedUpdate();
+            }
+            Assert.That(enemyActions.Count, Is.EqualTo(actionCountAtNoAmmo),
+                "NoAmmo must suppress further Fire actions until a future Reload feature exists.");
             channel.Dispose();
             Object.Destroy(root);
             yield return null;

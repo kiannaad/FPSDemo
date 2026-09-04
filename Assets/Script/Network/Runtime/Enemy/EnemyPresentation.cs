@@ -1,4 +1,5 @@
 using System;
+using CGame.Animation;
 using UnityEngine;
 
 namespace CGame.Network
@@ -11,12 +12,18 @@ namespace CGame.Network
         private static readonly int HitParameter = Animator.StringToHash("Hit");
 
         [SerializeField] private Animator animator;
+        private Pawn playbackPawn;
+        private CharacterPlayablesController playablesController;
 
         public Animator Animator => animator;
+        public RemoteEnemyAnimationState RemoteAnimationState { get; private set; }
+        public EnemyActionKind LastConfirmedAction { get; private set; }
+        public bool HasPlayableGraph => playablesController != null && playablesController.IsValid();
 
         public void Configure(Animator value)
         {
             animator = value ?? throw new ArgumentNullException(nameof(value));
+            animator.applyRootMotion = false;
         }
 
         public void ApplyMovement(float speed, Vector2 moveDirection)
@@ -26,21 +33,53 @@ namespace CGame.Network
             animator.SetFloat(MoveDirectionParameter, moveDirection.x);
         }
 
+        public void ApplyRemoteAnimationState(RemoteEnemyAnimationState state, float deltaTime)
+        {
+            RemoteAnimationState = state;
+            ApplyMovement(state.Speed, state.MoveDirection);
+            EnsurePlayableGraph();
+            playablesController?.Update(deltaTime);
+        }
+
         public void PlayFire()
         {
             EnsureAnimator();
+            LastConfirmedAction = EnemyActionKind.Fire;
             animator.SetTrigger(FireParameter);
         }
 
         public void PlayHit()
         {
             EnsureAnimator();
+            LastConfirmedAction = EnemyActionKind.Hit;
             animator.SetTrigger(HitParameter);
         }
 
         private void EnsureAnimator()
         {
             if (animator == null) throw new InvalidOperationException("EnemyPresentation requires an Animator.");
+        }
+
+        private void EnsurePlayableGraph()
+        {
+            if (playablesController != null && playablesController.IsValid()) return;
+            playbackPawn ??= new Pawn(gameObject);
+            playablesController?.Dispose();
+            playablesController = new CharacterPlayablesController(
+                playbackPawn,
+                animator,
+                synchronizeAnimatorParameters: false);
+            if (!playablesController.TryRebuild())
+            {
+                playablesController.Dispose();
+                playablesController = null;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            playablesController?.Dispose();
+            playablesController = null;
         }
     }
 }

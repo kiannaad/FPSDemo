@@ -23,6 +23,7 @@ namespace CGame
         [SerializeField] private GameplayCueSet[] gameplayCueSets;
         [SerializeField] private ClientNetworkDefinition clientNetworkDefinition;
         [SerializeField] private EnemyRosterDefinition enemyRosterDefinition;
+        [SerializeField] private EnemyArchetypeCombatCatalog enemyArchetypeCombatCatalog;
         [SerializeField] private EnemyPresentationCatalog enemyPresentationCatalog;
 
         public override IReadOnlyList<WorldSubSystem> CreateWorldSubSystems()
@@ -98,6 +99,8 @@ namespace CGame
 
         public EnemyRosterDefinition EnemyRosterDefinition => enemyRosterDefinition;
 
+        public EnemyArchetypeCombatCatalog EnemyArchetypeCombatCatalog => enemyArchetypeCombatCatalog;
+
         public DedicatedTargetSpawnDefinition DedicatedTargetSpawnDefinition
         {
             get
@@ -150,6 +153,11 @@ public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
         public void ConfigureEnemyRoster(EnemyRosterDefinition definition)
         {
             enemyRosterDefinition = definition ?? throw new System.ArgumentNullException(nameof(definition));
+        }
+
+        public void ConfigureEnemyArchetypeCombatCatalog(EnemyArchetypeCombatCatalog catalog)
+        {
+            enemyArchetypeCombatCatalog = catalog ?? throw new System.ArgumentNullException(nameof(catalog));
         }
 
         public void ConfigureEnemyPresentationCatalog(EnemyPresentationCatalog catalog)

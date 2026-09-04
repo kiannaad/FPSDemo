@@ -1,3 +1,4 @@
+using System.IO;
 using NUnit.Framework;
 using UnityEngine;
 using System.Linq;
@@ -44,6 +45,55 @@ namespace CGame.Network.Tests
 
             registry.Tick(0.1f, Time.realtimeSinceStartup + 0.6f);
             Assert.That(instance.transform.position.x, Is.EqualTo(5f).Within(0.01f));
+            Assert.That(instance.RemoteAnimationState.IsMoving, Is.False);
+        }
+
+        [Test]
+        public void RemoteEnemyAnimationState_MapsSnapshotVelocityFacingAndGrounding()
+        {
+            var snapshot = new EnemySnapshotEvent
+            {
+                EnemyId = 1,
+                AuthorityServerTick = 4,
+                Rotation = QuantizedQuaternionWireMessage.FromValue(QuantizedQuaternion.FromQuaternion(Quaternion.Euler(0f, 90f, 0f))),
+                PlanarVelocity = QuantizedVector3WireMessage.FromValue(QuantizedVector3.FromMeters(new Vector3(2f, 0f, 0f))),
+                IsGrounded = true
+            };
+
+            RemoteEnemyAnimationState state = RemoteEnemyAnimationState.FromSnapshot(snapshot);
+
+            Assert.That(state.IsMoving, Is.True);
+            Assert.That(state.Speed, Is.EqualTo(2f).Within(0.001f));
+            Assert.That(state.MoveDirection, Is.EqualTo(Vector2.right));
+            Assert.That(state.IsGrounded, Is.True);
+        }
+
+        [Test]
+        public void RemotePresentation_SourceUsesSnapshotStateWithoutClientMotorOrNavMesh()
+        {
+            string sourcePath = Path.Combine(
+                Application.dataPath,
+                "Script/Network/Runtime/Enemy/EnemyPresentation.cs");
+            string source = File.ReadAllText(sourcePath);
+
+            Assert.That(source, Does.Contain("RemoteEnemyAnimationState"));
+            Assert.That(source, Does.Contain("applyRootMotion = false"));
+            Assert.That(source, Does.Not.Contain("CharacterPhysicsMotor"));
+            Assert.That(source, Does.Not.Contain("NavMeshAgent"));
+        }
+
+        [Test]
+        public void ActionPresentation_RecordsOnlyConfirmedFireAndHitActions()
+        {
+            using var registry = new EnemyPresentationRegistry(catalog);
+            Assert.That(registry.Spawn(Spawn()), Is.True);
+
+            Assert.That(registry.ApplyAction(new EnemyActionEvent { EnemyId = 1, ActionSequence = 1, ActionKind = EnemyActionKind.Fire, AuthorityServerTick = 1 }), Is.True);
+            EnemyPresentation instance = Object.FindObjectsByType<EnemyPresentation>(UnityEngine.FindObjectsSortMode.None)
+                .Single(candidate => candidate.gameObject != prefab);
+            Assert.That(instance.LastConfirmedAction, Is.EqualTo(EnemyActionKind.Fire));
+            Assert.That(registry.ApplyAction(new EnemyActionEvent { EnemyId = 1, ActionSequence = 2, ActionKind = EnemyActionKind.Hit, AuthorityServerTick = 2 }), Is.True);
+            Assert.That(instance.LastConfirmedAction, Is.EqualTo(EnemyActionKind.Hit));
         }
 
         private static EnemySpawnedEvent Spawn() => new EnemySpawnedEvent

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.AI;
 
 namespace CGame.Network
 {
@@ -9,11 +8,13 @@ namespace CGame.Network
     {
         private readonly LevelRuntime levelRuntime;
         private readonly Transform parent;
+        private readonly PawnDefinition motorPawnDefinition;
 
-        public DedicatedEnemyRosterFactory(LevelRuntime levelRuntime, Transform parent = null)
+        public DedicatedEnemyRosterFactory(LevelRuntime levelRuntime, Transform parent = null, PawnDefinition motorPawnDefinition = null)
         {
             this.levelRuntime = levelRuntime ?? throw new ArgumentNullException(nameof(levelRuntime));
             this.parent = parent;
+            this.motorPawnDefinition = motorPawnDefinition;
         }
 
         public IAuthoritativeEnemyRosterReservation Reserve(EnemyRosterEntry entry)
@@ -27,14 +28,29 @@ namespace CGame.Network
                 throw new InvalidOperationException("Dedicated enemy reservation is invalid.");
 
             Transform point = pointReservation.Point;
-            GameObject root = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            GameObject root = motorPawnDefinition?.PawnPrefab != null
+                ? UnityEngine.Object.Instantiate(motorPawnDefinition.PawnPrefab)
+                : GameObject.CreatePrimitive(PrimitiveType.Capsule);
             try
             {
                 root.name = $"DedicatedEnemy:{entry.EnemyId}:{entry.ArchetypeId}";
                 root.transform.SetParent(parent, false);
                 root.transform.SetPositionAndRotation(point.position, point.rotation);
+                root.SetActive(false);
+                foreach (Camera camera in root.GetComponentsInChildren<Camera>(true)) camera.enabled = false;
+                foreach (AudioListener listener in root.GetComponentsInChildren<AudioListener>(true)) listener.enabled = false;
+                CharacterPhysicsMotor motor = root.GetComponent<CharacterPhysicsMotor>();
+                if (motor != null)
+                {
+                    foreach (Behaviour behaviour in root.GetComponentsInChildren<Behaviour>(true))
+                        behaviour.enabled = behaviour is CharacterPhysicsMotor;
+                }
                 var entity = root.AddComponent<DedicatedEnemyEntity>();
                 entity.Initialize(entry);
+                if (motor != null)
+                {
+                    entity.BindMotorPawn(new Pawn(root, new ActorComponent[] { new PawnMovementComponent(motor) }));
+                }
                 return new Entity(entry.EnemyId, root);
             }
             catch
@@ -91,36 +107,26 @@ namespace CGame.Network
         public long VitalsRevision { get; private set; }
         public bool IsDead => Health <= 0;
         public Vector3 PlanarVelocity { get; private set; }
+        public Pawn MotorPawn { get; private set; }
         private readonly Dictionary<string, DedicatedDamageResult> damageResultsByCause =
             new Dictionary<string, DedicatedDamageResult>(StringComparer.Ordinal);
-        private NavMeshPath path;
-
-        public bool StepChase(Transform target, float deltaTime)
-        {
-            if (target == null || deltaTime <= 0f) return false;
-            path ??= new NavMeshPath();
-            if (!NavMesh.CalculatePath(transform.position, target.position, NavMesh.AllAreas, path) ||
-                path.status != NavMeshPathStatus.PathComplete || path.corners == null || path.corners.Length < 2)
-            {
-                PlanarVelocity = Vector3.zero;
-                return false;
-            }
-            Vector3 next = path.corners[1];
-            Vector3 direction = next - transform.position;
-            Vector3 previous = transform.position;
-            transform.position = Vector3.MoveTowards(previous, next, 2f * deltaTime);
-            Vector3 displacement = transform.position - previous;
-            PlanarVelocity = new Vector3(displacement.x / deltaTime, 0f, displacement.z / deltaTime);
-            if (direction.sqrMagnitude > 0.0001f)
-                transform.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
-            return true;
-        }
-
         public void Initialize(EnemyRosterEntry entry)
         {
             if (EnemyId != 0) throw new InvalidOperationException("Dedicated enemy entity is already initialized.");
             EnemyId = entry.EnemyId;
             ArchetypeId = entry.ArchetypeId;
+        }
+
+        public void BindMotorPawn(Pawn pawn)
+        {
+            if (pawn == null) throw new ArgumentNullException(nameof(pawn));
+            if (MotorPawn != null) throw new InvalidOperationException("Dedicated enemy motor Pawn is already bound.");
+            MotorPawn = pawn;
+        }
+
+        public void ApplyMotorState(DedicatedEnemyMotorState state)
+        {
+            PlanarVelocity = state.PlanarVelocity;
         }
 
         public DedicatedDamageResult ApplyDamage(long causingPawnId, long causingShotSequence, int damage)

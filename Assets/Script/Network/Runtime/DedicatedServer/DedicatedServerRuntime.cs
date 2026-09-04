@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -12,15 +13,6 @@ namespace CGame.Network
     {
         private const int TargetQueuedMoves = 2;
         private const int MaxSimulationStepsPerFixedUpdate = 4;
-        // The three authored EnemyPoints begin 2.5–4m from PlayerPoint 1.
-        // Holding at 6m made every newly spawned enemy appear frozen.  Keep a
-        // close combat buffer, but require a visible authoritative chase first.
-        private const float EnemyHoldRange = 2f;
-        // Keep the first combat exchange observable: the client must have time to
-        // receive the spawned roster and send its first predicted fire request.
-        private const int EnemyInitialAttackDelayTicks = 300;
-        private const int EnemyAttackIntervalTicks = 150;
-        private const int EnemyAttackDamage = 3;
         private readonly List<Pawn> authorityPawns = new List<Pawn>();
         private readonly List<ActorRegistration> pawnRegistrations = new List<ActorRegistration>();
         private readonly Dictionary<long, AuthorityMoveProcessor> moveProcessors =
@@ -48,6 +40,8 @@ namespace CGame.Network
         private readonly List<GameObject> dedicatedTargetRoots = new List<GameObject>();
         private AuthoritativeEnemyRoster authoritativeEnemyRoster;
         private readonly Dictionary<long, DedicatedEnemyEntity> enemiesById = new Dictionary<long, DedicatedEnemyEntity>();
+        private readonly Dictionary<long, DedicatedEnemyPatrolAgent> patrolAgentsByEnemyId =
+            new Dictionary<long, DedicatedEnemyPatrolAgent>();
         private GameObject dedicatedEnemyRoot;
         private DedicatedServerLaunchConfiguration launch;
         private DedicatedServerHealthServer healthServer;
@@ -56,8 +50,9 @@ namespace CGame.Network
         private CharacterPhysicsSubSystem physics;
         private long authorityServerTick;
         private readonly Dictionary<long, long> nextEnemyAttackSequenceById = new Dictionary<long, long>();
-        private readonly Dictionary<long, long> nextEnemyAttackTickById = new Dictionary<long, long>();
         private readonly Dictionary<long, DedicatedEnemyActionState> latestEnemyActionById = new Dictionary<long, DedicatedEnemyActionState>();
+        private readonly Dictionary<long, EnemyPerceptionCandidate> perceptionCandidatesByPawnId =
+            new Dictionary<long, EnemyPerceptionCandidate>();
         private float previousFixedDeltaTime;
         private bool initialized;
         private NavMeshDataInstance navigationData;
@@ -99,6 +94,7 @@ namespace CGame.Network
             healthServer.Start(launch.HealthPort, CreateHealth("Starting", null));
             dataServer = new DedicatedDataServer(launch);
             dataServer.MoveReceived += OnMoveReceived;
+            dataServer.PawnConnected += OnDataPawnConnected;
             Scene levelScene = default;
             if (loadLevel)
             {
@@ -128,10 +124,17 @@ namespace CGame.Network
             }
             await world.InitializeAsync();
             Debug.Log($"[DedicatedServer][047] WorldInitialized MatchId={launch.MatchId}");
-            if (dedicatedBootstrap != null) BuildNavigation(levelScene);
+            if (dedicatedBootstrap != null)
+            {
+                BuildNavigation(levelScene);
+                ValidateEnemyArchetypeCombatCatalog(dedicatedBootstrap.EnemyArchetypeCombatCatalog);
+            }
             if (dedicatedBootstrap?.EnemyRosterDefinition != null)
             {
-                SpawnAuthoritativeEnemies(dedicatedBootstrap.EnemyRosterDefinition);
+                SpawnAuthoritativeEnemies(
+                    dedicatedBootstrap.EnemyRosterDefinition,
+                    dedicatedBootstrap.PlayerPawnDefinition,
+                    dedicatedBootstrap.EnemyArchetypeCombatCatalog);
                 Debug.Log($"[DedicatedServer][051] EnemyRosterReady MatchId={launch.MatchId} Count={authoritativeEnemyRoster.Entities.Count}");
             }
             else if (dedicatedBootstrap != null)
@@ -318,7 +321,7 @@ namespace CGame.Network
         {
             authorityServerTick++;
             long serverTick = authorityServerTick;
-            StepAuthoritativeEnemies();
+            StepPatrolEnemies(serverTick);
             var movesForTick = new List<KeyValuePair<long, AcceptedAuthorityMove>>();
             foreach (KeyValuePair<long, AuthorityMoveInbox> entry in pendingMovesByPawnId)
             {
@@ -327,6 +330,15 @@ namespace CGame.Network
                 motorSimulations[entry.Key].ApplyControlIntent(pending.Move);
             }
             world.FixedTick(CharacterPhysicsSubSystem.FixedStepSeconds);
+            foreach (DedicatedEnemyPatrolAgent agent in patrolAgentsByEnemyId.Values)
+            {
+                DedicatedEnemyMotorState state = agent.CompleteFixedStep(serverTick);
+                if (serverTick % 30 == 0)
+                    Debug.Log($"[DedicatedServer][054] RifleMotorState MatchId={launch.MatchId} EnemyId={agent.EnemyId} ServerTick={serverTick} RouteId={agent.RouteId} PointIndex={agent.PointIndex} Grounded={state.IsGrounded} Velocity={state.PlanarVelocity.magnitude:F3}");
+                if (enemiesById.TryGetValue(agent.EnemyId, out DedicatedEnemyEntity enemy))
+                    dataServer.BroadcastEnemySnapshot(launch.MatchId, CreateEnemySnapshot(enemy, agent, state, serverTick));
+            }
+            ResolveEnemyFire(serverTick);
             foreach (KeyValuePair<long, AcceptedAuthorityMove> entry in movesForTick)
             {
                 DedicatedMotorMoveSimulation simulation = motorSimulations[entry.Key];
@@ -345,67 +357,175 @@ namespace CGame.Network
             }
         }
 
-        private void StepAuthoritativeEnemies()
+        private void StepPatrolEnemies(long serverTick)
         {
-            if (dedicatedEnemyRoot == null || authorityPawns.Count == 0) return;
-            foreach (DedicatedEnemyEntity enemy in dedicatedEnemyRoot.GetComponentsInChildren<DedicatedEnemyEntity>())
+            var candidates = new List<EnemyPerceptionCandidate>(authorityPawns.Count);
+            perceptionCandidatesByPawnId.Clear();
+            foreach (Pawn pawn in authorityPawns)
             {
-                if (enemy.IsDead) continue;
-                Pawn targetPawn = SelectNearestAliveAuthorityPawn(enemy.transform.position);
-                Transform target = targetPawn?.Root?.transform;
-                if (target == null) continue;
-                if (Vector3.Distance(enemy.transform.position, target.position) > EnemyHoldRange)
-                    enemy.StepChase(target, CharacterPhysicsSubSystem.FixedStepSeconds);
-                if (Vector3.Distance(enemy.transform.position, target.position) > EnemyHoldRange) continue;
-                if (!nextEnemyAttackTickById.TryGetValue(enemy.EnemyId, out long nextAttackTick))
-                {
-                    nextEnemyAttackTickById[enemy.EnemyId] = authorityServerTick + EnemyInitialAttackDelayTicks;
+                if (pawn?.Root == null || !pawn.TryGetComponent(out NetworkPawnBinding binding)) continue;
+                if (!combatPawnsById.TryGetValue(binding.PawnId, out DedicatedPawnCombatState combatState) || combatState.IsDead)
                     continue;
-                }
-                if (authorityServerTick < nextAttackTick) continue;
-                Vector3 origin = enemy.transform.position + Vector3.up;
-                Vector3 direction = (target.position + Vector3.up - origin).normalized;
-                if (!Physics.Raycast(origin, direction, out RaycastHit hit, 8f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)) continue;
-                DedicatedCombatIdentity identity = combatIdentityRegistry.Resolve(hit.collider);
-                if (identity.Kind != DedicatedCombatIdentityKind.Pawn || identity.Id != targetPawn.GetComponent<NetworkPawnBinding>().PawnId) continue;
-                if (!combatPawnsById.TryGetValue(identity.Id, out DedicatedPawnCombatState pawnState) || pawnState.IsDead) continue;
-                nextEnemyAttackSequenceById.TryGetValue(enemy.EnemyId, out long sequence);
-                sequence = checked(sequence + 1);
-                nextEnemyAttackSequenceById[enemy.EnemyId] = sequence;
-                nextEnemyAttackTickById[enemy.EnemyId] = authorityServerTick + EnemyAttackIntervalTicks;
-                DedicatedPawnVitalsResult result = pawnState.ApplyEnemyDamage(enemy.EnemyId, sequence, EnemyAttackDamage);
-                latestEnemyActionById[enemy.EnemyId] = new DedicatedEnemyActionState
+                Vector3 position = motorSimulations.TryGetValue(binding.PawnId, out DedicatedMotorMoveSimulation simulation)
+                    ? simulation.Capture(authorityServerTick).Position.ToMeters()
+                    : pawn.Root.transform.position;
+                var candidate = new EnemyPerceptionCandidate(
+                    binding.PawnId,
+                    position,
+                    isPossessed: binding.IsBound,
+                    isAlive: !combatState.IsDead,
+                    root: pawn.Root.transform);
+                candidates.Add(candidate);
+                perceptionCandidatesByPawnId.Add(candidate.PawnId, candidate);
+            }
+            foreach (DedicatedEnemyPatrolAgent agent in patrolAgentsByEnemyId.Values)
+            {
+                EnemyBrainState previousState = agent.State;
+                long previousTargetPawnId = agent.TargetPawnId;
+                agent.PrepareFixedStep(serverTick, candidates);
+                if (agent.State != previousState || agent.TargetPawnId != previousTargetPawnId)
                 {
-                    enemyId = enemy.EnemyId,
-                    actionSequence = sequence,
-                    actionKind = "Fire",
-                    serverTick = authorityServerTick,
-                    vitalsRevision = enemy.VitalsRevision
-                };
-                Debug.Log($"[DedicatedServer][052] EnemyAttack MatchId={launch.MatchId} EnemyId={enemy.EnemyId} PawnId={identity.Id} ActionSequence={sequence} Health={result.Health} Dead={result.IsDead}");
+                    Debug.Log($"[DedicatedServer][058] EnemyBrainState MatchId={launch.MatchId} EnemyId={agent.EnemyId} ServerTick={serverTick} State={agent.State} TargetPawnId={agent.TargetPawnId} RouteId={agent.RouteId} PointIndex={agent.PointIndex}");
+                }
             }
         }
 
-        private Pawn SelectNearestAliveAuthorityPawn(Vector3 origin)
+        private void ResolveEnemyFire(long serverTick)
         {
-            Pawn selected = null;
-            long selectedId = long.MaxValue;
-            float selectedDistanceSquared = float.MaxValue;
-            foreach (Pawn pawn in authorityPawns)
+            var hitscanQuery = new RuntimeEnemyHitscanQuery(combatIdentityRegistry);
+            foreach (DedicatedEnemyPatrolAgent agent in patrolAgentsByEnemyId.Values)
             {
-                if (pawn?.Root == null || !pawn.TryGetComponent(out NetworkPawnBinding binding) ||
-                    !combatPawnsById.TryGetValue(binding.PawnId, out DedicatedPawnCombatState state) || state.IsDead)
+                if (!agent.WantsToFire || !perceptionCandidatesByPawnId.TryGetValue(agent.TargetPawnId, out EnemyPerceptionCandidate target))
                     continue;
-                float distanceSquared = (pawn.Root.transform.position - origin).sqrMagnitude;
-                if (distanceSquared < selectedDistanceSquared ||
-                    (Mathf.Approximately(distanceSquared, selectedDistanceSquared) && binding.PawnId < selectedId))
+                EnemyFireResolution resolution = agent.TryResolveFire(serverTick, target, hitscanQuery);
+                if (!resolution.Fired) continue;
+
+                PublishEnemyAction(agent.EnemyId, EnemyActionKind.Fire, serverTick, vitalsRevision: 0);
+                if (resolution.HitTarget && combatPawnsById.TryGetValue(target.PawnId, out DedicatedPawnCombatState pawn))
                 {
-                    selected = pawn;
-                    selectedId = binding.PawnId;
-                    selectedDistanceSquared = distanceSquared;
+                    DedicatedPawnVitalsResult effect = DedicatedGameplayEffectApplier.ApplyEnemyDamageEffect(
+                        pawn, agent.EnemyId, resolution.ActionSequence, resolution.Damage);
+                    PublishEnemyAction(agent.EnemyId, EnemyActionKind.Hit, serverTick, effect.VitalsRevision);
+                    SendOwnerGameplayState(effect);
+                    Debug.Log($"[DedicatedServer][059] EnemyEffectApplied MatchId={launch.MatchId} EnemyId={agent.EnemyId} PawnId={target.PawnId} ServerTick={serverTick} Health={effect.Health} Revision={effect.VitalsRevision} Replay={effect.IsReplay}");
+                }
+                if (resolution.EnteredNoAmmo)
+                {
+                    agent.MarkNoAmmo();
+                    PublishEnemyAction(agent.EnemyId, EnemyActionKind.NoAmmo, serverTick, vitalsRevision: 0);
                 }
             }
-            return selected;
+        }
+
+        private long PublishEnemyAction(long enemyId, EnemyActionKind actionKind, long serverTick, long vitalsRevision)
+        {
+            long sequence = nextEnemyAttackSequenceById.TryGetValue(enemyId, out long previous) ? previous + 1 : 1;
+            nextEnemyAttackSequenceById[enemyId] = sequence;
+            latestEnemyActionById[enemyId] = new DedicatedEnemyActionState
+            {
+                enemyId = enemyId,
+                actionSequence = sequence,
+                actionKind = actionKind.ToString(),
+                serverTick = serverTick,
+                vitalsRevision = vitalsRevision
+            };
+            dataServer.BroadcastEnemyAction(launch.MatchId, new EnemyActionEvent
+            {
+                EnemyId = enemyId,
+                ActionSequence = sequence,
+                ActionKind = actionKind,
+                AuthorityServerTick = serverTick,
+                PoseDiscontinuitySequence = 0
+            });
+            return sequence;
+        }
+
+        private void SendOwnerGameplayState(DedicatedPawnVitalsResult result)
+        {
+            dataServer.SendOwnerGameplayState(result.PawnId, launch.MatchId, CreateOwnerGameplayState(result.PawnId));
+        }
+
+        private OwnerGameplayStateEvent CreateOwnerGameplayState(long pawnId)
+        {
+            DedicatedPawnCombatState pawn = combatPawnsById[pawnId];
+            return new OwnerGameplayStateEvent
+            {
+                PawnId = pawn.PawnId,
+                VitalsRevision = pawn.VitalsRevision,
+                Health = pawn.Health,
+                MaxHealth = pawn.MaxHealth,
+                IsDead = pawn.IsDead,
+                EquipmentRevision = pawn.EquipmentRevision,
+                WeaponName = pawn.WeaponName,
+                MagazineAmmo = pawn.MagazineAmmo,
+                MagazineCapacity = pawn.MagazineCapacity
+            };
+        }
+
+        private sealed class RuntimeEnemyHitscanQuery : IEnemyHitscanQuery
+        {
+            private readonly DedicatedCombatIdentityRegistry identities;
+
+            public RuntimeEnemyHitscanQuery(DedicatedCombatIdentityRegistry identities)
+            {
+                this.identities = identities ?? throw new ArgumentNullException(nameof(identities));
+            }
+
+            public bool TryHitPawn(Vector3 muzzleOrigin, Vector3 direction, float range, out long pawnId)
+            {
+                pawnId = 0;
+                if (!Physics.Raycast(muzzleOrigin, direction, out RaycastHit hit, range,
+                        Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    return false;
+                DedicatedCombatIdentity identity = identities.Resolve(hit.collider);
+                if (identity.Kind != DedicatedCombatIdentityKind.Pawn) return false;
+                pawnId = identity.Id;
+                return pawnId > 0;
+            }
+        }
+
+        private void OnDataPawnConnected(long pawnId)
+        {
+            long snapshotTick = Math.Max(1, authorityServerTick);
+            Debug.Log($"[DedicatedServer][057] EnemyReplicationInitialSync MatchId={launch.MatchId} PawnId={pawnId} EnemyCount={patrolAgentsByEnemyId.Count}");
+            foreach (DedicatedEnemyPatrolAgent agent in patrolAgentsByEnemyId.Values)
+            {
+                if (!enemiesById.TryGetValue(agent.EnemyId, out DedicatedEnemyEntity enemy)) continue;
+                DedicatedEnemyMotorState state = new DedicatedEnemyMotorSimulation(enemy.MotorPawn).Capture();
+                dataServer.SendEnemySpawn(pawnId, launch.MatchId, new EnemySpawnedEvent
+                {
+                    EnemyId = enemy.EnemyId,
+                    ArchetypeId = enemy.ArchetypeId,
+                    Position = QuantizedVector3WireMessage.FromValue(QuantizedVector3.FromMeters(state.Position)),
+                    Rotation = QuantizedQuaternionWireMessage.FromValue(QuantizedQuaternion.FromQuaternion(state.Rotation)),
+                    AuthorityServerTick = snapshotTick,
+                    Health = enemy.Health
+                });
+                dataServer.SendEnemySnapshot(pawnId, launch.MatchId, CreateEnemySnapshot(enemy, agent, state, snapshotTick));
+            }
+            if (combatPawnsById.ContainsKey(pawnId))
+                dataServer.SendOwnerGameplayState(pawnId, launch.MatchId, CreateOwnerGameplayState(pawnId));
+        }
+
+        private static EnemySnapshotEvent CreateEnemySnapshot(
+            DedicatedEnemyEntity enemy,
+            DedicatedEnemyPatrolAgent agent,
+            DedicatedEnemyMotorState state,
+            long serverTick)
+        {
+            return new EnemySnapshotEvent
+            {
+                EnemyId = enemy.EnemyId,
+                AuthorityServerTick = serverTick,
+                Position = QuantizedVector3WireMessage.FromValue(QuantizedVector3.FromMeters(state.Position)),
+                Rotation = QuantizedQuaternionWireMessage.FromValue(QuantizedQuaternion.FromQuaternion(state.Rotation)),
+                PlanarVelocity = QuantizedVector3WireMessage.FromValue(QuantizedVector3.FromMeters(state.PlanarVelocity)),
+                PoseDiscontinuitySequence = 0,
+                Health = enemy.Health,
+                IsGrounded = state.IsGrounded,
+                BrainState = agent.State,
+                TargetPawnId = agent.TargetPawnId
+            };
         }
 
         private void OnDestroy()
@@ -437,7 +557,10 @@ namespace CGame.Network
             if (navigationData.valid) navigationData.Remove();
         }
 
-        private void SpawnAuthoritativeEnemies(EnemyRosterDefinition definition)
+        private void SpawnAuthoritativeEnemies(
+            EnemyRosterDefinition definition,
+            PawnDefinition motorPawnDefinition = null,
+            EnemyArchetypeCombatCatalog combatCatalog = null)
         {
             if (definition == null) throw new ArgumentNullException(nameof(definition));
             definition.Validate();
@@ -447,10 +570,23 @@ namespace CGame.Network
             try
             {
                 var roster = new AuthoritativeEnemyRoster();
-                roster.Create(definition.Entries, new DedicatedEnemyRosterFactory(world.LevelRuntime, dedicatedEnemyRoot.transform));
+                combatCatalog?.Validate();
+                roster.Create(definition.Entries, new DedicatedEnemyRosterFactory(
+                    world.LevelRuntime,
+                    dedicatedEnemyRoot.transform,
+                    motorPawnDefinition));
                 authoritativeEnemyRoster = roster;
-                foreach (DedicatedEnemyEntity enemy in dedicatedEnemyRoot.GetComponentsInChildren<DedicatedEnemyEntity>())
+                foreach (DedicatedEnemyEntity enemy in dedicatedEnemyRoot.GetComponentsInChildren<DedicatedEnemyEntity>(true))
                 {
+                    if (combatCatalog != null)
+                    {
+                        if (enemy.MotorPawn == null)
+                            throw new InvalidOperationException("Dedicated patrol requires a CharacterPhysicsMotor PawnDefinition.");
+                        pawnRegistrations.Add(world.RegisterActor(enemy.MotorPawn, critical: true));
+                        patrolAgentsByEnemyId.Add(enemy.EnemyId, new DedicatedEnemyPatrolAgent(
+                            enemy,
+                            combatCatalog.GetRequired(enemy.ArchetypeId)));
+                    }
                     EnsureHitCollider(enemy.gameObject);
                     combatIdentityRegistry.RegisterEnemy(enemy.EnemyId, enemy.gameObject);
                     enemiesById.Add(enemy.EnemyId, enemy);
@@ -481,6 +617,18 @@ namespace CGame.Network
             if (data == null) throw new InvalidOperationException("Dedicated navigation build failed.");
             navigationData = NavMesh.AddNavMeshData(data);
             Debug.Log($"[DedicatedServer][051] NavigationReady MatchId={launch.MatchId} Sources={sources.Count}");
+        }
+
+        private void ValidateEnemyArchetypeCombatCatalog(EnemyArchetypeCombatCatalog catalog)
+        {
+            if (catalog == null) return;
+            catalog.Validate();
+            var navigation = new EnemyNavPathComponent(new UnityEnemyNavPathQuery(), retryIntervalTicks: 30);
+            foreach (EnemyArchetypeCombatDefinition definition in catalog.Definitions)
+            {
+                navigation.ValidateRoute(definition.PatrolRoute, launch.LevelId);
+                Debug.Log($"[DedicatedServer][057] PatrolRouteReady MatchId={launch.MatchId} ArchetypeId={definition.ArchetypeId} RouteId={definition.PatrolRoute.RouteId} Points={definition.PatrolRoute.WorldPoints.Count}");
+            }
         }
 
         private void SpawnDedicatedTargets(DedicatedTargetSpawnDefinition definition)
