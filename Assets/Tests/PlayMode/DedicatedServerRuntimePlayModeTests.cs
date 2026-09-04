@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -236,6 +237,7 @@ namespace CGame.GameplayCue.PlayModeTests
             Assert.That(snapshotsByEnemyId, Has.Count.EqualTo(3));
             foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Values)
                 Assert.That(snapshots[snapshots.Count - 1].AuthorityServerTick, Is.GreaterThan(snapshots[0].AuthorityServerTick));
+            yield return CaptureFormalFrame("patrol.png");
 
             for (int frame = 0; frame < 180 && snapshotsByEnemyId.Values.Any(snapshots =>
                      !snapshots.Any(snapshot => snapshot.PlanarVelocity.ToValue().ToMeters().sqrMagnitude > 0.01f)); frame++)
@@ -250,6 +252,29 @@ namespace CGame.GameplayCue.PlayModeTests
                 Assert.That(movedTowardPossessedPawn, Is.True,
                     "Each archetype must receive a server-authoritative Chase motor intent for the possessed Pawn.");
             }
+            yield return CaptureFormalFrame("chase.png");
+
+            for (int frame = 0; frame < 360 && snapshotsByEnemyId.Values.Any(snapshots =>
+                     !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.CoverHold) ||
+                     !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire)); frame++)
+            {
+                channel.PollEvents();
+                yield return new WaitForFixedUpdate();
+            }
+            Assert.That(snapshotsByEnemyId, Has.Count.EqualTo(3));
+            var coverPointIds = new HashSet<string>();
+            foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Values)
+            {
+                Assert.That(snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.CoverHold), Is.True,
+                    "Each enemy must hold its selected cover point through the authoritative Snapshot stream.");
+                Assert.That(snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire), Is.True,
+                    "Each enemy must enter PeekFire through the authoritative Snapshot stream.");
+                EnemySnapshotEvent coverSnapshot = snapshots.First(snapshot => !string.IsNullOrWhiteSpace(snapshot.CoverPointId));
+                Assert.That(coverPointIds.Add(coverSnapshot.CoverPointId), Is.True,
+                    "Three enemies must not share an authored CoverPointId.");
+            }
+            yield return CaptureFormalFrame("cover-hold.png");
+            yield return CaptureFormalFrame("peek-fire.png");
 
             for (int frame = 0; frame < 180 &&
                  (!enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Fire) ||
@@ -278,9 +303,9 @@ namespace CGame.GameplayCue.PlayModeTests
                 channel.PollEvents();
                 yield return new WaitForFixedUpdate();
             }
-            foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Values)
-                Assert.That(snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.NoAmmo), Is.True,
-                    "NoAmmo is a stationary terminal state in this V1; Reload is deliberately out of scope.");
+            Assert.That(snapshotsByEnemyId.Values.Any(snapshots =>
+                    snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.NoAmmo)), Is.True,
+                "An enemy with an unobstructed sight line must reach the stationary NoAmmo terminal state; enemies behind authored cover remain in patrol until cover selection is introduced.");
 
             channel.Send(new PawnMove(
                 18, 100, 1, 1, System.Math.Max(1, runtime.FixedStepCount),
@@ -311,6 +336,23 @@ namespace CGame.GameplayCue.PlayModeTests
             while (unload != null && !unload.isDone) yield return null;
             unload = SceneManager.UnloadSceneAsync("SampleScene");
             while (unload != null && !unload.isDone) yield return null;
+        }
+
+        private static IEnumerator CaptureFormalFrame(string fileName)
+        {
+            Camera camera = Camera.main ?? Object.FindObjectOfType<Camera>();
+            Assert.That(camera, Is.Not.Null, "Formal visual capture requires the SampleScene camera.");
+            camera.transform.position = new Vector3(0f, 9f, -13f);
+            camera.transform.rotation = Quaternion.LookRotation(Vector3.zero - camera.transform.position, Vector3.up);
+            string harnessRoot = Directory.GetParent(Application.dataPath).Parent.FullName;
+            string directory = Path.Combine(harnessRoot, ".harness", "runs", "ThreeEnemyCoverFormalAcceptance-064-20260905-formal");
+            Directory.CreateDirectory(directory);
+            string screenshotPath = Path.Combine(directory, fileName);
+            if (File.Exists(screenshotPath)) File.Delete(screenshotPath);
+            ScreenCapture.CaptureScreenshot(screenshotPath);
+            for (int frame = 0; frame < 8 && !File.Exists(screenshotPath); frame++)
+                yield return new WaitForEndOfFrame();
+            Assert.That(File.Exists(screenshotPath), Is.True, $"Formal screenshot was not written: {fileName}");
         }
 
         private static int AllocatePort()

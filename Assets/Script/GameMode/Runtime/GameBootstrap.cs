@@ -24,6 +24,7 @@ namespace CGame
         [SerializeField] private ClientNetworkDefinition clientNetworkDefinition;
         [SerializeField] private EnemyRosterDefinition enemyRosterDefinition;
         [SerializeField] private EnemyArchetypeCombatCatalog enemyArchetypeCombatCatalog;
+        [SerializeField] private CoverPointCatalog coverPointCatalog;
         [SerializeField] private EnemyPresentationCatalog enemyPresentationCatalog;
 
         public override IReadOnlyList<WorldSubSystem> CreateWorldSubSystems()
@@ -101,6 +102,8 @@ namespace CGame
 
         public EnemyArchetypeCombatCatalog EnemyArchetypeCombatCatalog => enemyArchetypeCombatCatalog;
 
+        public CoverPointCatalog CoverPointCatalog => coverPointCatalog;
+
         public DedicatedTargetSpawnDefinition DedicatedTargetSpawnDefinition
         {
             get
@@ -158,6 +161,11 @@ public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
         public void ConfigureEnemyArchetypeCombatCatalog(EnemyArchetypeCombatCatalog catalog)
         {
             enemyArchetypeCombatCatalog = catalog ?? throw new System.ArgumentNullException(nameof(catalog));
+        }
+
+        public void ConfigureCoverPointCatalog(CoverPointCatalog catalog)
+        {
+            coverPointCatalog = catalog ?? throw new System.ArgumentNullException(nameof(catalog));
         }
 
         public void ConfigureEnemyPresentationCatalog(EnemyPresentationCatalog catalog)

@@ -98,14 +98,56 @@ namespace CGame.Network.Tests
         }
 
         [Test]
-        public void UnityEnemyNavPathQuery_UsesStraightWorldSpaceRouteWithoutNavMesh()
+        public void UnityEnemyNavPathQuery_UsesCompleteUnityNavMeshQueries()
         {
-            var query = new UnityEnemyNavPathQuery();
+            string sourcePath = Path.Combine(
+                Application.dataPath,
+                "Script/Network/Runtime/DedicatedServer/Enemy/EnemyNavPathComponent.cs");
+            string source = File.ReadAllText(sourcePath);
 
-            Assert.That(query.TrySample(new Vector3(2f, 0f, 3f), out Vector3 sampled), Is.True);
-            Assert.That(sampled, Is.EqualTo(new Vector3(2f, 0f, 3f)));
-            Assert.That(query.TryCalculateCompletePath(Vector3.zero, Vector3.right, out IReadOnlyList<Vector3> corners), Is.True);
-            Assert.That(corners, Is.EqualTo(new[] { Vector3.zero, Vector3.right }));
+            Assert.That(source, Does.Contain("NavMesh.SamplePosition"));
+            Assert.That(source, Does.Contain("NavMesh.CalculatePath"));
+            Assert.That(source, Does.Contain("NavMeshPathStatus.PathComplete"));
+            Assert.That(source, Does.Not.Contain("V1 deliberately has no NavMesh"));
+        }
+
+        [Test]
+        public void CoverPointCatalog_RejectsDuplicateIdsAndMismatchedLevels()
+        {
+            CoverPointDefinition first = CreateCoverPoint("Cover.A", "SampleScene");
+            CoverPointDefinition duplicate = CreateCoverPoint("Cover.A", "SampleScene");
+            CoverPointDefinition wrongLevel = CreateCoverPoint("Cover.B", "OtherScene");
+            CoverPointCatalog catalog = ScriptableObject.CreateInstance<CoverPointCatalog>();
+            try
+            {
+                Assert.Throws<System.InvalidOperationException>(() => catalog.Configure(first, duplicate));
+                catalog.Configure(first, wrongLevel);
+                Assert.Throws<System.InvalidOperationException>(() => catalog.ValidateForLevel("SampleScene", new RecordingNavigationQuery()));
+            }
+            finally
+            {
+                Object.DestroyImmediate(catalog);
+                Object.DestroyImmediate(first);
+                Object.DestroyImmediate(duplicate);
+                Object.DestroyImmediate(wrongLevel);
+            }
+        }
+
+        [Test]
+        public void CoverPointDefinition_RejectsUnsampleablePositionsAndIncompletePath()
+        {
+            CoverPointDefinition point = CreateCoverPoint("Cover.A", "SampleScene");
+            try
+            {
+                Assert.Throws<System.InvalidOperationException>(() => point.ValidateStatic(
+                    new RecordingNavigationQuery { SampleSucceeds = false }));
+                Assert.Throws<System.InvalidOperationException>(() => point.ValidateStatic(
+                    new RecordingNavigationQuery { PathSucceeds = false }));
+            }
+            finally
+            {
+                Object.DestroyImmediate(point);
+            }
         }
 
         [Test]
@@ -213,6 +255,13 @@ namespace CGame.Network.Tests
                 new[] { Vector3.zero, Vector3.right },
                 0.5f);
             return route;
+        }
+
+        private static CoverPointDefinition CreateCoverPoint(string coverPointId, string levelId)
+        {
+            CoverPointDefinition point = ScriptableObject.CreateInstance<CoverPointDefinition>();
+            point.Configure(coverPointId, levelId, Vector3.zero, Vector3.right, 0.75f);
+            return point;
         }
 
         private sealed class RecordingNavigationQuery : IEnemyNavPathQuery

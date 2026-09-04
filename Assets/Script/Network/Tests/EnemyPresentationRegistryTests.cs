@@ -57,7 +57,8 @@ namespace CGame.Network.Tests
                 AuthorityServerTick = 4,
                 Rotation = QuantizedQuaternionWireMessage.FromValue(QuantizedQuaternion.FromQuaternion(Quaternion.Euler(0f, 90f, 0f))),
                 PlanarVelocity = QuantizedVector3WireMessage.FromValue(QuantizedVector3.FromMeters(new Vector3(2f, 0f, 0f))),
-                IsGrounded = true
+                IsGrounded = true,
+                BrainState = EnemyBrainState.CoverHold
             };
 
             RemoteEnemyAnimationState state = RemoteEnemyAnimationState.FromSnapshot(snapshot);
@@ -66,6 +67,7 @@ namespace CGame.Network.Tests
             Assert.That(state.Speed, Is.EqualTo(2f).Within(0.001f));
             Assert.That(state.MoveDirection, Is.EqualTo(Vector2.right));
             Assert.That(state.IsGrounded, Is.True);
+            Assert.That(state.BrainState, Is.EqualTo(EnemyBrainState.CoverHold));
         }
 
         [Test]

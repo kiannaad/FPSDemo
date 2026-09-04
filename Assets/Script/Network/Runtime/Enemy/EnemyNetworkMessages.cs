@@ -26,6 +26,7 @@ namespace CGame.Network
         [Key(7)] public bool IsGrounded { get; set; }
         [Key(8)] public EnemyBrainState BrainState { get; set; }
         [Key(9)] public long TargetPawnId { get; set; }
+        [Key(10)] public string CoverPointId { get; set; }
     }
 
     public enum EnemyActionKind : byte

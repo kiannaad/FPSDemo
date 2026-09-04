@@ -73,6 +73,8 @@ namespace CGame.GameplayCue.PlayModeTests
                 PlanarVelocity = QuantizedVector3WireMessage.FromValue(
                     QuantizedVector3.FromMeters(Vector3.right)),
                 IsGrounded = true,
+                BrainState = EnemyBrainState.PeekFire,
+                CoverPointId = "Cover.B",
                 AuthorityServerTick = 2,
                 Health = 100
             }), Is.True);
@@ -84,6 +86,7 @@ namespace CGame.GameplayCue.PlayModeTests
                 .Single(candidate => candidate.gameObject.name.StartsWith("NetworkEnemyRifle"));
             Assert.That(rifle.RemoteAnimationState.IsMoving, Is.True);
             Assert.That(rifle.RemoteAnimationState.IsGrounded, Is.True);
+            Assert.That(rifle.RemoteAnimationState.BrainState, Is.EqualTo(EnemyBrainState.PeekFire));
             Assert.That(rifle.HasPlayableGraph, Is.True);
             Assert.That(rifle.Animator.applyRootMotion, Is.False);
 #else

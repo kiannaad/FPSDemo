@@ -7,6 +7,79 @@ namespace CGame.Network.Tests
     public sealed class EnemyBrainTests
     {
         [Test]
+        public void CoverBrain_TransitionsThroughTakeCoverHoldAndPeekFire()
+        {
+            EnemyArchetypeCombatDefinition definition = CreateDefinition("Enemy.Cover", 0);
+            CoverPointDefinition point = ScriptableObject.CreateInstance<CoverPointDefinition>();
+            point.Configure("Cover.A", "SampleScene", new Vector3(4f, 0f, 0f), new Vector3(5f, 0f, 0f), 0.75f);
+            try
+            {
+                var navigation = new CompletePathQuery();
+                var perception = new CoverPerceptionQuery();
+                var selector = new EnemyCoverSelector(new[] { point }, navigation, perception, new CoverReservationRegistry());
+                var brain = new EnemyBrain(definition, navigation, perception, selector, 101);
+                var target = new[] { new EnemyPerceptionCandidate(100, new Vector3(10f, 0f, 0f), true, true) };
+
+                EnemyBrainOutput chase = brain.Tick(181, Motor(Vector3.zero), target);
+                EnemyBrainOutput takeCover = brain.Tick(182, Motor(Vector3.zero), target);
+                EnemyBrainOutput hold = brain.Tick(220, Motor(point.CoverPosition), target);
+                EnemyBrainOutput peek = brain.Tick(241, Motor(point.CoverPosition), target);
+                EnemyBrainOutput fire = brain.Tick(260, Motor(point.PeekPosition), target);
+
+                Assert.That(chase.State, Is.EqualTo(EnemyBrainState.Chase));
+                Assert.That(takeCover.State, Is.EqualTo(EnemyBrainState.TakeCover));
+                Assert.That(hold.State, Is.EqualTo(EnemyBrainState.CoverHold));
+                Assert.That(peek.State, Is.EqualTo(EnemyBrainState.PeekFire));
+                Assert.That(fire.State, Is.EqualTo(EnemyBrainState.PeekFire));
+                Assert.That(fire.HasFireRequest, Is.True);
+            }
+            finally
+            {
+                Object.DestroyImmediate(point);
+                Object.DestroyImmediate(definition.PatrolRoute);
+                Object.DestroyImmediate(definition);
+            }
+        }
+
+        [Test]
+        public void CoverBrain_PathFailure_ReleasesReservationAndFallsBackToChase()
+        {
+            EnemyArchetypeCombatDefinition definition = CreateDefinition("Enemy.Cover", 0);
+            CoverPointDefinition point = ScriptableObject.CreateInstance<CoverPointDefinition>();
+            point.Configure("Cover.A", "SampleScene", new Vector3(4f, 0f, 0f), new Vector3(5f, 0f, 0f), 0.75f);
+            try
+            {
+                var navigation = new FailsAfterFirstPathQuery();
+                var perception = new CoverPerceptionQuery();
+                var reservations = new CoverReservationRegistry();
+                var selector = new EnemyCoverSelector(new[] { point }, navigation, perception, reservations);
+                var brain = new EnemyBrain(definition, navigation, perception, selector, 101);
+                var target = new[] { new EnemyPerceptionCandidate(100, new Vector3(10f, 0f, 0f), true, true) };
+
+                brain.Tick(181, Motor(Vector3.zero), target);
+                EnemyBrainOutput fallback = brain.Tick(182, Motor(Vector3.zero), target);
+
+                Assert.That(fallback.State, Is.EqualTo(EnemyBrainState.Chase));
+                Assert.That(fallback.MovementIntent.TargetKind, Is.EqualTo(EnemyMoveTargetKind.ChaseTarget));
+                Assert.That(brain.CoverPointId, Is.Empty);
+                Assert.That(reservations.IsReservedBy("Cover.A", 101), Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(point);
+                Object.DestroyImmediate(definition.PatrolRoute);
+                Object.DestroyImmediate(definition);
+            }
+        }
+
+        private static DedicatedEnemyMotorState Motor(Vector3 position) =>
+            new DedicatedEnemyMotorState(position, Quaternion.identity, Vector3.zero, true);
+
+        private sealed class CoverPerceptionQuery : IEnemyPerceptionQuery
+        {
+            public bool HasLineOfSight(Vector3 origin, EnemyPerceptionCandidate candidate) => origin.x != 4f;
+        }
+        [Test]
         public void CombatCatalog_RequiresThreeUniqueArchetypeDefinitions()
         {
             EnemyArchetypeCombatCatalog catalog = ScriptableObject.CreateInstance<EnemyArchetypeCombatCatalog>();
@@ -116,6 +189,24 @@ namespace CGame.Network.Tests
             {
                 corners = new[] { origin, destination };
                 return true;
+            }
+        }
+
+        private sealed class FailsAfterFirstPathQuery : IEnemyNavPathQuery
+        {
+            private int pathRequests;
+
+            public bool TrySample(Vector3 worldPoint, out Vector3 sampledPoint)
+            {
+                sampledPoint = worldPoint;
+                return true;
+            }
+
+            public bool TryCalculateCompletePath(Vector3 origin, Vector3 destination, out IReadOnlyList<Vector3> corners)
+            {
+                pathRequests++;
+                corners = pathRequests == 1 ? new[] { origin, destination } : System.Array.Empty<Vector3>();
+                return pathRequests == 1;
             }
         }
 

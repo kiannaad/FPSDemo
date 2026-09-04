@@ -21,6 +21,25 @@ namespace CGame.Network.Tests
         }
 
         [Test]
+        public void Snapshot_LatestTickOwnsCoverPointAndBrainState()
+        {
+            var tracker = new EnemyReplicationTracker();
+            tracker.ApplySpawn(Spawn(501));
+            EnemySnapshotEvent older = Snapshot(501, 10);
+            older.CoverPointId = "Cover.A";
+            older.BrainState = EnemyBrainState.CoverHold;
+            EnemySnapshotEvent newer = Snapshot(501, 11);
+            newer.CoverPointId = "Cover.B";
+            newer.BrainState = EnemyBrainState.PeekFire;
+
+            Assert.That(tracker.ApplySnapshot(older), Is.True);
+            Assert.That(tracker.ApplySnapshot(newer), Is.True);
+            Assert.That(tracker.TryGet(501, out EnemyReplicationState state), Is.True);
+            Assert.That(state.LatestSnapshot.CoverPointId, Is.EqualTo("Cover.B"));
+            Assert.That(state.LatestSnapshot.BrainState, Is.EqualTo(EnemyBrainState.PeekFire));
+        }
+
+        [Test]
         public void UnknownEntity_IsBufferedUntilSpawn_ThenAppliesNewestValues()
         {
             var tracker = new EnemyReplicationTracker();

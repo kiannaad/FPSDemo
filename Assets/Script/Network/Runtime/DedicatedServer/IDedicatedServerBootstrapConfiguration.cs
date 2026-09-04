@@ -7,6 +7,7 @@ namespace CGame.Network
         PawnDefinition PlayerPawnDefinition { get; }
         EnemyRosterDefinition EnemyRosterDefinition { get; }
         EnemyArchetypeCombatCatalog EnemyArchetypeCombatCatalog { get; }
+        CoverPointCatalog CoverPointCatalog { get; }
         DedicatedTargetSpawnDefinition DedicatedTargetSpawnDefinition { get; }
     }
 }

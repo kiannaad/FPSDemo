@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace CGame.Network
 {
@@ -106,26 +107,33 @@ namespace CGame.Network
 
     public sealed class UnityEnemyNavPathQuery : IEnemyNavPathQuery
     {
+        private const float SampleDistance = 2f;
+
         public bool TrySample(Vector3 worldPoint, out Vector3 sampledPoint)
         {
-            // V1 deliberately has no NavMesh.  Patrol routes are authored as
-            // world-space points and movement is resolved by the authoritative
-            // CharacterPhysics motor, so sampling is an identity operation.
-            sampledPoint = worldPoint;
+            if (!NavMesh.SamplePosition(worldPoint, out NavMeshHit hit, SampleDistance, NavMesh.AllAreas))
+            {
+                sampledPoint = Vector3.zero;
+                return false;
+            }
+
+            sampledPoint = hit.position;
             return true;
         }
 
         public bool TryCalculateCompletePath(Vector3 origin, Vector3 destination, out IReadOnlyList<Vector3> corners)
         {
-            Vector3 planarOffset = destination - origin;
-            planarOffset.y = 0f;
-            if (planarOffset.sqrMagnitude <= 0.0001f)
+            var path = new NavMeshPath();
+            if (!NavMesh.CalculatePath(origin, destination, NavMesh.AllAreas, path) ||
+                path.status != NavMeshPathStatus.PathComplete ||
+                path.corners == null ||
+                path.corners.Length < 2)
             {
                 corners = Array.Empty<Vector3>();
                 return false;
             }
 
-            corners = new[] { origin, destination };
+            corners = path.corners;
             return true;
         }
     }

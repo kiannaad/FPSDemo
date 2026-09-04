@@ -56,6 +56,8 @@ namespace CGame.Network
         private float previousFixedDeltaTime;
         private bool initialized;
         private NavMeshDataInstance navigationData;
+        private IReadOnlyList<CoverPointDefinition> coverPoints = Array.Empty<CoverPointDefinition>();
+        private readonly CoverReservationRegistry coverReservations = new CoverReservationRegistry();
 
         public IReadOnlyList<Pawn> AuthorityPawns => authorityPawns;
         public long FixedStepCount => physics?.FixedStepCount ?? 0;
@@ -128,6 +130,7 @@ namespace CGame.Network
             {
                 BuildNavigation(levelScene);
                 ValidateEnemyArchetypeCombatCatalog(dedicatedBootstrap.EnemyArchetypeCombatCatalog);
+                ValidateCoverPointCatalog(dedicatedBootstrap.CoverPointCatalog);
             }
             if (dedicatedBootstrap?.EnemyRosterDefinition != null)
             {
@@ -334,7 +337,7 @@ namespace CGame.Network
             {
                 DedicatedEnemyMotorState state = agent.CompleteFixedStep(serverTick);
                 if (serverTick % 30 == 0)
-                    Debug.Log($"[DedicatedServer][054] RifleMotorState MatchId={launch.MatchId} EnemyId={agent.EnemyId} ServerTick={serverTick} RouteId={agent.RouteId} PointIndex={agent.PointIndex} Grounded={state.IsGrounded} Velocity={state.PlanarVelocity.magnitude:F3}");
+                    Debug.Log($"[DedicatedServer][054] RifleMotorState MatchId={launch.MatchId} EnemyId={agent.EnemyId} ServerTick={serverTick} RouteId={agent.RouteId} PointIndex={agent.PointIndex} Position={state.Position} Grounded={state.IsGrounded} Velocity={state.PlanarVelocity.magnitude:F3}");
                 if (enemiesById.TryGetValue(agent.EnemyId, out DedicatedEnemyEntity enemy))
                     dataServer.BroadcastEnemySnapshot(launch.MatchId, CreateEnemySnapshot(enemy, agent, state, serverTick));
             }
@@ -385,7 +388,7 @@ namespace CGame.Network
                 agent.PrepareFixedStep(serverTick, candidates);
                 if (agent.State != previousState || agent.TargetPawnId != previousTargetPawnId)
                 {
-                    Debug.Log($"[DedicatedServer][058] EnemyBrainState MatchId={launch.MatchId} EnemyId={agent.EnemyId} ServerTick={serverTick} State={agent.State} TargetPawnId={agent.TargetPawnId} RouteId={agent.RouteId} PointIndex={agent.PointIndex}");
+                    Debug.Log($"[DedicatedServer][063] EnemyBrainState MatchId={launch.MatchId} EnemyId={agent.EnemyId} ServerTick={serverTick} State={agent.State} CoverPointId={agent.CoverPointId} TargetPawnId={agent.TargetPawnId} RouteId={agent.RouteId} PointIndex={agent.PointIndex}");
                 }
             }
         }
@@ -524,12 +527,16 @@ namespace CGame.Network
                 Health = enemy.Health,
                 IsGrounded = state.IsGrounded,
                 BrainState = agent.State,
-                TargetPawnId = agent.TargetPawnId
+                TargetPawnId = agent.TargetPawnId,
+                CoverPointId = agent.CoverPointId
             };
         }
 
         private void OnDestroy()
         {
+            foreach (DedicatedEnemyPatrolAgent agent in patrolAgentsByEnemyId.Values)
+                agent.ReleaseCover();
+            patrolAgentsByEnemyId.Clear();
             while (pendingFireQueries.TryDequeue(out FireQueryOperation operation))
             {
                 operation.Completion.TrySetResult(new DedicatedFireQueryResult
@@ -585,7 +592,9 @@ namespace CGame.Network
                         pawnRegistrations.Add(world.RegisterActor(enemy.MotorPawn, critical: true));
                         patrolAgentsByEnemyId.Add(enemy.EnemyId, new DedicatedEnemyPatrolAgent(
                             enemy,
-                            combatCatalog.GetRequired(enemy.ArchetypeId)));
+                            combatCatalog.GetRequired(enemy.ArchetypeId),
+                            coverPoints,
+                            coverReservations));
                     }
                     EnsureHitCollider(enemy.gameObject);
                     combatIdentityRegistry.RegisterEnemy(enemy.EnemyId, enemy.gameObject);
@@ -628,6 +637,17 @@ namespace CGame.Network
             {
                 navigation.ValidateRoute(definition.PatrolRoute, launch.LevelId);
                 Debug.Log($"[DedicatedServer][057] PatrolRouteReady MatchId={launch.MatchId} ArchetypeId={definition.ArchetypeId} RouteId={definition.PatrolRoute.RouteId} Points={definition.PatrolRoute.WorldPoints.Count}");
+            }
+        }
+
+        private void ValidateCoverPointCatalog(CoverPointCatalog catalog)
+        {
+            if (catalog == null) throw new InvalidOperationException("Dedicated bootstrap requires a CoverPointCatalog.");
+            IReadOnlyList<CoverPointDefinition> accepted = catalog.ValidateForLevel(launch.LevelId, new UnityEnemyNavPathQuery());
+            coverPoints = accepted;
+            foreach (CoverPointDefinition definition in accepted)
+            {
+                Debug.Log($"[DedicatedServer][062] CoverPointReady MatchId={launch.MatchId} CoverPointId={definition.CoverPointId} LevelId={definition.LevelId}");
             }
         }
 
