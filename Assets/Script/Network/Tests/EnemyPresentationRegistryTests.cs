@@ -68,6 +68,23 @@ namespace CGame.Network.Tests
             Assert.That(state.MoveDirection, Is.EqualTo(Vector2.right));
             Assert.That(state.IsGrounded, Is.True);
             Assert.That(state.BrainState, Is.EqualTo(EnemyBrainState.CoverHold));
+            Assert.That(state.IsInCover, Is.True);
+            Assert.That(state.IsPeeking, Is.False);
+        }
+
+        [TestCase(EnemyBrainState.CoverHold, true, false)]
+        [TestCase(EnemyBrainState.PeekFire, true, true)]
+        [TestCase(EnemyBrainState.ReturnToCover, true, false)]
+        [TestCase(EnemyBrainState.Chase, false, false)]
+        public void RemoteEnemyAnimationState_DerivesCoverParameters(
+            EnemyBrainState brainState,
+            bool expectedInCover,
+            bool expectedPeeking)
+        {
+            var state = new RemoteEnemyAnimationState(0f, Vector2.zero, true, Quaternion.identity, brainState);
+
+            Assert.That(state.IsInCover, Is.EqualTo(expectedInCover));
+            Assert.That(state.IsPeeking, Is.EqualTo(expectedPeeking));
         }
 
         [Test]

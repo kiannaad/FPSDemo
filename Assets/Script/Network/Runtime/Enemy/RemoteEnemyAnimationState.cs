@@ -27,6 +27,9 @@ namespace CGame.Network
         public Quaternion Facing { get; }
         public EnemyBrainState BrainState { get; }
         public bool IsMoving => Speed > MovingSpeedThreshold;
+        public bool IsInCover => BrainState == EnemyBrainState.CoverHold ||
+            BrainState == EnemyBrainState.PeekFire || BrainState == EnemyBrainState.ReturnToCover;
+        public bool IsPeeking => BrainState == EnemyBrainState.PeekFire;
 
         public static RemoteEnemyAnimationState FromSnapshot(EnemySnapshotEvent snapshot)
         {

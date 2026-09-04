@@ -10,6 +10,8 @@ namespace CGame.Network
         private static readonly int MoveDirectionParameter = Animator.StringToHash("MoveDirection");
         private static readonly int FireParameter = Animator.StringToHash("Fire");
         private static readonly int HitParameter = Animator.StringToHash("Hit");
+        private static readonly int IsInCoverParameter = Animator.StringToHash("IsInCover");
+        private static readonly int IsPeekingParameter = Animator.StringToHash("IsPeeking");
 
         [SerializeField] private Animator animator;
         private Pawn playbackPawn;
@@ -37,6 +39,8 @@ namespace CGame.Network
         {
             RemoteAnimationState = state;
             ApplyMovement(state.Speed, state.MoveDirection);
+            animator.SetBool(IsInCoverParameter, state.IsInCover);
+            animator.SetBool(IsPeekingParameter, state.IsPeeking);
             EnsurePlayableGraph();
             playablesController?.Update(deltaTime);
         }

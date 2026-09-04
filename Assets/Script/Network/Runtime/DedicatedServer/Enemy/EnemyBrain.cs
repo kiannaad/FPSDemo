@@ -22,6 +22,7 @@ namespace CGame.Network
         TakeCover,
         CoverHold,
         PeekFire,
+        ReturnToCover,
         NoAmmo
     }
 
@@ -102,12 +103,16 @@ namespace CGame.Network
         private const long InitialPatrolTicks = 180;
         private const long LostSightGraceTicks = 120;
         private const long CoverEngagementGraceTicks = 600;
+        private const long CoverReselectionCooldownTicks = 30;
         private EnemyBrainState state;
         private long targetPawnId;
         private Vector3 lastKnownTargetPosition;
         private long lastSeenTargetTick;
         private EnemyCoverSelection coverSelection;
         private long nextCoverTransitionTick;
+        private long nextCoverSelectionTick;
+        private bool peekFireCommitted;
+        private EnemyCoverValidationFailure lastCoverValidationFailure;
 
         public EnemyBrain(
             EnemyArchetypeCombatDefinition definition,
@@ -131,6 +136,7 @@ namespace CGame.Network
         public EnemyBrainState State => state;
         public long TargetPawnId => targetPawnId;
         public string CoverPointId => coverSelection.CoverPointId ?? string.Empty;
+        public EnemyCoverValidationFailure LastCoverValidationFailure => lastCoverValidationFailure;
 
         public EnemyBrainOutput TickPatrol(long serverTick, DedicatedEnemyMotorState motorState)
         {
@@ -143,6 +149,7 @@ namespace CGame.Network
             IReadOnlyList<EnemyPerceptionCandidate> candidates)
         {
             if (serverTick < 0) throw new ArgumentOutOfRangeException(nameof(serverTick));
+            lastCoverValidationFailure = EnemyCoverValidationFailure.None;
             if (serverTick <= InitialPatrolTicks)
             {
                 state = EnemyBrainState.Patrol;
@@ -172,7 +179,9 @@ namespace CGame.Network
                     return BuildMovement(serverTick, motorState.Position, target.Position, EnemyMoveTargetKind.ChaseTarget);
                 }
 
-                EnemyCoverSelection selectedCover = coverSelector == null ? default : coverSelector.SelectAndReserve(enemyId, motorState.Position, target);
+                EnemyCoverSelection selectedCover = coverSelector == null || serverTick < nextCoverSelectionTick
+                    ? default
+                    : coverSelector.SelectAndReserve(enemyId, motorState.Position, target);
                 if (selectedCover.IsValid)
                 {
                     coverSelection = selectedCover;
@@ -192,7 +201,7 @@ namespace CGame.Network
             }
 
             if (state == EnemyBrainState.Chase || state == EnemyBrainState.Fire || state == EnemyBrainState.TakeCover ||
-                state == EnemyBrainState.CoverHold || state == EnemyBrainState.PeekFire)
+                state == EnemyBrainState.CoverHold || state == EnemyBrainState.PeekFire || state == EnemyBrainState.ReturnToCover)
             {
                 if (serverTick - lastSeenTargetTick <= LostSightGraceTicks)
                     return BuildMovement(serverTick, motorState.Position, lastKnownTargetPosition, EnemyMoveTargetKind.ChaseTarget);
@@ -235,6 +244,14 @@ namespace CGame.Network
                 return BuildMovement(serverTick, motorState.Position, target.Position, EnemyMoveTargetKind.ChaseTarget);
             }
 
+            Vector3 destination = state == EnemyBrainState.PeekFire
+                ? coverSelection.PeekPosition
+                : coverSelection.CoverPosition;
+            EnemyCoverValidationResult validation = coverSelector.ValidateSelection(
+                enemyId, coverSelection, motorState.Position, target, destination);
+            if (!validation.IsValid)
+                return FallBackFromInvalidCover(serverTick, motorState.Position, target.Position, validation.Failure);
+
             if (state == EnemyBrainState.TakeCover)
             {
                 if (!IsAt(motorState.Position, coverSelection.CoverPosition, coverSelection.ReservationRadius))
@@ -254,9 +271,22 @@ namespace CGame.Network
             {
                 if (!IsAt(motorState.Position, coverSelection.PeekPosition, coverSelection.ReservationRadius))
                     return BuildCoverMovement(serverTick, motorState.Position, target.Position, coverSelection.PeekPosition, EnemyMoveTargetKind.PeekPosition);
-                state = EnemyBrainState.CoverHold;
-                nextCoverTransitionTick = serverTick + 20;
+                if (peekFireCommitted)
+                {
+                    state = EnemyBrainState.ReturnToCover;
+                    return BuildCoverMovement(serverTick, motorState.Position, target.Position, coverSelection.CoverPosition, EnemyMoveTargetKind.CoverPosition);
+                }
+                peekFireCommitted = true;
                 return EnemyBrainOutput.ForMovement(default, EnemyBrainState.PeekFire, targetPawnId, hasFireRequest: true);
+            }
+            if (state == EnemyBrainState.ReturnToCover)
+            {
+                if (!IsAt(motorState.Position, coverSelection.CoverPosition, coverSelection.ReservationRadius))
+                    return BuildCoverMovement(serverTick, motorState.Position, target.Position, coverSelection.CoverPosition, EnemyMoveTargetKind.CoverPosition);
+                state = EnemyBrainState.CoverHold;
+                peekFireCommitted = false;
+                nextCoverTransitionTick = serverTick + 20;
+                return EnemyBrainOutput.ForMovement(default, state, targetPawnId);
             }
 
             state = EnemyBrainState.TakeCover;
@@ -267,6 +297,20 @@ namespace CGame.Network
         {
             if (coverSelection.IsValid) coverSelector?.ReleaseByEnemy(enemyId);
             coverSelection = default;
+        }
+
+        private EnemyBrainOutput FallBackFromInvalidCover(
+            long serverTick,
+            Vector3 origin,
+            Vector3 targetPosition,
+            EnemyCoverValidationFailure failure)
+        {
+            lastCoverValidationFailure = failure;
+            ClearCoverReservation();
+            peekFireCommitted = false;
+            nextCoverSelectionTick = serverTick + CoverReselectionCooldownTicks;
+            state = EnemyBrainState.Chase;
+            return BuildMovement(serverTick, origin, targetPosition, EnemyMoveTargetKind.ChaseTarget);
         }
 
         private static bool IsAt(Vector3 position, Vector3 destination, float radius)
@@ -300,9 +344,11 @@ namespace CGame.Network
             if (coverOutput.MovementIntent.NavigationIntent.HasPath || coverOutput.MovementIntent.NavigationIntent.IsRetryThrottled)
                 return coverOutput;
 
-            ClearCoverReservation();
-            state = EnemyBrainState.Chase;
-            return BuildMovement(serverTick, origin, fallbackTarget, EnemyMoveTargetKind.ChaseTarget);
+            return FallBackFromInvalidCover(
+                serverTick,
+                origin,
+                fallbackTarget,
+                EnemyCoverValidationFailure.DestinationPathMissing);
         }
 
         private bool TrySelectVisibleCandidate(

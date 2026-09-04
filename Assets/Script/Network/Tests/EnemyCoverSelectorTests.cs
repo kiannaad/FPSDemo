@@ -36,6 +36,30 @@ namespace CGame.Network.Tests
             }
         }
 
+        [Test]
+        public void ValidateSelection_ReportsVisibleCoverAndKeepsReasonExplicit()
+        {
+            CoverPointDefinition cover = CreatePoint("Cover.A", 2f, 3f);
+            try
+            {
+                var registry = new CoverReservationRegistry();
+                var perception = new MutableCoverVisibilityQuery();
+                var selector = new EnemyCoverSelector(new[] { cover }, new CompletePathQuery(), perception, registry);
+                var target = new EnemyPerceptionCandidate(100, Vector3.zero, true, true);
+                EnemyCoverSelection selection = selector.SelectAndReserve(101, Vector3.zero, target);
+                perception.IsCoverVisible = true;
+
+                EnemyCoverValidationResult result = selector.ValidateSelection(101, selection, Vector3.zero, target, selection.CoverPosition);
+
+                Assert.That(result.IsValid, Is.False);
+                Assert.That(result.Failure, Is.EqualTo(EnemyCoverValidationFailure.CoverVisible));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(cover);
+            }
+        }
+
         private static CoverPointDefinition CreatePoint(string id, float coverX, float peekX)
         {
             CoverPointDefinition point = ScriptableObject.CreateInstance<CoverPointDefinition>();
@@ -62,6 +86,17 @@ namespace CGame.Network.Tests
         {
             public bool HasLineOfSight(Vector3 origin, EnemyPerceptionCandidate candidate) =>
                 Math.Abs(origin.x - 3f) < 0.01f || Math.Abs(origin.x - 4f) < 0.01f;
+        }
+
+        private sealed class MutableCoverVisibilityQuery : IEnemyPerceptionQuery
+        {
+            public bool IsCoverVisible { get; set; }
+
+            public bool HasLineOfSight(Vector3 origin, EnemyPerceptionCandidate candidate)
+            {
+                if (Math.Abs(origin.x - 2f) < 0.01f) return IsCoverVisible;
+                return Math.Abs(origin.x - 3f) < 0.01f;
+            }
         }
     }
 }

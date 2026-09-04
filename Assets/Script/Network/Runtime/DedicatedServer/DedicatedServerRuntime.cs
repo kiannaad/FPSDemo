@@ -385,10 +385,15 @@ namespace CGame.Network
             {
                 EnemyBrainState previousState = agent.State;
                 long previousTargetPawnId = agent.TargetPawnId;
+                string previousCoverPointId = agent.CoverPointId;
                 agent.PrepareFixedStep(serverTick, candidates);
                 if (agent.State != previousState || agent.TargetPawnId != previousTargetPawnId)
                 {
                     Debug.Log($"[DedicatedServer][063] EnemyBrainState MatchId={launch.MatchId} EnemyId={agent.EnemyId} ServerTick={serverTick} State={agent.State} CoverPointId={agent.CoverPointId} TargetPawnId={agent.TargetPawnId} RouteId={agent.RouteId} PointIndex={agent.PointIndex}");
+                }
+                if (agent.LastCoverValidationFailure != EnemyCoverValidationFailure.None)
+                {
+                    Debug.LogWarning($"[DedicatedServer][065] CoverValidationFailed MatchId={launch.MatchId} EnemyId={agent.EnemyId} ServerTick={serverTick} State={agent.State} CoverPointId={previousCoverPointId} Reason={agent.LastCoverValidationFailure}");
                 }
             }
         }

@@ -39,6 +39,7 @@ namespace CGame.Network
         public long TargetPawnId => brain.TargetPawnId;
         public int MagazineAmmo => fireResolver.MagazineAmmo;
         public string CoverPointId => brain.CoverPointId;
+        public EnemyCoverValidationFailure LastCoverValidationFailure => brain.LastCoverValidationFailure;
         public bool WantsToFire => !isNoAmmo && pendingOutput.HasFireRequest;
 
         public void PrepareFixedStep(long serverTick, IReadOnlyList<EnemyPerceptionCandidate> candidates)

@@ -256,7 +256,8 @@ namespace CGame.GameplayCue.PlayModeTests
 
             for (int frame = 0; frame < 360 && snapshotsByEnemyId.Values.Any(snapshots =>
                      !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.CoverHold) ||
-                     !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire)); frame++)
+                     !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire) ||
+                     !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.ReturnToCover)); frame++)
             {
                 channel.PollEvents();
                 yield return new WaitForFixedUpdate();
@@ -269,6 +270,14 @@ namespace CGame.GameplayCue.PlayModeTests
                     "Each enemy must hold its selected cover point through the authoritative Snapshot stream.");
                 Assert.That(snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire), Is.True,
                     "Each enemy must enter PeekFire through the authoritative Snapshot stream.");
+                EnemySnapshotEvent returnSnapshot = snapshots.FirstOrDefault(snapshot =>
+                    snapshot.BrainState == EnemyBrainState.ReturnToCover);
+                Assert.That(returnSnapshot, Is.Not.Null,
+                    "Each enemy must replicate ReturnToCover after its PeekFire request.");
+                Assert.That(returnSnapshot.CoverPointId, Is.Not.Empty,
+                    "ReturnToCover must retain the enemy's reserved cover identity.");
+                Assert.That(returnSnapshot.PlanarVelocity.ToValue().ToMeters().sqrMagnitude, Is.GreaterThan(0.0001f),
+                    "ReturnToCover must carry a non-stationary authoritative Motor state.");
                 EnemySnapshotEvent coverSnapshot = snapshots.First(snapshot => !string.IsNullOrWhiteSpace(snapshot.CoverPointId));
                 Assert.That(coverPointIds.Add(coverSnapshot.CoverPointId), Is.True,
                     "Three enemies must not share an authored CoverPointId.");

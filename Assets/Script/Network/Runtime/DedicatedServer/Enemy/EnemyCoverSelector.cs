@@ -5,6 +5,26 @@ using UnityEngine;
 
 namespace CGame.Network
 {
+    public enum EnemyCoverValidationFailure
+    {
+        None,
+        ReservationLost,
+        CoverVisible,
+        PeekOccluded,
+        DestinationPathMissing
+    }
+
+    public readonly struct EnemyCoverValidationResult
+    {
+        public EnemyCoverValidationResult(EnemyCoverValidationFailure failure)
+        {
+            Failure = failure;
+        }
+
+        public bool IsValid => Failure == EnemyCoverValidationFailure.None;
+        public EnemyCoverValidationFailure Failure { get; }
+    }
+
     public readonly struct EnemyCoverSelection
     {
         public EnemyCoverSelection(string coverPointId, Vector3 coverPosition, Vector3 peekPosition, float reservationRadius)
@@ -68,6 +88,24 @@ namespace CGame.Network
         }
 
         public void ReleaseByEnemy(long enemyId) => reservations.ReleaseByEnemy(enemyId);
+
+        public EnemyCoverValidationResult ValidateSelection(
+            long enemyId,
+            EnemyCoverSelection selection,
+            Vector3 enemyPosition,
+            EnemyPerceptionCandidate target,
+            Vector3 destination)
+        {
+            if (!selection.IsValid || !reservations.IsReservedBy(selection.CoverPointId, enemyId))
+                return new EnemyCoverValidationResult(EnemyCoverValidationFailure.ReservationLost);
+            if (perception.HasLineOfSight(selection.CoverPosition, target))
+                return new EnemyCoverValidationResult(EnemyCoverValidationFailure.CoverVisible);
+            if (!perception.HasLineOfSight(selection.PeekPosition, target))
+                return new EnemyCoverValidationResult(EnemyCoverValidationFailure.PeekOccluded);
+            if (!navigation.TryCalculateCompletePath(enemyPosition, destination, out _))
+                return new EnemyCoverValidationResult(EnemyCoverValidationFailure.DestinationPathMissing);
+            return default;
+        }
 
         private static float CalculateLength(Vector3 origin, IReadOnlyList<Vector3> corners)
         {

@@ -36,9 +36,11 @@ namespace CGame.GameplayCue.PlayModeTests
                     presentation.PlayHit();
                 });
                 presentation.ApplyRemoteAnimationState(
-                    new RemoteEnemyAnimationState(1f, Vector2.right, true, Quaternion.identity),
+                    new RemoteEnemyAnimationState(1f, Vector2.right, true, Quaternion.identity, EnemyBrainState.PeekFire),
                     Time.deltaTime);
                 Assert.That(presentation.HasPlayableGraph, Is.True);
+                Assert.That(presentation.Animator.GetBool("IsInCover"), Is.True);
+                Assert.That(presentation.Animator.GetBool("IsPeeking"), Is.True);
             }
 #else
             Assert.Ignore("This test resolves the catalog through the Editor AssetDatabase.");
@@ -87,6 +89,10 @@ namespace CGame.GameplayCue.PlayModeTests
             Assert.That(rifle.RemoteAnimationState.IsMoving, Is.True);
             Assert.That(rifle.RemoteAnimationState.IsGrounded, Is.True);
             Assert.That(rifle.RemoteAnimationState.BrainState, Is.EqualTo(EnemyBrainState.PeekFire));
+            Assert.That(rifle.RemoteAnimationState.IsInCover, Is.True);
+            Assert.That(rifle.RemoteAnimationState.IsPeeking, Is.True);
+            Assert.That(rifle.Animator.GetBool("IsInCover"), Is.True);
+            Assert.That(rifle.Animator.GetBool("IsPeeking"), Is.True);
             Assert.That(rifle.HasPlayableGraph, Is.True);
             Assert.That(rifle.Animator.applyRootMotion, Is.False);
 #else
