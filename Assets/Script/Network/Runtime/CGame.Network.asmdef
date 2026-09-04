@@ -10,7 +10,8 @@
     "CGame.Animation",
     "LiteNetLib",
     "MessagePack.Unity",
-    "Unity.InputSystem"
+    "Unity.InputSystem",
+    "Unity.TextMeshPro"
   ],
   "autoReferenced": true
 }

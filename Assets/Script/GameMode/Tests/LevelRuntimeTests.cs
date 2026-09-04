@@ -24,11 +24,11 @@ namespace CGame.Tests.Gameplay
             EditorSceneManager.SaveScene(scene, ScenePath);
             definition = ScriptableObject.CreateInstance<LevelDefinition>();
             Transform players = CreateRoot(LevelDefinitionScanner.PlayerContainerName);
-            CreateChild(players, "PlayerPoint1", Vector3.zero);
+            CreateChild(players, "PlayerPoint 1", Vector3.zero);
             Transform enemies = CreateRoot(LevelDefinitionScanner.EnemyContainerName);
-            CreateChild(enemies, "EnemyPoint1", Vector3.right);
-            CreateChild(enemies, "EnemyPoint2", Vector3.right * 2);
-            CreateChild(enemies, "EnemyPoint3", Vector3.right * 3);
+            CreateChild(enemies, "EnemyPoint 1", Vector3.right);
+            CreateChild(enemies, "EnemyPoint 2", Vector3.right * 2);
+            CreateChild(enemies, "EnemyPoint 3", Vector3.right * 3);
             LevelDefinitionScanner.ScanAndApply(scene, definition);
         }
 
@@ -48,12 +48,12 @@ namespace CGame.Tests.Gameplay
             Assert.That(runtime.GetStatus(reservation.PointId).State, Is.EqualTo(SpawnPointState.Reserved));
             Guid registrationId = Guid.NewGuid();
             reservation.Commit(registrationId);
-            SpawnPointStatus occupied = runtime.GetStatus("PlayerPoint1");
+            SpawnPointStatus occupied = runtime.GetStatus("PlayerPoint 1");
             Assert.That(occupied.State, Is.EqualTo(SpawnPointState.Occupied));
             Assert.That(occupied.HasOccupiedTag, Is.True);
-            Assert.That(runtime.ReleaseOccupied("PlayerPoint1", Guid.NewGuid()), Is.False);
-            Assert.That(runtime.ReleaseOccupied("PlayerPoint1", registrationId), Is.True);
-            Assert.That(runtime.ReleaseOccupied("PlayerPoint1", registrationId), Is.False);
+            Assert.That(runtime.ReleaseOccupied("PlayerPoint 1", Guid.NewGuid()), Is.False);
+            Assert.That(runtime.ReleaseOccupied("PlayerPoint 1", registrationId), Is.True);
+            Assert.That(runtime.ReleaseOccupied("PlayerPoint 1", registrationId), Is.False);
         }
 
         [Test]
@@ -61,17 +61,31 @@ namespace CGame.Tests.Gameplay
         {
             var runtime = new LevelRuntime(definition, scene);
             Assert.Throws<InvalidOperationException>(() => runtime.ReserveRandomEnemyPoints(4, new System.Random(1)));
-            Assert.That(runtime.GetStatus("EnemyPoint1").State, Is.EqualTo(SpawnPointState.Available));
+            Assert.That(runtime.GetStatus("EnemyPoint 1").State, Is.EqualTo(SpawnPointState.Available));
             var reservations = runtime.ReserveRandomEnemyPoints(3, new System.Random(1));
             Assert.That(reservations.Select(item => item.PointId).Distinct().Count(), Is.EqualTo(3));
             foreach (SpawnPointReservation reservation in reservations) reservation.Dispose();
-            Assert.That(runtime.GetStatus("EnemyPoint2").State, Is.EqualTo(SpawnPointState.Available));
+            Assert.That(runtime.GetStatus("EnemyPoint 2").State, Is.EqualTo(SpawnPointState.Available));
+        }
+
+        [Test]
+        public void ReserveEnemyPoint_UsesTheNamedAvailableEnemyPointOnly()
+        {
+            var runtime = new LevelRuntime(definition, scene);
+
+            SpawnPointReservation reservation = runtime.ReserveEnemyPoint("EnemyPoint 2");
+
+            Assert.That(reservation.PointId, Is.EqualTo("EnemyPoint 2"));
+            Assert.That(runtime.GetStatus("EnemyPoint 2").State, Is.EqualTo(SpawnPointState.Reserved));
+            Assert.Throws<InvalidOperationException>(() => runtime.ReserveEnemyPoint("EnemyPoint 2"));
+            Assert.Throws<InvalidOperationException>(() => runtime.ReserveEnemyPoint("PlayerPoint 1"));
+            reservation.Dispose();
         }
 
         [Test]
         public void TransformMismatchPreventsRuntimeCreation()
         {
-            GameObject.Find("EnemyPoint1").transform.position += Vector3.up;
+            GameObject.Find("EnemyPoint 1").transform.position += Vector3.up;
             Assert.Throws<InvalidOperationException>(() => new LevelRuntime(definition, scene));
         }
 
@@ -83,7 +97,7 @@ namespace CGame.Tests.Gameplay
             player.Commit(Guid.NewGuid());
             SpawnPointReservation enemy = runtime.ReserveRandomEnemyPoints(1, new System.Random(2))[0];
             runtime.Shutdown();
-            Assert.That(runtime.GetStatus("PlayerPoint1").State, Is.EqualTo(SpawnPointState.Available));
+            Assert.That(runtime.GetStatus("PlayerPoint 1").State, Is.EqualTo(SpawnPointState.Available));
             Assert.That(runtime.GetStatus(enemy.PointId).State, Is.EqualTo(SpawnPointState.Available));
             Assert.Throws<ObjectDisposedException>(() => runtime.ReserveFirstPlayerPoint());
         }
@@ -126,7 +140,7 @@ namespace CGame.Tests.Gameplay
             {
                 world = World.Create(configuration);
                 Assert.Throws<InvalidOperationException>(() => world.InitializeAsync().GetAwaiter().GetResult());
-                Assert.That(runtime.GetStatus("PlayerPoint1").State, Is.EqualTo(SpawnPointState.Available));
+                Assert.That(runtime.GetStatus("PlayerPoint 1").State, Is.EqualTo(SpawnPointState.Available));
                 Assert.That(world.RegisteredActorCount, Is.Zero);
                 Assert.That(world.LocalPlayer, Is.Null);
                 Assert.That(world.GameMode, Is.Null);
@@ -167,9 +181,9 @@ namespace CGame.Tests.Gameplay
                 Assert.Throws<InvalidOperationException>(() => component.StartInitialSpawn().GetAwaiter().GetResult());
                 Assert.That(world.RegisteredActorCount, Is.Zero);
                 Assert.That(component.Handles.Count, Is.Zero);
-                Assert.That(runtime.GetStatus("EnemyPoint1").State, Is.EqualTo(SpawnPointState.Available));
-                Assert.That(runtime.GetStatus("EnemyPoint2").State, Is.EqualTo(SpawnPointState.Available));
-                Assert.That(runtime.GetStatus("EnemyPoint3").State, Is.EqualTo(SpawnPointState.Available));
+                Assert.That(runtime.GetStatus("EnemyPoint 1").State, Is.EqualTo(SpawnPointState.Available));
+                Assert.That(runtime.GetStatus("EnemyPoint 2").State, Is.EqualTo(SpawnPointState.Available));
+                Assert.That(runtime.GetStatus("EnemyPoint 3").State, Is.EqualTo(SpawnPointState.Available));
             }
             finally
             {
@@ -237,5 +251,6 @@ namespace CGame.Tests.Gameplay
                 return Task.FromResult(new Pawn(root, new ActorComponent[] { new HealthComponent() }));
             }
         }
+
     }
 }

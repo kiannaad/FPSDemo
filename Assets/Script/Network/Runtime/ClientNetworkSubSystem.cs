@@ -32,6 +32,10 @@ namespace CGame.Network
         public event Action<FireRejected> FireRejectedReceived;
         public event Action<TargetStateMessage> TargetStateChangedReceived;
         public event Action<TargetStateSnapshotMessage> TargetStateSnapshotReceived;
+        public event Action<EnemySpawnedEvent> EnemySpawnedReceived;
+        public event Action<EnemySnapshotEvent> EnemySnapshotReceived;
+        public event Action<EnemyActionEvent> EnemyActionReceived;
+        public event Action<OwnerGameplayStateEvent> OwnerGameplayStateReceived;
 
         protected override Task OnInitializeAsync(CancellationToken cancellationToken)
         {
@@ -192,6 +196,20 @@ namespace CGame.Network
                 Debug.Log($"[Network][043] InputMoveSendTrace MatchId={move.MatchId} PawnId={move.PawnId} Sequence={move.Sequence} ClientTick={move.ClientTick} Flags={move.Flags}");
         }
 
+        public Task SendEnemyResyncRequestAsync(EnemyResyncRequest request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (ClientWorld.MatchId <= 0)
+                throw new InvalidOperationException("Cannot request enemy resync before MatchStarting.");
+            if (rpcClient == null) throw new InvalidOperationException("Client network is not initialized.");
+
+            return rpcClient.RequestAsync(
+                NetworkMessageId.EnemyResyncRequest,
+                MessagePackSerializer.Serialize(request),
+                TimeSpan.FromSeconds(definition.RequestTimeoutSeconds),
+                ClientWorld.MatchId);
+        }
+
         private Task<NetworkRpcResponse> SendRequestAsync<TRequest>(NetworkMessageId messageId, TRequest request)
         {
             if (rpcClient == null) throw new InvalidOperationException("Client network is not initialized.");
@@ -237,6 +255,18 @@ namespace CGame.Network
                     break;
                 case NetworkMessageId.TargetStateSnapshot:
                     TargetStateSnapshotReceived?.Invoke(MessagePackSerializer.Deserialize<TargetStateSnapshotMessage>(response.Payload));
+                    break;
+                case NetworkMessageId.EnemySpawned:
+                    EnemySpawnedReceived?.Invoke(MessagePackSerializer.Deserialize<EnemySpawnedEvent>(response.Payload));
+                    break;
+                case NetworkMessageId.EnemySnapshot:
+                    EnemySnapshotReceived?.Invoke(MessagePackSerializer.Deserialize<EnemySnapshotEvent>(response.Payload));
+                    break;
+                case NetworkMessageId.EnemyAction:
+                    EnemyActionReceived?.Invoke(MessagePackSerializer.Deserialize<EnemyActionEvent>(response.Payload));
+                    break;
+                case NetworkMessageId.OwnerGameplayState:
+                    OwnerGameplayStateReceived?.Invoke(MessagePackSerializer.Deserialize<OwnerGameplayStateEvent>(response.Payload));
                     break;
             }
         }

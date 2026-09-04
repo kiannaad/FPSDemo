@@ -29,7 +29,12 @@ namespace CGame.Network
         FireCommitted = 51,
         FireRejected = 52,
         TargetStateChanged = 60,
-        TargetStateSnapshot = 61
+        TargetStateSnapshot = 61,
+        EnemySpawned = 70,
+        EnemySnapshot = 71,
+        EnemyAction = 72,
+        EnemyResyncRequest = 73,
+        OwnerGameplayState = 74
     }
 
     public enum NetworkDelivery
@@ -47,6 +52,7 @@ namespace CGame.Network
                 case NetworkMessageId.PawnMove:
                 case NetworkMessageId.OwnerReconcile:
                 case NetworkMessageId.AuthoritySnapshot:
+                case NetworkMessageId.EnemySnapshot:
                     return NetworkDelivery.UnreliableSequenced;
                 default:
                     return NetworkDelivery.ReliableOrdered;

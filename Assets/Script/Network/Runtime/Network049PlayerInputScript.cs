@@ -89,7 +89,10 @@ namespace CGame.Network
                 case 2:
                     InputSystem.QueueStateEvent(keyboard, new UnityEngine.InputSystem.LowLevel.KeyboardState());
                     InputSystem.QueueDeltaStateEvent(mouse.delta, new Vector2(isJoiner ? 178f : 57f, 0f));
-                    framesRemaining = 8;
+                    // Server-confirmed Unequip/Equip can span more than one local
+                    // animation window. Do not inject Fire until the selected
+                    // weapon has had a stable authority/arming interval.
+                    framesRemaining = 120;
                     Debug.Log("[Network][049] PlayerAcceptanceInput AimEnemyPoint3");
                     break;
                 case 3:

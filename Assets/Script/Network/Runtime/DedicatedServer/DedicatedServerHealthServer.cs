@@ -15,6 +15,9 @@ namespace CGame.Network
         private Task loopTask;
 
         public Func<DedicatedFireQueryRequest, Task<DedicatedFireQueryResult>> FireQueryAsync { get; set; }
+        public Func<DedicatedEnemyDamageRequest, Task<DedicatedEnemyDamageResult>> EnemyDamageAsync { get; set; }
+        public Func<DedicatedPawnFireRequest, Task<DedicatedPawnFireResult>> PawnFireAsync { get; set; }
+        public Func<DedicatedFireCommitRequest, Task<DedicatedFireCommitResult>> FireCommitAsync { get; set; }
 
         public void Start(int port, DedicatedServerHealthSnapshot initialSnapshot)
         {
@@ -50,6 +53,21 @@ namespace CGame.Network
                     await HandleFireQueryAsync(context, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
+                if (string.Equals(context.Request.Url?.AbsolutePath, "/enemy-damage", StringComparison.Ordinal))
+                {
+                    await HandleEnemyDamageAsync(context, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+                if (string.Equals(context.Request.Url?.AbsolutePath, "/pawn-fire", StringComparison.Ordinal))
+                {
+                    await HandlePawnFireAsync(context, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+                if (string.Equals(context.Request.Url?.AbsolutePath, "/fire-commit", StringComparison.Ordinal))
+                {
+                    await HandleFireCommitAsync(context, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
                 if (!string.Equals(context.Request.Url?.AbsolutePath, "/health", StringComparison.Ordinal))
                 {
                     context.Response.StatusCode = (int)HttpStatusCode.NotFound;
@@ -82,6 +100,67 @@ namespace CGame.Network
             DedicatedFireQueryResult result = request == null
                 ? new DedicatedFireQueryResult { Accepted = false, Failure = "InvalidRequest" }
                 : await FireQueryAsync(request).ConfigureAwait(false);
+            byte[] payload = Encoding.UTF8.GetBytes(JsonUtility.ToJson(result));
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = payload.Length;
+            await context.Response.OutputStream.WriteAsync(payload, 0, payload.Length, cancellationToken).ConfigureAwait(false);
+            context.Response.Close();
+        }
+
+        private async Task HandleEnemyDamageAsync(HttpListenerContext context, CancellationToken cancellationToken)
+        {
+            if (!string.Equals(context.Request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) || EnemyDamageAsync == null)
+            {
+                context.Response.StatusCode = (int)HttpStatusCode.MethodNotAllowed;
+                context.Response.Close();
+                return;
+            }
+
+            using var reader = new System.IO.StreamReader(context.Request.InputStream, Encoding.UTF8);
+            string body = await reader.ReadToEndAsync().ConfigureAwait(false);
+            DedicatedEnemyDamageRequest request = JsonUtility.FromJson<DedicatedEnemyDamageRequest>(body);
+            DedicatedEnemyDamageResult result = request == null
+                ? new DedicatedEnemyDamageResult { Accepted = false, Failure = "InvalidRequest" }
+                : await EnemyDamageAsync(request).ConfigureAwait(false);
+            byte[] payload = Encoding.UTF8.GetBytes(JsonUtility.ToJson(result));
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = payload.Length;
+            await context.Response.OutputStream.WriteAsync(payload, 0, payload.Length, cancellationToken).ConfigureAwait(false);
+            context.Response.Close();
+        }
+
+        private async Task HandlePawnFireAsync(HttpListenerContext context, CancellationToken cancellationToken)
+        {
+            if (!string.Equals(context.Request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) || PawnFireAsync == null)
+            {
+                context.Response.StatusCode = (int)HttpStatusCode.MethodNotAllowed;
+                context.Response.Close();
+                return;
+            }
+            using var reader = new System.IO.StreamReader(context.Request.InputStream, Encoding.UTF8);
+            DedicatedPawnFireRequest request = JsonUtility.FromJson<DedicatedPawnFireRequest>(await reader.ReadToEndAsync().ConfigureAwait(false));
+            DedicatedPawnFireResult result = request == null ? new DedicatedPawnFireResult { Accepted = false, Failure = "InvalidRequest" } : await PawnFireAsync(request).ConfigureAwait(false);
+            byte[] payload = Encoding.UTF8.GetBytes(JsonUtility.ToJson(result));
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = payload.Length;
+            await context.Response.OutputStream.WriteAsync(payload, 0, payload.Length, cancellationToken).ConfigureAwait(false);
+            context.Response.Close();
+        }
+
+        private async Task HandleFireCommitAsync(HttpListenerContext context, CancellationToken cancellationToken)
+        {
+            if (!string.Equals(context.Request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase) || FireCommitAsync == null)
+            {
+                context.Response.StatusCode = (int)HttpStatusCode.MethodNotAllowed;
+                context.Response.Close();
+                return;
+            }
+            using var reader = new System.IO.StreamReader(context.Request.InputStream, Encoding.UTF8);
+            DedicatedFireCommitRequest request = JsonUtility.FromJson<DedicatedFireCommitRequest>(await reader.ReadToEndAsync().ConfigureAwait(false));
+            DedicatedFireCommitResult result = request == null ? new DedicatedFireCommitResult { Accepted = false, Failure = "InvalidRequest" } : await FireCommitAsync(request).ConfigureAwait(false);
             byte[] payload = Encoding.UTF8.GetBytes(JsonUtility.ToJson(result));
             context.Response.StatusCode = (int)HttpStatusCode.OK;
             context.Response.ContentType = "application/json";

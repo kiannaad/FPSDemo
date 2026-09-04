@@ -54,11 +54,17 @@ namespace CGame
                             Debug.Log("[ReloadTrace] Input Started -> InputTag.Weapon.Reload");
                         }
                         abilitySystem.AbilityInputTagPressed(binding.InputTag);
+                        // Input callbacks run after the controller's per-frame input
+                        // pass in this runtime. Process immediately so a queued
+                        // InputSystem press cannot be erased by its release before
+                        // the next controller tick observes it.
+                        abilitySystem.ProcessAbilityInput();
                     }));
                     bindings.Add(inputHandle.RegisterActionCallback(binding.ActionReference, InputCallbackPhase.Canceled, _ =>
                     {
                         if (!Application.isFocused) return;
                         abilitySystem.AbilityInputTagReleased(binding.InputTag);
+                        abilitySystem.ProcessAbilityInput();
                     }));
                 }
                 this.pawn = pawn;

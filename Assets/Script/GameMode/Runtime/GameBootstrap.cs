@@ -22,6 +22,8 @@ namespace CGame
         [SerializeField] private WeaponDefinition[] weaponDefinitions;
         [SerializeField] private GameplayCueSet[] gameplayCueSets;
         [SerializeField] private ClientNetworkDefinition clientNetworkDefinition;
+        [SerializeField] private EnemyRosterDefinition enemyRosterDefinition;
+        [SerializeField] private EnemyPresentationCatalog enemyPresentationCatalog;
 
         public override IReadOnlyList<WorldSubSystem> CreateWorldSubSystems()
         {
@@ -65,7 +67,8 @@ namespace CGame
                     world,
                     player,
                     gameModeDefinition.PlayerStateDefinition,
-                    world.GetSubSystem<ClientNetworkSubSystem>());
+                    world.GetSubSystem<ClientNetworkSubSystem>(),
+                    enemyPresentationCatalog: enemyPresentationCatalog);
             }
 
             return gameModeDefinition == null
@@ -92,6 +95,8 @@ namespace CGame
         public CharacterPhysicsSettings CharacterPhysicsSettings => characterPhysicsSettings;
 
         public PawnDefinition PlayerPawnDefinition => gameModeDefinition?.PlayerStateDefinition?.PawnData;
+
+        public EnemyRosterDefinition EnemyRosterDefinition => enemyRosterDefinition;
 
         public DedicatedTargetSpawnDefinition DedicatedTargetSpawnDefinition
         {
@@ -140,6 +145,16 @@ public void ConfigureGameplayTagSources(params GameplayTagSource[] sources)
         public void ConfigureClientNetwork(ClientNetworkDefinition definition)
         {
             clientNetworkDefinition = definition;
+        }
+
+        public void ConfigureEnemyRoster(EnemyRosterDefinition definition)
+        {
+            enemyRosterDefinition = definition ?? throw new System.ArgumentNullException(nameof(definition));
+        }
+
+        public void ConfigureEnemyPresentationCatalog(EnemyPresentationCatalog catalog)
+        {
+            enemyPresentationCatalog = catalog ?? throw new System.ArgumentNullException(nameof(catalog));
         }
 
 

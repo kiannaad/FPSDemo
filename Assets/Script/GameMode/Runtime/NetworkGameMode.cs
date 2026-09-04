@@ -23,6 +23,8 @@ namespace CGame
         private readonly NetworkPawnAnimationActionRouter animationActionRouter = new NetworkPawnAnimationActionRouter();
         private readonly NetworkTickClock networkTickClock = new NetworkTickClock();
         private readonly NetworkTargetRegistry targetRegistry = new NetworkTargetRegistry();
+        private readonly EnemyReplicationTracker enemyReplicationTracker = new EnemyReplicationTracker();
+        private readonly EnemyPresentationRegistry enemyPresentationRegistry;
         private EnemySpawnGameComponent enemySpawnComponent;
         private readonly List<ClientPawnState> pendingRemotePawns = new List<ClientPawnState>();
         private readonly TaskCompletionSource<bool> initialOwnerPawnReady = new TaskCompletionSource<bool>();
@@ -34,6 +36,8 @@ namespace CGame
         private NetworkPawnBinding ownerNetworkBinding;
         private NetworkAnimationActionBridge ownerAnimationActionBridge;
         private NetworkFireBridge ownerFireBridge;
+        private OwnerGameplayHud ownerGameplayHud;
+        private OwnerGameplayStateEvent latestOwnerGameplayState;
         private readonly NetworkLoopAnimationPhaseSynchronizer ownerLoopPhaseSynchronizer =
             new NetworkLoopAnimationPhaseSynchronizer();
         private bool ownerPawnSpawnRequested;
@@ -44,12 +48,14 @@ namespace CGame
             Player player,
             PlayerStateDefinition playerStateDefinition,
             ClientNetworkSubSystem network,
-            PawnFactory pawnFactory = null)
+            PawnFactory pawnFactory = null,
+            EnemyPresentationCatalog enemyPresentationCatalog = null)
             : base(world, player)
         {
             this.playerStateDefinition = playerStateDefinition ?? throw new ArgumentNullException(nameof(playerStateDefinition));
             this.network = network ?? throw new ArgumentNullException(nameof(network));
             this.pawnFactory = pawnFactory ?? new PawnFactory();
+            enemyPresentationRegistry = enemyPresentationCatalog == null ? null : new EnemyPresentationRegistry(enemyPresentationCatalog);
             movementPrediction = new LocalMovementPredictionCoordinator(network);
             network.ClientWorld.PawnSpawned += OnPawnSpawned;
             network.ClientWorld.OwnerPossessionApplied += OnOwnerPossessionApplied;
@@ -62,12 +68,19 @@ namespace CGame
             network.FireRejectedReceived += OnFireRejectedReceived;
             network.TargetStateChangedReceived += OnTargetStateChangedReceived;
             network.TargetStateSnapshotReceived += OnTargetStateSnapshotReceived;
+            network.EnemySpawnedReceived += OnEnemySpawnedReceived;
+            network.EnemySnapshotReceived += OnEnemySnapshotReceived;
+            network.EnemyActionReceived += OnEnemyActionReceived;
+            network.OwnerGameplayStateReceived += OnOwnerGameplayStateReceived;
             if (world.GameState is DefaultGameState gameState &&
                 gameState.ExperienceManager.Components.TryGet(out enemySpawnComponent))
             {
-                enemySpawnComponent.HandleSpawned += OnTargetHandleSpawned;
-                enemySpawnComponent.HandleDisposed += OnTargetHandleDisposed;
-                foreach (EnemySpawnHandle handle in enemySpawnComponent.Handles) OnTargetHandleSpawned(handle);
+                // Network matches render only Dedicated EnemyId entities.  The older
+                // Experience target feature has no network identity and must not
+                // produce a parallel local enemy roster on a client.
+                enemySpawnComponent.Dispose();
+                enemySpawnComponent = null;
+                Debug.Log("[Network][052] LegacyLocalTargetsSuppressed");
             }
             world.GameplayReady += OnGameplayReady;
             characterPhysics = world.GetSubSystem<CharacterPhysicsSubSystem>();
@@ -182,6 +195,10 @@ namespace CGame
             network.FireRejectedReceived -= OnFireRejectedReceived;
             network.TargetStateChangedReceived -= OnTargetStateChangedReceived;
             network.TargetStateSnapshotReceived -= OnTargetStateSnapshotReceived;
+            network.EnemySpawnedReceived -= OnEnemySpawnedReceived;
+            network.EnemySnapshotReceived -= OnEnemySnapshotReceived;
+            network.EnemyActionReceived -= OnEnemyActionReceived;
+            network.OwnerGameplayStateReceived -= OnOwnerGameplayStateReceived;
             if (enemySpawnComponent != null)
             {
                 enemySpawnComponent.HandleSpawned -= OnTargetHandleSpawned;
@@ -207,6 +224,8 @@ namespace CGame
             remoteFirePresentersById.Clear();
             animationActionRouter.Clear();
             movementPrediction.Clear();
+            enemyReplicationTracker.Clear();
+            enemyPresentationRegistry?.Dispose();
         }
 
         private void OnPawnSpawned(ClientPawnState pawn)
@@ -265,6 +284,8 @@ namespace CGame
                         network,
                         ownerAnimationActionBridge));
                 ownerFireBridge = new NetworkFireBridge(pawn.PawnId, pawn.PossessionRevision);
+                ownerGameplayHud = ownerPawn.Root.GetComponent<OwnerGameplayHud>() ?? ownerPawn.Root.AddComponent<OwnerGameplayHud>();
+                ownerGameplayHud.Apply(latestOwnerGameplayState, true);
                 ownerPawn.BindFireAuthorityGateway(new OwnerNetworkFireGateway(
                     network,
                     ownerFireBridge,
@@ -323,6 +344,11 @@ namespace CGame
         private void OnMatchStarting(long matchId)
         {
             startedMatchId = matchId;
+            // Dedicated revisions start at zero for every match.  Never let a
+            // previous match's higher revision suppress this match's first HUD
+            // state when the same PawnId is reused.
+            latestOwnerGameplayState = null;
+            ownerGameplayHud?.Reset();
             movementPrediction.SetMatchId(matchId);
             TryCompleteNetworkStart();
         }
@@ -334,6 +360,34 @@ namespace CGame
         }
 
         private void OnTargetStateSnapshotReceived(TargetStateSnapshotMessage snapshot) => targetRegistry.ApplySnapshot(snapshot);
+
+        private void OnEnemySpawnedReceived(EnemySpawnedEvent spawned)
+        {
+            if (!enemyReplicationTracker.ApplySpawn(spawned)) return;
+            enemyPresentationRegistry?.Spawn(spawned);
+            Debug.Log($"[Network][051] EnemySpawned MatchId={network.ClientWorld.MatchId} EnemyId={spawned.EnemyId} ArchetypeId={spawned.ArchetypeId} ServerTick={spawned.AuthorityServerTick}");
+        }
+
+        private void OnEnemySnapshotReceived(EnemySnapshotEvent snapshot)
+        {
+            if (enemyReplicationTracker.ApplySnapshot(snapshot, Time.realtimeSinceStartup))
+                enemyPresentationRegistry?.ApplySnapshot(snapshot);
+        }
+
+        private void OnEnemyActionReceived(EnemyActionEvent action)
+        {
+            if (enemyReplicationTracker.ApplyAction(action, Time.realtimeSinceStartup))
+                enemyPresentationRegistry?.ApplyAction(action);
+        }
+
+        private void OnOwnerGameplayStateReceived(OwnerGameplayStateEvent state)
+        {
+            bool isOwner = state != null && ownerNetworkBinding != null && state.PawnId == ownerNetworkBinding.PawnId;
+            if (isOwner) latestOwnerGameplayState = state;
+            ownerGameplayHud?.Apply(state, isOwner);
+            if (isOwner)
+                Debug.Log($"[Network][052] OwnerGameplayState PawnId={state.PawnId} VitalsRevision={state.VitalsRevision} Health={state.Health}/{state.MaxHealth} EquipmentRevision={state.EquipmentRevision} Ammo={state.MagazineAmmo}/{state.MagazineCapacity}");
+        }
 
         private void OnTargetHandleSpawned(EnemySpawnHandle handle) => targetRegistry.Register(handle);
 
@@ -358,7 +412,25 @@ namespace CGame
             foreach (RemotePawnNetworkAnimationActionPresenter presenter in remoteFirePresentersById.Values)
                 presenter.AdvanceRecoil(Time.fixedDeltaTime);
             ApplyRemoteSnapshots();
+            enemyPresentationRegistry?.Tick(Time.fixedDeltaTime, Time.realtimeSinceStartup);
             movementPrediction.OnFixedStepCompleted(clientTick);
+            foreach (EnemyResyncRequest request in enemyReplicationTracker.CollectExpiredResyncRequests(Time.realtimeSinceStartup))
+            {
+                _ = SendEnemyResyncRequestAsync(request);
+            }
+        }
+
+        private async Task SendEnemyResyncRequestAsync(EnemyResyncRequest request)
+        {
+            try
+            {
+                await network.SendEnemyResyncRequestAsync(request);
+                Debug.Log($"[Network][051] EnemyResyncRequested MatchId={network.ClientWorld.MatchId} EnemyId={request.EnemyId} LastTick={request.LastKnownAuthorityServerTick}");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[Network][051] EnemyResyncFailed EnemyId={request.EnemyId} Reason={exception.Message}");
+            }
         }
 
         private void OnOwnerReconcileReceived(OwnerReconcile reconcile)
