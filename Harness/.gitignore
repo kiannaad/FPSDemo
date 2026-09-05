@@ -1,0 +1,4 @@
+# Local Harness state: task manifests, run evidence, reports, logs and backups.
+.harness/
+*.log
+*.tmp
