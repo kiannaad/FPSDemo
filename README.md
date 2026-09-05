@@ -5,34 +5,31 @@
 ## 整体架构
 
 ```mermaid
-flowchart LR
-    subgraph Client[Unity 客户端]
-        Input[Unity Input System] --> Controller[InputSubSystem<br/>PlayerController / Pawn]
-        Controller --> Prediction[本地移动预测<br/>武器预测表现]
-        Prediction --> Physics[CharacterPhysicsSubSystem]
-        Physics --> Animation[CharacterAnimInstance<br/>Playable Animation Graph]
-        Animation --> View[Animator / Camera / Cue]
-        Remote[远端快照插值<br/>EnemyPresentationRegistry] --> View
+flowchart TB
+    Player[玩家输入与画面] --> Client
+
+    subgraph Client[Unity 客户端：即时操作与表现]
+        Input[InputSystem / Controller] --> Predict[本地预测]
+        Predict --> Visual[物理状态 -> Playables / Animator / Cue]
     end
 
-    subgraph Host[.NET Server Host]
-        Room[房间 / Ready / 连接授权]
+    Client -->|连接、Ready、移动与开火请求| Host
+
+    subgraph Host[.NET Server Host：会话与连接边界]
+        Room[房间 / Ready / 授权]
         Router[消息路由 / Dedicated Server 生命周期]
         Room --> Router
     end
 
-    subgraph Authority[Unity Dedicated Server]
-        Validate[输入与请求校验]
-        Simulate[固定步长角色物理<br/>敌人巡逻 / 感知 / 掩体]
-        Combat[权威开火 / 弹药 / 命中 / 伤害]
-        Replicate[AuthoritySnapshot<br/>FireCommitted<br/>EnemySnapshot / EnemyAction]
-        Validate --> Simulate --> Combat --> Replicate
+    Host --> Server
+
+    subgraph Server[Unity Dedicated Server：唯一事实源]
+        Validate[校验] --> Simulate[固定步长物理 + 敌人 AI]
+        Simulate --> Combat[弹药 / 命中 / 伤害]
+        Combat --> Commit[权威快照与已提交事件]
     end
 
-    Prediction -->|移动 / 开火请求| Router
-    Router --> Validate
-    Replicate -->|快照与已提交事件| Remote
-    Router -.房间与连接控制.-> Client
+    Commit -->|AuthoritySnapshot / FireCommitted / EnemyAction| Client
 ```
 
 **职责边界**：客户端负责输入、即时预测和表现；Dedicated Server 是物理、AI 与战斗结果的唯一事实源；独立 .NET Server Host 负责房间、连接授权和消息转发。
