@@ -13,8 +13,17 @@ namespace CGame.Network
         private bool joinWasPressed;
         private bool readyWasPressed;
 
+        private void Awake()
+        {
+            if (Network049PlayerInputScript.IsEnabledByCommandLine())
+            {
+                gameObject.AddComponent<Network049PlayerInputScript>();
+            }
+        }
+
         private void Update()
         {
+            if (!Application.isFocused) return;
             if (!(GetComponent<GameInstance>()?.RuntimeWorld?.GameMode is INetworkLobby lobby))
             {
                 return;

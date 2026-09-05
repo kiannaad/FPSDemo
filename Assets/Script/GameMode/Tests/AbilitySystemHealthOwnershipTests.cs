@@ -1,6 +1,7 @@
 using CGame.Ability;
 using CGame.Ability.Attributes;
 using CGame.Ability.Effects;
+using CGame.Network;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -68,6 +69,87 @@ namespace CGame.Tests.Gameplay
             Assert.That(healthComponent.IsDead, Is.True);
             Assert.That(deathStartedCount, Is.EqualTo(1));
             Assert.That(deathFinishedCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void HealthComponent_AuthoritativeOlderRevision_DoesNotReplayDeath()
+        {
+            var target = new AbilitySystemComponent(new object(), null);
+            target.AddAttributeSet(new HealthSet(60f, 60f));
+            var healthComponent = new HealthComponent();
+            healthComponent.Bind(target);
+            int deathFinishedCount = 0;
+            healthComponent.DeathFinished += () => deathFinishedCount++;
+
+            Assert.That(healthComponent.ApplyAuthoritativeState(0f, 60f, 3, true), Is.True);
+            Assert.That(healthComponent.ApplyAuthoritativeState(20f, 60f, 2, false), Is.False);
+
+            Assert.That(healthComponent.IsDead, Is.True);
+            Assert.That(healthComponent.Health, Is.Zero);
+            Assert.That(deathFinishedCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void HealthComponent_AuthoritativeNewerAliveState_CannotResurrectDeadTarget()
+        {
+            var target = new AbilitySystemComponent(new object(), null);
+            target.AddAttributeSet(new HealthSet(60f, 60f));
+            var healthComponent = new HealthComponent();
+            healthComponent.Bind(target);
+
+            Assert.That(healthComponent.ApplyAuthoritativeState(0f, 60f, 3, true), Is.True);
+            Assert.That(healthComponent.ApplyAuthoritativeState(60f, 60f, 4, false), Is.False);
+
+            Assert.That(healthComponent.IsDead, Is.True);
+            Assert.That(healthComponent.Health, Is.Zero);
+            Assert.That(healthComponent.AppliedAuthoritativeRevision, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void NetworkTargetRegistry_PendingHighestDeathRevision_AppliesOnceWhenBindingRegisters()
+        {
+            var target = new AbilitySystemComponent(new object(), null);
+            target.AddAttributeSet(new HealthSet(60f, 60f));
+            var healthComponent = new HealthComponent();
+            healthComponent.Bind(target);
+            int deathFinishedCount = 0;
+            healthComponent.DeathFinished += () => deathFinishedCount++;
+            var registry = new NetworkTargetRegistry();
+
+            registry.Apply(CreateTargetState("EnemyPoint1", 3, 0f, true));
+            registry.Apply(CreateTargetState("EnemyPoint1", 2, 60f, false));
+            registry.Register(new TestTargetBinding("EnemyPoint1", healthComponent));
+            registry.Apply(CreateTargetState("EnemyPoint1", 3, 0f, true));
+
+            Assert.That(healthComponent.IsDead, Is.True);
+            Assert.That(healthComponent.Health, Is.Zero);
+            Assert.That(healthComponent.AppliedAuthoritativeRevision, Is.EqualTo(3));
+            Assert.That(deathFinishedCount, Is.EqualTo(1));
+        }
+
+        private static TargetStateMessage CreateTargetState(string targetId, long revision, float health, bool isDead) =>
+            new TargetStateMessage
+            {
+                TargetId = targetId,
+                Revision = revision,
+                Health = health,
+                MaxHealth = 60f,
+                IsDead = isDead,
+                CausingPawnId = 1,
+                CausingShotSequence = revision
+            };
+
+        private sealed class TestTargetBinding : INetworkTargetBinding
+        {
+            public TestTargetBinding(string targetId, HealthComponent health)
+            {
+                TargetId = targetId;
+                Health = health;
+            }
+
+            public string TargetId { get; }
+            public bool IsDisposed => false;
+            public HealthComponent Health { get; }
         }
     }
 }

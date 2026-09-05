@@ -34,13 +34,25 @@ namespace CGame.Animation
 
         public bool TryPlay(IkMotionLayerSettings motion)
         {
+            return TryPlayAtSeconds(motion, 0f);
+        }
+
+        public bool TryPlayAtSeconds(IkMotionLayerSettings motion, float elapsedSeconds)
+        {
             if (motion == null || !motion.TargetBone.Equals(settings.TargetBone))
             {
                 return false;
             }
 
             settings = motion;
-            state.Play();
+            state.PlayAtSeconds(elapsedSeconds, settings);
+            return true;
+        }
+
+        public bool TryStop(IkMotionLayerSettings motion)
+        {
+            if (motion == null || !motion.TargetBone.Equals(settings.TargetBone)) return false;
+            state.Stop(settings.BlendTime);
             return true;
         }
 

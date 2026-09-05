@@ -280,7 +280,24 @@ public RecoilComponent Recoil => recoilComponent;
             bool jumpRequested = pendingJump;
             pendingJump = false;
             bool reloadBlocksSprint = AbilitySystem != null && AbilitySystem.HasOwnedTag(ReloadingStateTag);
-            return new CharacterMovementCommand(movementInput, jumpRequested, sprintRequested && !reloadBlocksSprint);
+            LastConsumedMovementCommand = new CharacterMovementCommand(movementInput, jumpRequested, sprintRequested && !reloadBlocksSprint);
+            return LastConsumedMovementCommand;
+        }
+
+        public CharacterMovementCommand LastConsumedMovementCommand { get; private set; }
+
+        public IDiscreteActionReplicationGateway DiscreteActionReplicationGateway { get; private set; }
+
+        public IFireAuthorityGateway FireAuthorityGateway { get; private set; }
+
+        public void BindDiscreteActionReplicationGateway(IDiscreteActionReplicationGateway gateway)
+        {
+            DiscreteActionReplicationGateway = gateway;
+        }
+
+        public void BindFireAuthorityGateway(IFireAuthorityGateway gateway)
+        {
+            FireAuthorityGateway = gateway;
         }
 
         public Vector3 PeekingMovementInput() => movementInput;

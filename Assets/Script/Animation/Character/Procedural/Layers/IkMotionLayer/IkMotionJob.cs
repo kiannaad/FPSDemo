@@ -36,6 +36,12 @@ namespace CGame.Animation
             IsPlaying = true;
         }
 
+        public void PlayAtSeconds(float elapsedSeconds, IkMotionLayerSettings settings)
+        {
+            Play();
+            Advance(Mathf.Max(0f, elapsedSeconds), settings);
+        }
+
         public void Stop(float blendTime)
         {
             if (!IsPlaying && !isBlendingOut) return;

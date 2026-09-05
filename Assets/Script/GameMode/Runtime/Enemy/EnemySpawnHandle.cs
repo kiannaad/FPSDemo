@@ -38,6 +38,7 @@ namespace CGame
         public Guid RegistrationId => registrationId;
         public bool IsDisposed => pawnRegistration == null;
         public ActorRegistration PawnRegistration => pawnRegistration;
+        public event Action Disposed;
 
         public void Dispose()
         {
@@ -57,6 +58,8 @@ namespace CGame
             }
             if (controller != null && !controller.IsDisposed) world.UnregisterActor(controller);
             levelRuntime.ReleaseOccupied(pointId, registrationId);
+            Disposed?.Invoke();
+            Disposed = null;
         }
 
         private void OnPawnUnregistered(ActorRegistration registration)

@@ -11,10 +11,12 @@
     "CGame.CharacterPhysics",
     "CGame.InventoryEquipment",
     "CGame.Inventory",
+    "CGame.Input",
     "CGame.Gameplay",
     "CGame.World",
     "CGame.World.CoreServices",
     "CGame.Network",
+    "CGame.Animation",
     "CGame.GameplayTags",
     "Unity.InputSystem",
     "Unity.InputSystem.TestFramework"

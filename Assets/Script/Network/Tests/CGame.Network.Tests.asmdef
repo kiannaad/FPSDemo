@@ -3,9 +3,22 @@
   "rootNamespace": "CGame.Network.Tests",
   "references": [
     "CGame.Network",
-    "CGame.World"
+    "CGame.World",
+    "CGame.CharacterRuntime",
+    "CGame.CharacterPhysics",
+    "CGame.Animation"
   ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
   "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
   "optionalUnityReferences": [
     "TestAssemblies"
   ]

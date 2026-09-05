@@ -8,6 +8,11 @@ public static class ServerHostCommandLine
         int port = 0;
         int tickRate = 30;
         int healthPort = 0;
+        string? dedicatedExecutablePath = null;
+        string? levelId = null;
+        string? contentVersion = null;
+        TimeSpan? physicsReadyTimeout = null;
+        string? dedicatedLogRoot = null;
 
         for (int index = 0; index < args.Count; index += 2)
         {
@@ -32,6 +37,21 @@ public static class ServerHostCommandLine
                 case "--health-port":
                     healthPort = ParseInt(option, value);
                     break;
+                case "--dedicated-executable":
+                    dedicatedExecutablePath = value;
+                    break;
+                case "--level-id":
+                    levelId = value;
+                    break;
+                case "--content-version":
+                    contentVersion = value;
+                    break;
+                case "--physics-ready-timeout-ms":
+                    physicsReadyTimeout = TimeSpan.FromMilliseconds(ParseInt(option, value));
+                    break;
+                case "--dedicated-log-root":
+                    dedicatedLogRoot = value;
+                    break;
                 default:
                     throw new ArgumentException($"Unknown command-line option {option}.");
             }
@@ -42,7 +62,16 @@ public static class ServerHostCommandLine
             throw new ArgumentException("The --content option is required.");
         }
 
-        return new ServerHostOptions(contentPath, port, tickRate, healthPort);
+        return new ServerHostOptions(
+            contentPath,
+            port,
+            tickRate,
+            healthPort,
+            dedicatedExecutablePath,
+            levelId,
+            contentVersion,
+            physicsReadyTimeout,
+            dedicatedLogRoot);
     }
 
     private static int ParseInt(string option, string value)

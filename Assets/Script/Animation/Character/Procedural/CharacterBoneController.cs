@@ -67,6 +67,19 @@ namespace CGame.Animation
                 && activeRuntime.TryPlayWeaponIkMotion(motion);
         }
 
+        public bool TryPlayWeaponIkMotionAtSeconds(IkMotionLayerSettings motion, float elapsedSeconds)
+        {
+            return !isDisposed && IsValid() && activeRuntime != null && motion != null
+                && activeProfile != null && motion.Rig == activeProfile.Rig
+                && activeRuntime.TryPlayWeaponIkMotionAtSeconds(motion, elapsedSeconds);
+        }
+
+        public bool TryStopWeaponIkMotion(IkMotionLayerSettings motion)
+        {
+            return !isDisposed && IsValid() && activeRuntime != null && motion != null
+                && activeRuntime.TryStopWeaponIkMotion(motion);
+        }
+
         public bool IsWeaponIkMotionComplete(IkMotionLayerSettings motion)
         {
             return !isDisposed && IsValid() && activeRuntime != null && motion != null
@@ -148,6 +161,7 @@ public BoneProfile ActiveProfile => activeProfile;
                 throw new ArgumentNullException(nameof(profile));
             }
             profile.Validate(rigComponent.Rig);
+            if (activeProfile == profile && !shouldLinkProfile) return;
             nextProfile = profile;
             shouldLinkProfile = true;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -1023,6 +1037,24 @@ public BoneProfile ActiveProfile => activeProfile;
                 foreach (AnimationLayer layer in layers)
                 {
                     if (layer.Job is IkMotionLayerJob job && job.TryPlay(motion)) return true;
+                }
+                return false;
+            }
+
+            public bool TryPlayWeaponIkMotionAtSeconds(IkMotionLayerSettings motion, float elapsedSeconds)
+            {
+                foreach (AnimationLayer layer in layers)
+                {
+                    if (layer.Job is IkMotionLayerJob job && job.TryPlayAtSeconds(motion, elapsedSeconds)) return true;
+                }
+                return false;
+            }
+
+            public bool TryStopWeaponIkMotion(IkMotionLayerSettings motion)
+            {
+                foreach (AnimationLayer layer in layers)
+                {
+                    if (layer.Job is IkMotionLayerJob job && job.TryStop(motion)) return true;
                 }
                 return false;
             }

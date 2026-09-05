@@ -14,6 +14,8 @@ namespace CGame.InventoryEquipment.Tests
             "Assets/Settings/Gameplay/Weapon/WeaponDefinition/AK12/AK12WeaponDefinition.asset";
         private const string WeaponItemDefinitionPath =
             "Assets/Settings/Gameplay/Weapon/WeaponDefinition/AK12/AK12WeaponItemDefinition.asset";
+        private const string Mk18WeaponItemDefinitionPath =
+            "Assets/Settings/Gameplay/Weapon/WeaponGripAK12/MK18/MK18WeaponItemDefinition.asset";
 
         [Test]
         public void Ak12ReloadDefinition_HasCompleteInputAnimationAndCommitData()
@@ -69,7 +71,25 @@ namespace CGame.InventoryEquipment.Tests
                 ItemInstanceHandle handle = inventory.Add(definition);
                 Assert.That(inventory.TryGet(handle, out ItemInstance item), Is.True);
                 Assert.That(item.MagazineAmmo, Is.EqualTo(30));
-                Assert.That(item.ReserveAmmo, Is.EqualTo(1000));
+                Assert.That(item.ReserveAmmo, Is.EqualTo(30));
+            }
+            finally
+            {
+                inventory.Dispose();
+            }
+        }
+
+        [Test]
+        public void Mk18WeaponItemDefinition_PreservesAuthorityAlignedAmmo()
+        {
+            WeaponItemDefinition definition = AssetDatabase.LoadAssetAtPath<WeaponItemDefinition>(Mk18WeaponItemDefinitionPath);
+            var inventory = new InventoryComponent();
+            try
+            {
+                ItemInstanceHandle handle = inventory.Add(definition);
+                Assert.That(inventory.TryGet(handle, out ItemInstance item), Is.True);
+                Assert.That(item.MagazineAmmo, Is.EqualTo(30));
+                Assert.That(item.ReserveAmmo, Is.EqualTo(30));
             }
             finally
             {

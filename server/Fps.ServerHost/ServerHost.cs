@@ -1,4 +1,5 @@
 using Fps.ServerHost.Content;
+using Fps.ServerHost.DedicatedServer;
 using Fps.ServerNet;
 using System.Net;
 using System.Net.Sockets;
@@ -16,6 +17,7 @@ public sealed class ServerHost : IAsyncDisposable
     private CancellationTokenSource? tickCancellation;
     private Task? tickTask;
     private Task? healthTask;
+    private HttpClient? dedicatedHealthClient;
 
     public ServerHostHealth Health { get; private set; } = new(ServerHostStatus.Stopped, 0, 0, null);
 
@@ -34,9 +36,26 @@ public sealed class ServerHost : IAsyncDisposable
 
             Health = Health with { Status = ServerHostStatus.Starting };
             LevelServerDefinition content = await LevelServerDefinition.LoadAsync(options.ContentPath, cancellationToken);
+            Fps.ServerNet.Matches.IMatchPhysicsServerLifecycle? physicsLifecycle = null;
+            if (!string.IsNullOrWhiteSpace(options.DedicatedExecutablePath))
+            {
+                dedicatedHealthClient = new HttpClient();
+                var processManager = new DedicatedServerProcessManager(
+                    new SystemDedicatedServerProcessFactory(),
+                    new HttpDedicatedServerHealthProbe(dedicatedHealthClient));
+                physicsLifecycle = new MatchPhysicsServerLifecycle(
+                    processManager,
+                    options.DedicatedExecutablePath,
+                    options.LevelId!,
+                    options.ContentVersion!,
+                    options.PhysicsReadyTimeout!.Value,
+                    options.DedicatedLogRoot!);
+            }
+
             var transport = new LiteNetServerTransport(new MessageRouter(
                 "fps-server-v1",
-                content.SpawnPoints.Select(point => point.Id)));
+                content.SpawnPoints.Select(point => point.Id),
+                physicsLifecycle));
             transport.Start(options.Port);
             netTransport = transport;
             tickCancellation = new CancellationTokenSource();
@@ -100,7 +119,7 @@ public sealed class ServerHost : IAsyncDisposable
         {
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
-                transport.PollEvents();
+                await transport.PollEventsAsync(cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -124,6 +143,8 @@ public sealed class ServerHost : IAsyncDisposable
         healthTask = null;
         tickCancellation?.Dispose();
         tickCancellation = null;
+        dedicatedHealthClient?.Dispose();
+        dedicatedHealthClient = null;
     }
 
     private async Task RunHealthLoopAsync(HttpListener listener, CancellationToken cancellationToken)

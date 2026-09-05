@@ -11,6 +11,7 @@ public sealed class LiteNetServerTransport : IDisposable
     private readonly MessageRouter router;
     private readonly Dictionary<string, LiteNetPeer> peersByConnectionId = new(StringComparer.Ordinal);
     private readonly Queue<RoutedOutboundMessage> pendingOutboundMessages = new();
+    private readonly Queue<InboundMessage> pendingInboundMessages = new();
     private LiteNetManager? manager;
 
     public LiteNetServerTransport(MessageRouter router)
@@ -41,14 +42,68 @@ public sealed class LiteNetServerTransport : IDisposable
         manager = candidate;
     }
 
-    public void PollEvents()
+    public async Task PollEventsAsync(CancellationToken cancellationToken = default)
     {
         manager?.PollEvents();
-        if (pendingOutboundMessages.Count == 0) return;
-        RoutedOutboundMessage outbound = pendingOutboundMessages.Dequeue();
-        if (!peersByConnectionId.TryGetValue(outbound.ConnectionId, out LiteNetPeer? targetPeer)) return;
-        targetPeer.Send(PacketCodec.Encode(outbound.Message.Header, outbound.Message.Payload), DeliveryMethod.ReliableOrdered);
+        while (pendingInboundMessages.Count > 0)
+        {
+            InboundMessage inbound = pendingInboundMessages.Dequeue();
+            try
+            {
+                IReadOnlyList<RoutedOutboundMessage> routed = await router.RouteAsync(
+                    inbound.ConnectionId,
+                    inbound.Header,
+                    inbound.Payload,
+                    cancellationToken);
+                foreach (RoutedOutboundMessage routedMessage in routed)
+                {
+                    pendingOutboundMessages.Enqueue(routedMessage);
+                }
+            }
+            catch (Exception exception)
+            {
+                if ((inbound.Header.Flags & PacketFlags.Request) != 0)
+                {
+                    Console.Error.WriteLine($"[Server][Protocol] Rejecting {inbound.ConnectionId}: {exception.Message}");
+                    var failureHeader = new PacketHeader(
+                        ProtocolVersion.Current,
+                        inbound.Header.MessageId,
+                        PacketFlags.Response | PacketFlags.Failure,
+                        inbound.Header.RequestId,
+                        inbound.Header.MatchId);
+                    byte[] failurePayload = MessagePack.MessagePackSerializer.Serialize(new RpcFailureResponse(exception.Message));
+                    pendingOutboundMessages.Enqueue(new RoutedOutboundMessage(
+                        inbound.ConnectionId,
+                        new RoutedMessage(failureHeader, failurePayload)));
+                    continue;
+                }
+
+                Console.Error.WriteLine($"[Server][Protocol] Disconnecting {inbound.ConnectionId}: {exception.Message}");
+                if (peersByConnectionId.TryGetValue(inbound.ConnectionId, out LiteNetPeer? failedPeer))
+                {
+                    failedPeer.Disconnect();
+                }
+            }
+        }
+
+        foreach (RoutedOutboundMessage timelineMessage in await router.AdvanceAnimationActionsAsync(cancellationToken))
+        {
+            pendingOutboundMessages.Enqueue(timelineMessage);
+        }
+
+        while (pendingOutboundMessages.Count > 0)
+        {
+            RoutedOutboundMessage outbound = pendingOutboundMessages.Dequeue();
+            if (!peersByConnectionId.TryGetValue(outbound.ConnectionId, out LiteNetPeer? targetPeer))
+            {
+                continue;
+            }
+
+            targetPeer.Send(PacketCodec.Encode(outbound.Message.Header, outbound.Message.Payload), DeliveryMethod.ReliableOrdered);
+        }
     }
+
+    public void PollEvents() => PollEventsAsync().GetAwaiter().GetResult();
 
     public void Dispose()
     {
@@ -67,11 +122,7 @@ public sealed class LiteNetServerTransport : IDisposable
                 return;
             }
 
-            IReadOnlyList<RoutedOutboundMessage> outboundMessages = router.Route(GetConnectionId(peer), header, payload.Span);
-            foreach (RoutedOutboundMessage outbound in outboundMessages)
-            {
-                pendingOutboundMessages.Enqueue(outbound);
-            }
+            pendingInboundMessages.Enqueue(new InboundMessage(GetConnectionId(peer), header, payload.ToArray()));
         }
         catch (Exception exception)
         {
@@ -85,4 +136,6 @@ public sealed class LiteNetServerTransport : IDisposable
     }
 
     private static string GetConnectionId(LiteNetPeer peer) => peer.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private readonly record struct InboundMessage(string ConnectionId, PacketHeader Header, byte[] Payload);
 }

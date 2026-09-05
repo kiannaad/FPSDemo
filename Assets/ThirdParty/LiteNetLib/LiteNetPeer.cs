@@ -400,7 +400,7 @@ namespace LiteNetLib
                     return _reliableUnorderedChannel ??= new ReliableChannel(this, false, channelNumber);
 
                 case DeliveryMethod.Sequenced:
-                    return _sequencedChannel ??= new SequencedChannel(this, true, channelNumber);
+                    return _sequencedChannel ??= new SequencedChannel(this, false, channelNumber);
 
                 default:
                     throw new Exception("Invalid channel type");

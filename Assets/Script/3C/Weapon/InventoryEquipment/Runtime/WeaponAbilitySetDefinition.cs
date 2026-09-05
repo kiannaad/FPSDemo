@@ -154,12 +154,17 @@ namespace CGame.InventoryEquipment
                         && attackClip != null
                         && weapon.TryGetCharacterAnimation(out CharacterAnimInstance characterAnimation))
                     {
+                        long predictionNonce = meleePawn.DiscreteActionReplicationGateway?.BeginPredicted(
+                            DiscreteActionKind.Melee,
+                            attackClip.name,
+                            weapon.ItemHandle.Value) ?? 0;
                         characterPlayback = characterAnimation.PlayAbilityAnimation(attackClip, 0);
                         if (characterPlayback == null || characterPlayback.State == AnimationPlaybackState.Failed)
                         {
                             EndAbility(AbilityEndReason.Failed);
                             return;
                         }
+                        if (predictionNonce > 0) meleePawn.DiscreteActionReplicationGateway.RegisterPredictedPlayback(predictionNonce, characterPlayback);
 
                         meleePawn.NotifyMeleeActivated();
                         StartTask(new WaitWeaponAnimationTask(
@@ -263,6 +268,20 @@ namespace CGame.InventoryEquipment
             if (weapon.Item.MagazineAmmo <= 0)
             {
                 return FireResult.Failed("Queued shot weapon has no ammunition.", pawn.RecoilShotSequence);
+            }
+
+            if (pawn.FireAuthorityGateway != null)
+            {
+                long predictionNonce = pawn.FireAuthorityGateway.BeginPredicted(
+                    weapon.ItemHandle.Value,
+                    weapon.Item.MagazineAmmo,
+                    origin,
+                    direction);
+                FireResult predictedRecoil = pawn.ApplySuccessfulShot(weapon.Definition.RecoilProfile);
+                if (!predictedRecoil.Succeeded) return predictedRecoil;
+                DispatchGameplayCues(abilitySystem, weapon, pawn, null);
+                Debug.Log($"[Network][044] FirePredicted PredictionNonce={predictionNonce}");
+                return new FireResult(true, predictedRecoil.ShotSequence, null);
             }
 
             GameplayAbilityTargetDataHandle targetData =

@@ -8,6 +8,9 @@ namespace CGame
         [SerializeField] private EnemyDefinition enemyDefinition;
         [SerializeField] private int initialSpawnCount = 3;
 
+        public EnemyDefinition EnemyDefinition => enemyDefinition;
+        public int InitialSpawnCount => initialSpawnCount;
+
         public void Configure(EnemyDefinition definition, int count)
         {
             enemyDefinition = definition ?? throw new System.ArgumentNullException(nameof(definition));

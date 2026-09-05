@@ -28,6 +28,26 @@ public sealed class ServerHostLifecycleTests
     }
 
     [Test]
+    public void ParseArguments_MapsDedicatedServerOptions()
+    {
+        ServerHostOptions options = ServerHostCommandLine.Parse(new[]
+        {
+            "--content", "content.json",
+            "--dedicated-executable", "FPSResearchServer.exe",
+            "--level-id", "SampleScene",
+            "--content-version", "v1",
+            "--physics-ready-timeout-ms", "5000",
+            "--dedicated-log-root", "logs"
+        });
+
+        Assert.That(options.DedicatedExecutablePath, Is.EqualTo("FPSResearchServer.exe"));
+        Assert.That(options.LevelId, Is.EqualTo("SampleScene"));
+        Assert.That(options.ContentVersion, Is.EqualTo("v1"));
+        Assert.That(options.PhysicsReadyTimeout, Is.EqualTo(TimeSpan.FromSeconds(5)));
+        Assert.That(options.DedicatedLogRoot, Is.EqualTo("logs"));
+    }
+
+    [Test]
     public async Task StartAsync_WithValidContent_ReportsRunningHealth()
     {
         string contentPath = await WriteContentAsync();

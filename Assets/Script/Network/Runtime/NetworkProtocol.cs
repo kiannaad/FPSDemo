@@ -16,7 +16,48 @@ namespace CGame.Network
         SetReadyResponse = 15,
         MatchStarting = 20,
         PawnSpawned = 21,
-        PossessionChanged = 22
+        PossessionChanged = 22,
+        PawnMove = 30,
+        OwnerReconcile = 31,
+        AuthoritySnapshot = 32,
+        AnimationActionRequest = 40,
+        AnimationActionStarted = 41,
+        AnimationActionCommit = 42,
+        AnimationActionEnded = 43,
+        AnimationActionCancelled = 44,
+        FireRequest = 50,
+        FireCommitted = 51,
+        FireRejected = 52,
+        TargetStateChanged = 60,
+        TargetStateSnapshot = 61,
+        EnemySpawned = 70,
+        EnemySnapshot = 71,
+        EnemyAction = 72,
+        EnemyResyncRequest = 73,
+        OwnerGameplayState = 74
+    }
+
+    public enum NetworkDelivery
+    {
+        ReliableOrdered,
+        UnreliableSequenced
+    }
+
+    public static class NetworkDeliveryPolicy
+    {
+        public static NetworkDelivery For(NetworkMessageId messageId)
+        {
+            switch (messageId)
+            {
+                case NetworkMessageId.PawnMove:
+                case NetworkMessageId.OwnerReconcile:
+                case NetworkMessageId.AuthoritySnapshot:
+                case NetworkMessageId.EnemySnapshot:
+                    return NetworkDelivery.UnreliableSequenced;
+                default:
+                    return NetworkDelivery.ReliableOrdered;
+            }
+        }
     }
 
     [Flags]
@@ -24,7 +65,8 @@ namespace CGame.Network
     {
         None = 0,
         Request = 1,
-        Response = 2
+        Response = 2,
+        Failure = 4
     }
 
     public readonly struct NetworkPacketHeader
@@ -178,10 +220,18 @@ namespace CGame.Network
     }
 
     [MessagePackObject]
+    public sealed class NetworkRpcFailureResponse
+    {
+        [Key(0)] public string Reason { get; set; }
+    }
+
+    [MessagePackObject]
     public sealed class MatchStartingEvent
     {
         [Key(0)] public long MatchId { get; set; }
         [Key(1)] public long StartTick { get; set; }
+        [Key(2)] public string DataEndpoint { get; set; }
+        [Key(3)] public string CredentialId { get; set; }
     }
 
     [MessagePackObject]
@@ -198,5 +248,23 @@ namespace CGame.Network
         [Key(0)] public long PlayerId { get; set; }
         [Key(1)] public long PawnId { get; set; }
         [Key(2)] public long PossessionRevision { get; set; }
+    }
+
+    [MessagePackObject]
+    public sealed class TargetStateMessage
+    {
+        [Key(0)] public string TargetId { get; set; }
+        [Key(1)] public long Revision { get; set; }
+        [Key(2)] public float Health { get; set; }
+        [Key(3)] public float MaxHealth { get; set; }
+        [Key(4)] public bool IsDead { get; set; }
+        [Key(5)] public long CausingPawnId { get; set; }
+        [Key(6)] public long CausingShotSequence { get; set; }
+    }
+
+    [MessagePackObject]
+    public sealed class TargetStateSnapshotMessage
+    {
+        [Key(0)] public TargetStateMessage[] Targets { get; set; }
     }
 }

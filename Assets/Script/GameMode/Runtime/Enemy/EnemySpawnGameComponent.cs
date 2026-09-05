@@ -28,6 +28,8 @@ namespace CGame
 
         public IReadOnlyList<EnemySpawnHandle> Handles => handles;
         public Task SpawnTask { get; private set; }
+        public event Action<EnemySpawnHandle> HandleSpawned;
+        public event Action<EnemySpawnHandle> HandleDisposed;
 
         public Task StartInitialSpawn()
         {
@@ -44,6 +46,8 @@ namespace CGame
             world.GameplayReady -= OnGameplayReady;
             for (int index = handles.Count - 1; index >= 0; index--) handles[index].Dispose();
             handles.Clear();
+            HandleSpawned = null;
+            HandleDisposed = null;
         }
 
         private void OnGameplayReady()
@@ -78,6 +82,8 @@ namespace CGame
                         return;
                     }
                     handles.Add(handle);
+                    handle.Disposed += OnHandleDisposed;
+                    HandleSpawned?.Invoke(handle);
                 }
             }
             catch (Exception exception)
@@ -90,6 +96,18 @@ namespace CGame
             finally
             {
                 for (int index = reservations.Count - 1; index >= 0; index--) reservations[index].Dispose();
+            }
+        }
+
+        private void OnHandleDisposed()
+        {
+            for (int index = handles.Count - 1; index >= 0; index--)
+            {
+                EnemySpawnHandle handle = handles[index];
+                if (!handle.IsDisposed) continue;
+                handle.Disposed -= OnHandleDisposed;
+                handles.RemoveAt(index);
+                HandleDisposed?.Invoke(handle);
             }
         }
     }

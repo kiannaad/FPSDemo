@@ -1,11 +1,59 @@
 using System;
+using CGame.Editor;
+using CGame.Network;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace CGame.Tests.Gameplay
 {
     public sealed class GameplayAssemblyAssetContractTests
     {
+        [Test]
+        public void TPSBundlePresentationCatalog_ValidatesAllProjectOwnedVariants()
+        {
+            EnemyPresentationCatalog catalog = AssetDatabase.LoadAssetAtPath<EnemyPresentationCatalog>(
+                "Assets/Settings/Gameplay/Enemy/EnemyPresentationCatalog.asset");
+
+            Assert.That(catalog, Is.Not.Null);
+            Assert.That(catalog.Archetypes.Count, Is.EqualTo(3));
+            Assert.DoesNotThrow(() => EnemyPresentationClosureValidator.Validate(catalog));
+            foreach (EnemyArchetypeSpec archetype in catalog.Archetypes)
+            {
+                Assert.That(archetype.PresentationPrefab.GetComponentInChildren<EnemyPresentation>(true), Is.Not.Null);
+                Assert.That(archetype.PresentationPrefab.GetComponentInChildren<Animator>(true).applyRootMotion, Is.False);
+            }
+        }
+
+        [Test]
+        public void EnemyPresentationCatalog_RejectsDuplicateArchetypeIds()
+        {
+            EnemyArchetypeSpec first = ScriptableObject.CreateInstance<EnemyArchetypeSpec>();
+            EnemyArchetypeSpec second = ScriptableObject.CreateInstance<EnemyArchetypeSpec>();
+            EnemyPresentationCatalog catalog = ScriptableObject.CreateInstance<EnemyPresentationCatalog>();
+            const string prefabPath = "Assets/Tests/TemporaryEnemyPresentation.prefab";
+            var root = new GameObject("EnemyPresentation");
+            root.AddComponent<EnemyPresentation>();
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+            try
+            {
+                first.Configure("Enemy.Pistol", prefab);
+                second.Configure("Enemy.Pistol", prefab);
+                catalog.Configure(first, second);
+                InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+                    () => EnemyPresentationClosureValidator.Validate(catalog));
+                StringAssert.Contains("Duplicate enemy archetype ID", exception.Message);
+            }
+            finally
+            {
+                AssetDatabase.DeleteAsset(prefabPath);
+                UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(catalog);
+                UnityEngine.Object.DestroyImmediate(second);
+                UnityEngine.Object.DestroyImmediate(first);
+            }
+        }
+
         [Test]
         public void PlayerStateDefinition_RejectsMissingPawnAssemblyMembers()
         {

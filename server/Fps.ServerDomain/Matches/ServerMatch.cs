@@ -52,4 +52,17 @@ public sealed class ServerMatch
             throw;
         }
     }
+
+    public void Stop()
+    {
+        foreach (ServerPlayer player in Players)
+        {
+            player.Unpossess();
+        }
+
+        foreach (ServerPawn pawn in world.Pawns.ToArray())
+        {
+            world.DestroyPawn(pawn);
+        }
+    }
 }

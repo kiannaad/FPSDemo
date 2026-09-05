@@ -44,6 +44,7 @@ namespace CGame.Ability.Cues
         {
             if (eventType != GameplayCueEventType.Executed || !parameters.HasLocation || !parameters.HasNormal)
             {
+                Debug.LogWarning($"[CueDebug][045] BulletHoleSkipped Event={eventType} HasLocation={parameters.HasLocation} HasNormal={parameters.HasNormal}");
                 return;
             }
 
@@ -79,6 +80,7 @@ namespace CGame.Ability.Cues
             BulletHoleLifetime lifetime = instance.AddComponent<BulletHoleLifetime>();
             lifetime.Initialize(material, lifetimeSeconds, fadeDurationSeconds);
             activeBulletHoles.Add(lifetime);
+            Debug.Log($"[CueDebug][045] BulletHoleCreated Position={parameters.Location} Normal={normal} ActiveCount={activeBulletHoles.Count}");
         }
 
         private Material CreateMaterial()

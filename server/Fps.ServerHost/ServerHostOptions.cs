@@ -1,6 +1,15 @@
 namespace Fps.ServerHost;
 
-public sealed record ServerHostOptions(string ContentPath, int Port, int TickRate, int HealthPort = 0)
+public sealed record ServerHostOptions(
+    string ContentPath,
+    int Port,
+    int TickRate,
+    int HealthPort = 0,
+    string? DedicatedExecutablePath = null,
+    string? LevelId = null,
+    string? ContentVersion = null,
+    TimeSpan? PhysicsReadyTimeout = null,
+    string? DedicatedLogRoot = null)
 {
     public void Validate()
     {
@@ -17,6 +26,14 @@ public sealed record ServerHostOptions(string ContentPath, int Port, int TickRat
         if (HealthPort is < 0 or > ushort.MaxValue)
         {
             throw new ArgumentOutOfRangeException(nameof(HealthPort));
+        }
+
+        if (!string.IsNullOrWhiteSpace(DedicatedExecutablePath))
+        {
+            if (string.IsNullOrWhiteSpace(LevelId)) throw new ArgumentException("Level id is required for Dedicated Server.", nameof(LevelId));
+            if (string.IsNullOrWhiteSpace(ContentVersion)) throw new ArgumentException("Content version is required for Dedicated Server.", nameof(ContentVersion));
+            if (PhysicsReadyTimeout is null || PhysicsReadyTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(PhysicsReadyTimeout));
+            if (string.IsNullOrWhiteSpace(DedicatedLogRoot)) throw new ArgumentException("Dedicated log root is required.", nameof(DedicatedLogRoot));
         }
     }
 }

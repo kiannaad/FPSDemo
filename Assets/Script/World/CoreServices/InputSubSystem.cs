@@ -12,14 +12,15 @@ namespace CGame
         public int TickCount { get; private set; }
         public InputHandle InputHandle => inputService?.GetHandle(InputType.Player);
 
-        public bool FirePressed => ReadState().FirePressed;
-        public bool ReloadPressed => ReadState().ReloadPressed;
-        public bool MeleePressed => Keyboard.current?.vKey.wasPressedThisFrame == true;
+        public bool FirePressed => HasFocusedInput && ReadState().FirePressed;
+        public bool ReloadPressed => HasFocusedInput && ReadState().ReloadPressed;
+        public bool MeleePressed => HasFocusedInput && Keyboard.current?.vKey.wasPressedThisFrame == true;
 
         public int RequestedQuickBarSlot
         {
             get
             {
+                if (!HasFocusedInput) return -1;
                 Keyboard keyboard = Keyboard.current;
                 if (keyboard?.digit1Key.wasPressedThisFrame == true
                     || keyboard?.numpad1Key.wasPressedThisFrame == true) return 0;
@@ -33,6 +34,7 @@ namespace CGame
 
         public CharacterControlIntent ReadControlIntent()
         {
+            if (!HasFocusedInput) return default;
             PlayerInputState state = ReadState();
             return new CharacterControlIntent(
                 new Vector3(state.MoveInput.x, 0f, state.MoveInput.y),
@@ -40,7 +42,11 @@ namespace CGame
                 state.SprintHeld);
         }
 
-        public Vector2 ReadLookDelta(float deltaTime) => ReadState().LookInput.ResolveFrameDelta(deltaTime);
+        public Vector2 ReadLookDelta(float deltaTime) => HasFocusedInput
+            ? ReadState().LookInput.ResolveFrameDelta(deltaTime)
+            : Vector2.zero;
+
+        private static bool HasFocusedInput => Application.isFocused;
 
         protected override Task OnInitializeAsync(CancellationToken cancellationToken)
         {

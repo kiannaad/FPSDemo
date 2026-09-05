@@ -12,5 +12,18 @@ public enum MessageId : ushort
     SetReadyResponse = 15,
     MatchStarting = 20,
     PawnSpawned = 21,
-    PossessionChanged = 22
+    PossessionChanged = 22,
+    PawnMove = 30,
+    OwnerReconcile = 31,
+    AuthoritySnapshot = 32,
+    AnimationActionRequest = 40,
+    AnimationActionStarted = 41,
+    AnimationActionCommit = 42,
+    AnimationActionEnded = 43,
+    AnimationActionCancelled = 44,
+    FireRequest = 50,
+    FireCommitted = 51,
+    FireRejected = 52
+    ,TargetStateChanged = 60
+    ,TargetStateSnapshot = 61
 }

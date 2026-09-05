@@ -300,6 +300,14 @@ public AnimationPlaybackHandle PlayPoseImmediate(
             AnimationClipAsset asset,
             long requestId = 0)
         {
+            return PlayAnimationAtSeconds(asset, requestId, 0f);
+        }
+
+        public AnimationPlaybackHandle PlayAnimationAtSeconds(
+            AnimationClipAsset asset,
+            long requestId,
+            float elapsedSeconds)
+        {
             if (!EnsureReady())
             {
                 return CreateFailedHandle(asset, requestId);
@@ -311,7 +319,10 @@ public AnimationPlaybackHandle PlayPoseImmediate(
                 NextPlaybackId(),
                 resolvedRequestId,
                 true,
-                false);
+                false,
+                false,
+                true,
+                elapsedSeconds);
             if (slotHandle.State == AnimationPlaybackState.Failed
                 || asset == null
                 || asset.OverrideMask == null)
@@ -326,7 +337,8 @@ public AnimationPlaybackHandle PlayPoseImmediate(
                 true,
                 true,
                 false,
-                false);
+                false,
+                elapsedSeconds);
             if (overrideHandle.State == AnimationPlaybackState.Failed)
             {
                 slotMixer.Stop(slotHandle);

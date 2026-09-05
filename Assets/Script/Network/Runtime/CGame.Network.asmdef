@@ -3,9 +3,15 @@
   "rootNamespace": "CGame.Network",
   "references": [
     "CGame.World",
+    "CGame.CharacterRuntime",
+    "CGame.Character.Definition",
+    "CGame.CharacterPhysics",
+    "CGame.Pawn",
+    "CGame.Animation",
     "LiteNetLib",
     "MessagePack.Unity",
-    "Unity.InputSystem"
+    "Unity.InputSystem",
+    "Unity.TextMeshPro"
   ],
   "autoReferenced": true
 }

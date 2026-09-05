@@ -62,6 +62,27 @@ namespace CGame.Animation
             out CharacterAnimationPlayable animationPlayable,
             out string error)
         {
+            return TryCreate(
+                graph,
+                asset,
+                playbackId,
+                requestId,
+                autoBlendOut,
+                0f,
+                out animationPlayable,
+                out error);
+        }
+
+        public static bool TryCreate(
+            PlayableGraph graph,
+            AnimationClipAsset asset,
+            long playbackId,
+            long requestId,
+            bool autoBlendOut,
+            float elapsedSeconds,
+            out CharacterAnimationPlayable animationPlayable,
+            out string error)
+        {
             animationPlayable = null;
             if (!graph.IsValid())
             {
@@ -107,7 +128,10 @@ namespace CGame.Animation
             float normalizedStart = asset.OverrideNormalizedStartTime
                 ? Mathf.Clamp01(asset.NormalizedStartTime)
                 : asset.Speed < 0f ? 1f : 0f;
-            float startTime = normalizedStart * clip.length;
+            float defaultStartTime = normalizedStart * clip.length;
+            float startTime = asset.Speed >= 0f
+                ? Mathf.Clamp(defaultStartTime + Mathf.Max(0f, elapsedSeconds) * asset.Speed, 0f, clip.length)
+                : Mathf.Clamp(defaultStartTime - Mathf.Max(0f, elapsedSeconds) * -asset.Speed, 0f, clip.length);
             playable.SetTime(startTime);
             playable.SetSpeed(asset.Speed);
             playable.SetDuration(double.PositiveInfinity);

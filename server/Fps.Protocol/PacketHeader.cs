@@ -5,7 +5,8 @@ public enum PacketFlags : byte
 {
     None = 0,
     Request = 1,
-    Response = 2
+    Response = 2,
+    Failure = 4
 }
 
 public readonly record struct PacketHeader(
