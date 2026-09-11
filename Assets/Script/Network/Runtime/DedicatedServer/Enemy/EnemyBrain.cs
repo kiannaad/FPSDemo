@@ -173,7 +173,7 @@ namespace CGame.Network
                 if (coverSelection.IsValid)
                     return TickCover(serverTick, motorState, target);
 
-                if (coverSelector != null && state != EnemyBrainState.Chase)
+                if (coverSelector != null && state != EnemyBrainState.Chase && state != EnemyBrainState.Fire)
                 {
                     state = EnemyBrainState.Chase;
                     return BuildMovement(serverTick, motorState.Position, target.Position, EnemyMoveTargetKind.ChaseTarget);
@@ -194,7 +194,7 @@ namespace CGame.Network
                 if (planarDelta.sqrMagnitude <= engagementRange * engagementRange)
                 {
                     state = EnemyBrainState.Fire;
-                    return EnemyBrainOutput.ForMovement(default, state, targetPawnId);
+                    return BuildStationaryFacing(motorState.Position, target.Position, state, true);
                 }
                 state = EnemyBrainState.Chase;
                 return BuildMovement(serverTick, motorState.Position, target.Position, EnemyMoveTargetKind.ChaseTarget);
@@ -236,6 +236,23 @@ namespace CGame.Network
 
         public void ReleaseCover() => ClearCoverReservation();
 
+        public void NotifyFireConfirmed()
+        {
+            if (state == EnemyBrainState.PeekFire) peekFireCommitted = true;
+        }
+
+        private EnemyBrainOutput BuildStationaryFacing(
+            Vector3 origin, Vector3 target, EnemyBrainState outputState, bool hasFireRequest = false)
+        {
+            Vector3 direction = Vector3.ProjectOnPlane(target - origin, Vector3.up);
+            EnemyNavigationIntent facing = direction.sqrMagnitude > 0.0001f
+                ? EnemyNavigationIntent.FaceTarget(Quaternion.LookRotation(direction, Vector3.up))
+                : default;
+            return EnemyBrainOutput.ForMovement(
+                new EnemyMovementIntent(facing, EnemyMoveTargetKind.ChaseTarget),
+                outputState, targetPawnId, hasFireRequest);
+        }
+
         private EnemyBrainOutput TickCover(long serverTick, DedicatedEnemyMotorState motorState, EnemyPerceptionCandidate target)
         {
             if (!coverSelection.IsValid)
@@ -258,12 +275,12 @@ namespace CGame.Network
                     return BuildCoverMovement(serverTick, motorState.Position, target.Position, coverSelection.CoverPosition, EnemyMoveTargetKind.CoverPosition);
                 state = EnemyBrainState.CoverHold;
                 nextCoverTransitionTick = serverTick + 20;
-                return EnemyBrainOutput.ForMovement(default, state, targetPawnId);
+                return BuildStationaryFacing(motorState.Position, target.Position, state);
             }
             if (state == EnemyBrainState.CoverHold)
             {
                 if (serverTick < nextCoverTransitionTick)
-                    return EnemyBrainOutput.ForMovement(default, state, targetPawnId);
+                    return BuildStationaryFacing(motorState.Position, target.Position, state);
                 state = EnemyBrainState.PeekFire;
                 return BuildCoverMovement(serverTick, motorState.Position, target.Position, coverSelection.PeekPosition, EnemyMoveTargetKind.PeekPosition);
             }
@@ -276,8 +293,8 @@ namespace CGame.Network
                     state = EnemyBrainState.ReturnToCover;
                     return BuildCoverMovement(serverTick, motorState.Position, target.Position, coverSelection.CoverPosition, EnemyMoveTargetKind.CoverPosition);
                 }
-                peekFireCommitted = true;
-                return EnemyBrainOutput.ForMovement(default, EnemyBrainState.PeekFire, targetPawnId, hasFireRequest: true);
+                return BuildStationaryFacing(motorState.Position, target.Position,
+                    EnemyBrainState.PeekFire, hasFireRequest: true);
             }
             if (state == EnemyBrainState.ReturnToCover)
             {
@@ -286,7 +303,7 @@ namespace CGame.Network
                 state = EnemyBrainState.CoverHold;
                 peekFireCommitted = false;
                 nextCoverTransitionTick = serverTick + 20;
-                return EnemyBrainOutput.ForMovement(default, state, targetPawnId);
+                return BuildStationaryFacing(motorState.Position, target.Position, state);
             }
 
             state = EnemyBrainState.TakeCover;

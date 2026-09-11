@@ -112,7 +112,7 @@ namespace CGame
                 }
                 else
                 {
-                    DisableRemoteViewComponents(root);
+                    ConfigureRemoteVisual(root);
                 }
 
                 CharacterPhysicsMotor motor = root.GetComponent<CharacterPhysicsMotor>();
@@ -176,8 +176,17 @@ namespace CGame
             renderer.sharedMaterials = new[] { definition.FirstPersonMaterial };
         }
 
-        private static void DisableRemoteViewComponents(GameObject root)
+        private static void ConfigureRemoteVisual(GameObject root)
         {
+            Camera firstPersonCamera = root.GetComponentInChildren<Camera>(true);
+            if (firstPersonCamera != null)
+            {
+                // Local head-hiding layers belong to the owner view, not to a
+                // remote character seen through another pawn's identical camera.
+                foreach (SkinnedMeshRenderer renderer in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                    if ((firstPersonCamera.cullingMask & (1 << renderer.gameObject.layer)) == 0)
+                        renderer.gameObject.layer = root.layer;
+            }
             foreach (Camera camera in root.GetComponentsInChildren<Camera>(true))
             {
                 camera.enabled = false;

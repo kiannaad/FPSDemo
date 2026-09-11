@@ -9,6 +9,7 @@ namespace CGame.Editor
     public static class DedicatedServerBuild
     {
         public const string SampleScenePath = "Assets/Scenes/SampleScene.unity";
+        public const string EnemyCombatLabScenePath = "Assets/Scenes/EnemyCombatPresentationLab.unity";
         public const string OutputPath = "E:/UnityProgram/FPS/Build/DedicatedServer/Windows/FPSResearchServer.exe";
 
         [MenuItem("CGame/Network/Build Windows Dedicated Server")]
@@ -27,7 +28,7 @@ namespace CGame.Editor
             Directory.CreateDirectory(Path.GetDirectoryName(OutputPath));
             var options = new BuildPlayerOptions
             {
-                scenes = new[] { DedicatedServerProjectSetup.BootstrapScenePath, SampleScenePath },
+                scenes = new[] { DedicatedServerProjectSetup.BootstrapScenePath, SampleScenePath, EnemyCombatLabScenePath },
                 locationPathName = OutputPath,
                 target = BuildTarget.StandaloneWindows64,
                 targetGroup = BuildTargetGroup.Standalone,

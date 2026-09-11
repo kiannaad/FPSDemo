@@ -35,13 +35,13 @@ namespace CGame.Network
 
         public void ApplyIntent(EnemyNavigationIntent intent)
         {
+            if (intent.HasFacing) pawn.ApplyingControlRotation(intent.DesiredFacing);
             if (!intent.HasPath)
             {
                 pawn.ClearingControlIntent();
                 return;
             }
 
-            pawn.ApplyingControlRotation(intent.DesiredFacing);
             pawn.SubmitControlIntent(new CharacterControlIntent(Vector3.forward, jumpRequested: false, sprintRequested: false));
         }
 

@@ -82,13 +82,15 @@ namespace CGame.Network
             DedicatedEnemyMotorState state = motor.Capture();
             Vector3 muzzleOrigin = state.Position + Vector3.up * 1.2f;
             Vector3 aimPoint = target.Position + Vector3.up;
-            return fireResolver.TryResolve(
+            EnemyFireResolution result = fireResolver.TryResolve(
                 serverTick,
                 muzzleOrigin,
                 state.Rotation * Vector3.forward,
                 aimPoint,
                 target.PawnId,
                 hitscanQuery);
+            if (result.Fired) brain.NotifyFireConfirmed();
+            return result;
         }
 
         public void MarkNoAmmo()

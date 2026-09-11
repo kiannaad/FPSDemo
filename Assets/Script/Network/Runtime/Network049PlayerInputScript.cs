@@ -26,6 +26,8 @@ namespace CGame.Network
         private bool beforeCaptureTaken;
         private bool acceptanceFinished;
         private bool lobbyOnly;
+        private float readyDelaySeconds;
+        private float roomEnteredAt = -1f;
 
         private void Awake()
         {
@@ -35,10 +37,20 @@ namespace CGame.Network
             capturePath = FindArgumentValue("-network049-capture-path");
             beforeCapturePath = FindArgumentValue("-network049-before-capture-path");
             lobbyOnly = HasArgument("-network049-lobby-only");
+            float.TryParse(FindArgumentValue("-network049-ready-delay"),
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+                out readyDelaySeconds);
+            readyDelaySeconds = Mathf.Max(0f, readyDelaySeconds);
+        }
+
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            Debug.Log($"[Network][070] AcceptanceWindowFocus Focused={hasFocus}");
         }
 
         private void Update()
         {
+            if (!Application.isFocused) return;
             GameInstance instance = GetComponent<GameInstance>();
             if (instance?.RuntimeWorld == null)
             {
@@ -156,6 +168,10 @@ namespace CGame.Network
                 return;
             }
 
+            if (roomEnteredAt < 0f && !string.IsNullOrEmpty(lobby.RoomId))
+                roomEnteredAt = Time.realtimeSinceStartup;
+            bool canReady = roomEnteredAt >= 0f && Time.realtimeSinceStartup - roomEnteredAt >= readyDelaySeconds;
+
             if (isJoiner)
             {
                 if (!joinQueued && string.IsNullOrEmpty(lobby.RoomId))
@@ -167,7 +183,7 @@ namespace CGame.Network
                     return;
                 }
 
-                if (joinQueued && !readyQueued && !string.IsNullOrEmpty(lobby.RoomId))
+                if (joinQueued && !readyQueued && canReady)
                 {
                     InputSystem.QueueStateEvent(keyboard, new UnityEngine.InputSystem.LowLevel.KeyboardState(Key.R));
                     readyQueued = true;
@@ -191,7 +207,7 @@ namespace CGame.Network
                 return;
             }
 
-            if (createQueued && !readyQueued && !string.IsNullOrEmpty(lobby.RoomId))
+            if (createQueued && !readyQueued && canReady)
             {
                 InputSystem.QueueStateEvent(keyboard, new UnityEngine.InputSystem.LowLevel.KeyboardState(Key.R));
                 readyQueued = true;

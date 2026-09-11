@@ -154,9 +154,11 @@ namespace CGame.Editor
         private static bool TryExtractNumber(string name, string prefix, out int value)
         {
             value = 0;
-            string requiredPrefix = prefix + " ";
-            return name.StartsWith(requiredPrefix, StringComparison.Ordinal) &&
-                   int.TryParse(name.Substring(requiredPrefix.Length), out value) && value > 0;
+            if (!name.StartsWith(prefix, StringComparison.Ordinal)) return false;
+            string numericSuffix = name.Substring(prefix.Length);
+            if (numericSuffix.StartsWith(" ", StringComparison.Ordinal))
+                numericSuffix = numericSuffix.Substring(1);
+            return int.TryParse(numericSuffix, out value) && value > 0;
         }
         private static int ExtractNumber(string name, string prefix) { TryExtractNumber(name, prefix, out int value); return value; }
     }

@@ -176,6 +176,10 @@ namespace CGame.Network
         public bool DiedThisHit { get; }
         public bool IsReplay { get; }
 
+        public EnemyActionKind? PresentationActionKind => IsReplay || IsDead && !DiedThisHit
+            ? null
+            : DiedThisHit ? EnemyActionKind.Death : EnemyActionKind.Hit;
+
         public DedicatedDamageResult WithReplay() => new DedicatedDamageResult(
             EnemyId, Health, MaxHealth, VitalsRevision, IsDead, DiedThisHit, true);
     }

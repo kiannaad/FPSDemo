@@ -27,6 +27,8 @@ namespace CGame.Network
             new ConcurrentQueue<FireQueryOperation>();
         private readonly ConcurrentQueue<EnemyDamageOperation> pendingEnemyDamage =
             new ConcurrentQueue<EnemyDamageOperation>();
+        private readonly Dictionary<(long EnemyId, long PawnId, long ShotSequence), DedicatedDamageResult> enemyDamageResults =
+            new Dictionary<(long EnemyId, long PawnId, long ShotSequence), DedicatedDamageResult>();
         private readonly ConcurrentQueue<PawnFireOperation> pendingPawnFire =
             new ConcurrentQueue<PawnFireOperation>();
         private readonly ConcurrentQueue<FireCommitOperation> pendingFireCommits =
@@ -413,7 +415,6 @@ namespace CGame.Network
                 {
                     DedicatedPawnVitalsResult effect = DedicatedGameplayEffectApplier.ApplyEnemyDamageEffect(
                         pawn, agent.EnemyId, resolution.ActionSequence, resolution.Damage);
-                    PublishEnemyAction(agent.EnemyId, EnemyActionKind.Hit, serverTick, effect.VitalsRevision);
                     SendOwnerGameplayState(effect);
                     Debug.Log($"[DedicatedServer][059] EnemyEffectApplied MatchId={launch.MatchId} EnemyId={agent.EnemyId} PawnId={target.PawnId} ServerTick={serverTick} Health={effect.Health} Revision={effect.VitalsRevision} Replay={effect.IsReplay}");
                 }
@@ -739,14 +740,28 @@ namespace CGame.Network
             {
                 DedicatedEnemyDamageRequest request = operation.Request;
                 if (!IsPhysicsReady || request.MatchId != launch.MatchId ||
-                    !moveProcessors.ContainsKey(request.CausingPawnId) || !enemiesById.TryGetValue(request.EnemyId, out DedicatedEnemyEntity enemy))
+                    !moveProcessors.ContainsKey(request.CausingPawnId))
                 {
                     operation.Completion.TrySetResult(new DedicatedEnemyDamageResult { Accepted = false, Failure = "AuthorityUnavailable" });
                     continue;
                 }
             try
             {
-                DedicatedDamageResult damage = enemy.ApplyDamage(request.CausingPawnId, request.CausingShotSequence, request.Damage);
+                var key = (request.EnemyId, request.CausingPawnId, request.CausingShotSequence);
+                DedicatedDamageResult damage;
+                if (enemyDamageResults.TryGetValue(key, out DedicatedDamageResult previous))
+                    damage = previous.WithReplay();
+                else
+                {
+                    if (!enemiesById.TryGetValue(request.EnemyId, out DedicatedEnemyEntity enemy))
+                    {
+                        operation.Completion.TrySetResult(new DedicatedEnemyDamageResult { Accepted = false, Failure = "UnknownEnemy" });
+                        continue;
+                    }
+                    damage = enemy.ApplyDamage(request.CausingPawnId, request.CausingShotSequence, request.Damage);
+                    CompleteEnemyDamage(enemy, damage);
+                    enemyDamageResults.Add(key, damage);
+                }
                 Debug.Log($"[DedicatedServer][052] EnemyDamaged MatchId={launch.MatchId} EnemyId={damage.EnemyId} PawnId={request.CausingPawnId} ShotSequence={request.CausingShotSequence} Health={damage.Health} Revision={damage.VitalsRevision} Dead={damage.IsDead} Replay={damage.IsReplay}");
                 operation.Completion.TrySetResult(new DedicatedEnemyDamageResult
                 {
@@ -759,17 +774,34 @@ namespace CGame.Network
                     DiedThisHit = damage.DiedThisHit,
                     IsReplay = damage.IsReplay
                 });
-                if (damage.DiedThisHit)
-                {
-                    enemiesById.Remove(damage.EnemyId);
-                    authoritativeEnemyRoster?.Remove(damage.EnemyId);
-                }
             }
             catch (ArgumentOutOfRangeException)
             {
                 operation.Completion.TrySetResult(new DedicatedEnemyDamageResult { Accepted = false, Failure = "InvalidDamage" });
             }
             }
+        }
+
+        private void CompleteEnemyDamage(DedicatedEnemyEntity enemy, DedicatedDamageResult damage)
+        {
+            if (damage.PresentationActionKind is EnemyActionKind action)
+                PublishEnemyAction(damage.EnemyId, action, authorityServerTick, damage.VitalsRevision);
+            if (!damage.DiedThisHit || damage.IsReplay) return;
+
+            // End simulation before destroying the authority root; presentation
+            // clients retain their independent visual death terminal.
+            if (patrolAgentsByEnemyId.TryGetValue(damage.EnemyId, out DedicatedEnemyPatrolAgent agent))
+                agent.ReleaseCover();
+            patrolAgentsByEnemyId.Remove(damage.EnemyId);
+            for (int index = pawnRegistrations.Count - 1; index >= 0; index--)
+            {
+                ActorRegistration registration = pawnRegistrations[index];
+                if (!ReferenceEquals(registration.Actor, enemy.MotorPawn)) continue;
+                if (!registration.IsDisposed) world.UnregisterActor(registration);
+                pawnRegistrations.RemoveAt(index);
+            }
+            enemiesById.Remove(damage.EnemyId);
+            authoritativeEnemyRoster?.Remove(damage.EnemyId);
         }
 
         private sealed class EnemyDamageOperation
@@ -854,16 +886,12 @@ namespace CGame.Network
             if (result.HitEnemyId > 0 && enemiesById.TryGetValue(result.HitEnemyId, out DedicatedEnemyEntity enemy))
             {
                 DedicatedDamageResult damage = enemy.ApplyDamage(request.PawnId, request.ClientShotSequence, request.Damage);
+                CompleteEnemyDamage(enemy, damage);
                 result.EnemyDamage = new DedicatedEnemyDamageResult
                 {
                     Accepted = true, EnemyId = damage.EnemyId, Health = damage.Health, MaxHealth = damage.MaxHealth,
                     VitalsRevision = damage.VitalsRevision, IsDead = damage.IsDead, DiedThisHit = damage.DiedThisHit, IsReplay = damage.IsReplay
                 };
-                if (damage.DiedThisHit)
-                {
-                    enemiesById.Remove(damage.EnemyId);
-                    authoritativeEnemyRoster?.Remove(damage.EnemyId);
-                }
             }
             return result;
         }

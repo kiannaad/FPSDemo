@@ -36,6 +36,7 @@ namespace CGame.Animation
         private Playable nativeControllerSource;
         private AnimatorControllerPlayable animatorControllerSource;
         private RuntimeAnimatorController runtimeController;
+        private AnimatorControllerParameter[] controllerParameters = Array.Empty<AnimatorControllerParameter>();
         private CharacterAnimationChannelMixer overlayMixer;
         private CharacterAnimationChannelMixer slotMixer;
         private CharacterAnimationChannelMixer overrideMixer;
@@ -97,7 +98,7 @@ namespace CGame.Animation
             return true;
         }
 
-        internal bool TrySetTrigger(string triggerName)
+        public bool TrySetTrigger(string triggerName)
         {
             if (string.IsNullOrWhiteSpace(triggerName) || !animatorControllerSource.IsValid())
             {
@@ -231,6 +232,7 @@ public bool TryRebuild()
                 nativeOutput.SetWeight(0f);
                 nativeControllerSource = source;
                 runtimeController = controller;
+                controllerParameters = animator.parameters;
                 projectOutput = output;
                 graph.Play();
                 SynchronizeAnimatorControllerParameters();
@@ -594,12 +596,27 @@ public void Update(float deltaTime)
                 return;
             }
 
-            animatorControllerSource.SetFloat("MoveX", animator.GetFloat("MoveX"));
-            animatorControllerSource.SetFloat("MoveY", animator.GetFloat("MoveY"));
-            animatorControllerSource.SetFloat("Velocity", animator.GetFloat("Velocity"));
-            animatorControllerSource.SetBool("Moving", animator.GetBool("Moving"));
-            animatorControllerSource.SetBool("InAir", animator.GetBool("InAir"));
-            animatorControllerSource.SetFloat("Sprinting", animator.GetFloat("Sprinting"));
+            // The rendered source is a separate controller instance. Copy its declared
+            // continuous parameters; one-shot triggers must use TrySetTrigger directly.
+            foreach (AnimatorControllerParameter parameter in controllerParameters)
+            {
+                int hash = parameter.nameHash;
+                switch (parameter.type)
+                {
+                    case AnimatorControllerParameterType.Float:
+                        // Animation curves are outputs of this source, not inputs
+                        // to overwrite from the native controller instance.
+                        if (!animatorControllerSource.IsParameterControlledByCurve(hash))
+                            animatorControllerSource.SetFloat(hash, animator.GetFloat(hash));
+                        break;
+                    case AnimatorControllerParameterType.Bool:
+                        animatorControllerSource.SetBool(hash, animator.GetBool(hash));
+                        break;
+                    case AnimatorControllerParameterType.Int:
+                        animatorControllerSource.SetInteger(hash, animator.GetInteger(hash));
+                        break;
+                }
+            }
         }
     }
 }

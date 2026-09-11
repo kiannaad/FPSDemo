@@ -37,6 +37,7 @@ namespace CGame
         private NetworkAnimationActionBridge ownerAnimationActionBridge;
         private NetworkFireBridge ownerFireBridge;
         private OwnerGameplayHud ownerGameplayHud;
+        private OwnerGameplayTerminalPresenter ownerGameplayTerminal;
         private OwnerGameplayStateEvent latestOwnerGameplayState;
         private readonly NetworkLoopAnimationPhaseSynchronizer ownerLoopPhaseSynchronizer =
             new NetworkLoopAnimationPhaseSynchronizer();
@@ -288,6 +289,13 @@ namespace CGame
                 ownerFireBridge = new NetworkFireBridge(pawn.PawnId, pawn.PossessionRevision);
                 ownerGameplayHud = ownerPawn.Root.GetComponent<OwnerGameplayHud>() ?? ownerPawn.Root.AddComponent<OwnerGameplayHud>();
                 ownerGameplayHud.Apply(latestOwnerGameplayState, true);
+                ownerGameplayTerminal = ownerPawn.Root.AddComponent<OwnerGameplayTerminalPresenter>();
+                ownerGameplayTerminal.Configure(pawn.PawnId, () =>
+                {
+                    Player.GetSubSystem<InputSubSystem>()?.SetGameplayInputEnabled(false);
+                    ((PlayerController)PlayerController).Unpossess();
+                }, ExitOwnerSession);
+                ownerGameplayTerminal.Apply(latestOwnerGameplayState);
                 ownerPawn.BindFireAuthorityGateway(new OwnerNetworkFireGateway(
                     network,
                     ownerFireBridge,
@@ -389,14 +397,22 @@ namespace CGame
 
         private void OnOwnerGameplayStateReceived(OwnerGameplayStateEvent state)
         {
-            bool isOwner = state != null && ownerNetworkBinding != null && state.PawnId == ownerNetworkBinding.PawnId;
+            bool isOwner = state != null && state.PawnId > 0 &&
+                state.PawnId == (ownerNetworkBinding?.PawnId ?? network.ClientWorld.ControlledPawnId);
             if (isOwner) latestOwnerGameplayState = state;
             ownerGameplayHud?.Apply(state, isOwner);
+            if (isOwner) ownerGameplayTerminal?.Apply(state);
             if (isOwner)
                 Debug.Log($"[Network][052] OwnerGameplayState PawnId={state.PawnId} VitalsRevision={state.VitalsRevision} Health={state.Health}/{state.MaxHealth} EquipmentRevision={state.EquipmentRevision} Ammo={state.MagazineAmmo}/{state.MagazineCapacity}");
         }
 
         private void OnTargetHandleSpawned(EnemySpawnHandle handle) => targetRegistry.Register(handle);
+
+        private async void ExitOwnerSession()
+        {
+            try { await World.ShutdownAsync(); }
+            catch (Exception exception) { Debug.LogException(exception); }
+        }
 
         private void OnTargetHandleDisposed(EnemySpawnHandle handle)
         {
@@ -510,6 +526,9 @@ namespace CGame
 
         private static void ExecuteAuthorityImpactCue(Pawn sourcePawn, FireCommitted committed, string receiver)
         {
+            // Enemy Hit/Death actions own their moving-body feedback. A static
+            // surface decal here would remain suspended after the enemy moves.
+            if (committed.HitEnemyId > 0) return;
             if (!committed.HasImpact || committed.ImpactId <= 0)
             {
                 Debug.Log($"[CueDebug][045] ImpactSkipped Receiver={receiver} ShotSequence={committed.ShotSequence} Reason=NoAuthorityImpact");

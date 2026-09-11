@@ -15,6 +15,10 @@ namespace CGame.Network
 
         private void Awake()
         {
+            if (NetworkPveFrameCapture.IsEnabledByCommandLine())
+                gameObject.AddComponent<NetworkPveFrameCapture>();
+            if (NetworkPvePlayerInputScript.IsEnabledByCommandLine())
+                gameObject.AddComponent<NetworkPvePlayerInputScript>();
             if (Network049PlayerInputScript.IsEnabledByCommandLine())
             {
                 gameObject.AddComponent<Network049PlayerInputScript>();
@@ -24,7 +28,13 @@ namespace CGame.Network
         private void Update()
         {
             if (!Application.isFocused) return;
-            if (!(GetComponent<GameInstance>()?.RuntimeWorld?.GameMode is INetworkLobby lobby))
+            var world = GetComponent<GameInstance>()?.RuntimeWorld;
+            if (world?.IsGameplayReady == true)
+            {
+                createWasPressed = joinWasPressed = readyWasPressed = false;
+                return;
+            }
+            if (!(world?.GameMode is INetworkLobby lobby))
             {
                 return;
             }
@@ -59,7 +69,9 @@ namespace CGame.Network
 
         private void OnGUI()
         {
-            if (!(GetComponent<GameInstance>()?.RuntimeWorld?.GameMode is INetworkLobby lobby))
+            var world = GetComponent<GameInstance>()?.RuntimeWorld;
+            if (world?.IsGameplayReady == true) return;
+            if (!(world?.GameMode is INetworkLobby lobby))
             {
                 GUI.Label(new Rect(16, 16, 460, 24), status);
                 return;

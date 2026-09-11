@@ -17,18 +17,24 @@ namespace CGame.Network
             Vector3 desiredWorldDirection,
             Quaternion desiredFacing,
             bool hasPath,
-            bool isRetryThrottled)
+            bool isRetryThrottled,
+            bool hasFacing = false)
         {
             DesiredWorldDirection = desiredWorldDirection;
             DesiredFacing = desiredFacing;
             HasPath = hasPath;
             IsRetryThrottled = isRetryThrottled;
+            HasFacing = hasPath || hasFacing;
         }
 
         public Vector3 DesiredWorldDirection { get; }
         public Quaternion DesiredFacing { get; }
         public bool HasPath { get; }
         public bool IsRetryThrottled { get; }
+        public bool HasFacing { get; }
+
+        public static EnemyNavigationIntent FaceTarget(Quaternion facing) =>
+            new EnemyNavigationIntent(Vector3.zero, facing, false, false, hasFacing: true);
 
         public static EnemyNavigationIntent NoPath(bool isRetryThrottled) =>
             new EnemyNavigationIntent(Vector3.zero, Quaternion.identity, false, isRetryThrottled);

@@ -51,6 +51,7 @@ namespace CGame.Network
         [Key(15)] public float ImpactNormalY { get; set; }
         [Key(16)] public float ImpactNormalZ { get; set; }
         [Key(17)] public string SurfaceId { get; set; }
+        [Key(18)] public long HitEnemyId { get; set; }
     }
 
     [MessagePackObject]

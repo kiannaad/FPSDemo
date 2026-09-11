@@ -56,6 +56,10 @@ namespace CGame.Network
             if (rpcClient != null) rpcClient.EventReceived -= OnNetworkEvent;
             if (movementChannel != null) movementChannel.OwnerReconcileReceived -= OnOwnerReconcileReceived;
             if (movementChannel != null) movementChannel.AuthoritySnapshotReceived -= OnAuthoritySnapshotReceived;
+            if (movementChannel != null) movementChannel.EnemySpawnedReceived -= OnEnemySpawnedReceived;
+            if (movementChannel != null) movementChannel.EnemySnapshotReceived -= OnEnemySnapshotReceived;
+            if (movementChannel != null) movementChannel.EnemyActionReceived -= OnEnemyActionReceived;
+            if (movementChannel != null) movementChannel.OwnerGameplayStateReceived -= OnOwnerGameplayStateReceived;
             movementChannel?.Dispose();
             movementChannel = null;
             rpcClient?.Dispose();
@@ -135,7 +139,8 @@ namespace CGame.Network
         {
             NetworkRpcResponse response = await SendRequestAsync(
                 NetworkMessageId.SetReadyRequest,
-                new SetReadyRequest { RoomId = roomId, IsReady = isReady });
+                new SetReadyRequest { RoomId = roomId, IsReady = isReady },
+                definition.ReadyTimeoutSeconds);
             return MessagePackSerializer.Deserialize<SetReadyResponse>(response.Payload);
         }
 
@@ -210,10 +215,13 @@ namespace CGame.Network
                 ClientWorld.MatchId);
         }
 
-        private Task<NetworkRpcResponse> SendRequestAsync<TRequest>(NetworkMessageId messageId, TRequest request)
+        private Task<NetworkRpcResponse> SendRequestAsync<TRequest>(NetworkMessageId messageId, TRequest request, float? timeoutSeconds = null)
         {
             if (rpcClient == null) throw new InvalidOperationException("Client network is not initialized.");
-            return rpcClient.RequestAsync(messageId, MessagePackSerializer.Serialize(request), TimeSpan.FromSeconds(definition.RequestTimeoutSeconds));
+            // Ready includes Dedicated process startup (20 seconds in the Harness).
+            // Other RPCs retain their shorter responsiveness timeout.
+            return rpcClient.RequestAsync(messageId, MessagePackSerializer.Serialize(request),
+                TimeSpan.FromSeconds(timeoutSeconds ?? definition.RequestTimeoutSeconds));
         }
 
         private void OnNetworkEvent(NetworkRpcResponse response)
@@ -226,6 +234,10 @@ namespace CGame.Network
                     movementChannel = new ClientMovementNetworkChannel(new LiteNetClientNetworkTransport());
                     movementChannel.OwnerReconcileReceived += OnOwnerReconcileReceived;
                     movementChannel.AuthoritySnapshotReceived += OnAuthoritySnapshotReceived;
+                    movementChannel.EnemySpawnedReceived += OnEnemySpawnedReceived;
+                    movementChannel.EnemySnapshotReceived += OnEnemySnapshotReceived;
+                    movementChannel.EnemyActionReceived += OnEnemyActionReceived;
+                    movementChannel.OwnerGameplayStateReceived += OnOwnerGameplayStateReceived;
                     movementChannel.Connect(starting.MatchId, starting.DataEndpoint, starting.CredentialId);
                     break;
                 case NetworkMessageId.PawnSpawned:
@@ -286,5 +298,17 @@ namespace CGame.Network
                 .ToValue();
             AuthoritySnapshotReceived?.Invoke(snapshot);
         }
+
+        private void OnEnemySpawnedReceived(NetworkRpcResponse response) =>
+            EnemySpawnedReceived?.Invoke(NetworkMessageSerializer.Deserialize<EnemySpawnedEvent>(response.Payload));
+
+        private void OnEnemySnapshotReceived(NetworkRpcResponse response) =>
+            EnemySnapshotReceived?.Invoke(NetworkMessageSerializer.Deserialize<EnemySnapshotEvent>(response.Payload));
+
+        private void OnEnemyActionReceived(NetworkRpcResponse response) =>
+            EnemyActionReceived?.Invoke(NetworkMessageSerializer.Deserialize<EnemyActionEvent>(response.Payload));
+
+        private void OnOwnerGameplayStateReceived(NetworkRpcResponse response) =>
+            OwnerGameplayStateReceived?.Invoke(NetworkMessageSerializer.Deserialize<OwnerGameplayStateEvent>(response.Payload));
     }
 }

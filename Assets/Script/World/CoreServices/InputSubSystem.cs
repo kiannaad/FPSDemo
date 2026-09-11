@@ -10,6 +10,8 @@ namespace CGame
         private InputService inputService;
 
         public int TickCount { get; private set; }
+        public bool GameplayInputEnabled { get; private set; } = true;
+        public void SetGameplayInputEnabled(bool enabled) => GameplayInputEnabled = enabled;
         public InputHandle InputHandle => inputService?.GetHandle(InputType.Player);
 
         public bool FirePressed => HasFocusedInput && ReadState().FirePressed;
@@ -46,11 +48,12 @@ namespace CGame
             ? ReadState().LookInput.ResolveFrameDelta(deltaTime)
             : Vector2.zero;
 
-        private static bool HasFocusedInput => Application.isFocused;
+        private bool HasFocusedInput => GameplayInputEnabled && Application.isFocused;
 
         protected override Task OnInitializeAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            GameplayInputEnabled = true;
             inputService = new InputService();
             inputService.Initialize();
             AddTickTask("Player.Input", TickGroup.TG_Input, Tick);

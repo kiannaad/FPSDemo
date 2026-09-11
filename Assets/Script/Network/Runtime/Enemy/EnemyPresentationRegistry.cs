@@ -8,9 +8,12 @@ namespace CGame.Network
     {
         private const float InterpolationSeconds = 0.1f;
         private const float StreamFreezeSeconds = 0.5f;
+        private const float DeathTimeoutSeconds = 4f;
         private readonly EnemyPresentationCatalog catalog;
         private readonly IEnemyActionCueSink cueSink;
         private readonly Dictionary<long, Entry> entriesByEnemyId = new Dictionary<long, Entry>();
+        private readonly HashSet<long> deadEnemyIds = new HashSet<long>();
+        private readonly List<long> completedDeaths = new List<long>();
 
         public EnemyPresentationRegistry(EnemyPresentationCatalog catalog, IEnemyActionCueSink cueSink = null)
         {
@@ -22,7 +25,7 @@ namespace CGame.Network
 
         public bool Spawn(EnemySpawnedEvent spawned)
         {
-            if (spawned == null || entriesByEnemyId.ContainsKey(spawned.EnemyId) ||
+            if (spawned == null || deadEnemyIds.Contains(spawned.EnemyId) || entriesByEnemyId.ContainsKey(spawned.EnemyId) ||
                 !catalog.TryGet(spawned.ArchetypeId, out EnemyArchetypeSpec archetype) || archetype.PresentationPrefab == null)
                 return false;
 
@@ -40,7 +43,8 @@ namespace CGame.Network
 
         public bool ApplySnapshot(EnemySnapshotEvent snapshot)
         {
-            if (snapshot == null || !entriesByEnemyId.TryGetValue(snapshot.EnemyId, out Entry entry)) return false;
+            if (snapshot == null || deadEnemyIds.Contains(snapshot.EnemyId) ||
+                !entriesByEnemyId.TryGetValue(snapshot.EnemyId, out Entry entry)) return false;
             entry.TargetPosition = snapshot.Position.ToValue().ToMeters();
             entry.TargetRotation = snapshot.Rotation.ToValue().ToQuaternion();
             entry.LastSnapshotReceivedAtSeconds = Time.realtimeSinceStartup;
@@ -54,22 +58,41 @@ namespace CGame.Network
         {
             if (deltaTime <= 0f) return;
             float alpha = Mathf.Clamp01(deltaTime / InterpolationSeconds);
-            foreach (Entry entry in entriesByEnemyId.Values)
+            completedDeaths.Clear();
+            foreach (KeyValuePair<long, Entry> pair in entriesByEnemyId)
             {
+                Entry entry = pair.Value;
+                entry.Presentation?.TickPresentation(deltaTime);
+                if (deadEnemyIds.Contains(pair.Key))
+                {
+                    if (entry.Presentation != null && entry.Presentation.IsDeathPresentationComplete ||
+                        nowSeconds - entry.DeathStartedAtSeconds >= DeathTimeoutSeconds)
+                        completedDeaths.Add(pair.Key);
+                    continue;
+                }
                 if (nowSeconds - entry.LastSnapshotReceivedAtSeconds > StreamFreezeSeconds) continue;
                 entry.Root.transform.SetPositionAndRotation(
                     Vector3.Lerp(entry.Root.transform.position, entry.TargetPosition, alpha),
                     Quaternion.Slerp(entry.Root.transform.rotation, entry.TargetRotation, alpha));
             }
+            foreach (long enemyId in completedDeaths) Remove(enemyId);
         }
 
         public bool ApplyAction(EnemyActionEvent action)
         {
-            if (action == null || !entriesByEnemyId.TryGetValue(action.EnemyId, out Entry entry)) return false;
+            if (action == null || deadEnemyIds.Contains(action.EnemyId) ||
+                !entriesByEnemyId.TryGetValue(action.EnemyId, out Entry entry) ||
+                action.ActionSequence <= entry.LastActionSequence) return false;
+            entry.LastActionSequence = action.ActionSequence;
             cueSink?.TryExecute(action, entry.Root);
             if (action.ActionKind == EnemyActionKind.Fire) entry.Presentation?.PlayFire();
             if (action.ActionKind == EnemyActionKind.Hit) entry.Presentation?.PlayHit();
-            if (action.ActionKind == EnemyActionKind.Death) Remove(action.EnemyId);
+            if (action.ActionKind == EnemyActionKind.Death)
+            {
+                deadEnemyIds.Add(action.EnemyId);
+                entry.DeathStartedAtSeconds = Time.realtimeSinceStartup;
+                entry.Presentation?.PlayDeath();
+            }
             return true;
         }
 
@@ -84,6 +107,8 @@ namespace CGame.Network
             foreach (Entry entry in entriesByEnemyId.Values)
                 DestroyRoot(entry.Root);
             entriesByEnemyId.Clear();
+            deadEnemyIds.Clear();
+            completedDeaths.Clear();
         }
 
         private static void DestroyRoot(GameObject root)
@@ -114,6 +139,8 @@ namespace CGame.Network
             public Vector3 TargetPosition { get; set; }
             public Quaternion TargetRotation { get; set; }
             public float LastSnapshotReceivedAtSeconds { get; set; }
+            public float DeathStartedAtSeconds { get; set; }
+            public long LastActionSequence { get; set; }
         }
     }
 }

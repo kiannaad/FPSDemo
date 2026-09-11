@@ -9,10 +9,12 @@ namespace CGame.Network
         [SerializeField] private int port = 29000;
         [SerializeField] private string connectionKey = "fps-v1";
         [SerializeField] private float requestTimeoutSeconds = 5f;
+        [SerializeField] private float readyTimeoutSeconds = 30f;
 
         public string Host => host;
         public int Port => port;
         public string ConnectionKey => connectionKey;
         public float RequestTimeoutSeconds => requestTimeoutSeconds;
+        public float ReadyTimeoutSeconds => Mathf.Max(requestTimeoutSeconds, readyTimeoutSeconds);
     }
 }

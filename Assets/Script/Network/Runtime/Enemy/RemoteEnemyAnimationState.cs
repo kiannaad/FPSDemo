@@ -35,13 +35,16 @@ namespace CGame.Network
         {
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
             Vector3 velocity = snapshot.PlanarVelocity.ToValue().ToMeters();
-            Vector2 direction = new Vector2(velocity.x, velocity.z);
-            float speed = direction.magnitude;
+            velocity.y = 0f;
+            float speed = velocity.magnitude;
+            Quaternion facing = snapshot.Rotation.ToValue().ToQuaternion();
+            Vector3 localVelocity = Quaternion.Inverse(facing) * velocity;
+            Vector2 direction = new Vector2(localVelocity.x, localVelocity.z);
             return new RemoteEnemyAnimationState(
                 speed,
-                speed > Mathf.Epsilon ? direction / speed : Vector2.zero,
+                speed > MovingSpeedThreshold ? direction / speed : Vector2.zero,
                 snapshot.IsGrounded,
-                snapshot.Rotation.ToValue().ToQuaternion(),
+                facing,
                 snapshot.BrainState);
         }
     }

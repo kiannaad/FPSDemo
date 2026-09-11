@@ -14,6 +14,23 @@ namespace CGame.Network
         public void Configure(WorldConfiguration bootstrap) =>
             gameBootstrap = bootstrap != null ? bootstrap : throw new ArgumentNullException(nameof(bootstrap));
 
+        public WorldConfiguration ResolveLevelConfiguration(Scene scene)
+        {
+            if (!scene.IsValid() || !scene.isLoaded)
+                throw new InvalidOperationException("Dedicated level must be loaded before resolving its configuration.");
+            GameInstance levelInstance = null;
+            foreach (GameObject root in scene.GetRootGameObjects())
+            foreach (GameInstance candidate in root.GetComponentsInChildren<GameInstance>(true))
+            {
+                if (levelInstance != null)
+                    throw new InvalidOperationException($"Level {scene.name} has multiple GameInstance configurations.");
+                levelInstance = candidate;
+            }
+            return levelInstance != null
+                ? levelInstance.Configuration ?? throw new InvalidOperationException($"Level {scene.name} has no configuration.")
+                : gameBootstrap;
+        }
+
         private void Awake()
         {
             try
@@ -49,7 +66,8 @@ namespace CGame.Network
 
             yield return loadOperation;
             DedicatedServerRuntime runtime = gameObject.AddComponent<DedicatedServerRuntime>();
-            Task startTask = runtime.StartAsync(launch, gameBootstrap, loadLevel: false);
+            WorldConfiguration levelConfiguration = ResolveLevelConfiguration(SceneManager.GetSceneByName(launch.LevelId));
+            Task startTask = runtime.StartAsync(launch, levelConfiguration, loadLevel: false);
             yield return new WaitUntil(() => startTask.IsCompleted);
             if (startTask.IsFaulted)
             {

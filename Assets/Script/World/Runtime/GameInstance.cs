@@ -12,6 +12,8 @@ namespace CGame
         [SerializeField] private WorldConfiguration worldConfiguration;
         private CancellationTokenSource initializationCancellation;
 
+        public WorldConfiguration Configuration => worldConfiguration;
+
         public World RuntimeWorld { get; private set; }
 
         public Task InitializationTask { get; private set; }
@@ -81,14 +83,20 @@ namespace CGame
                 await Task.Yield();
             }
 
-            await RuntimeWorld.InitializeAsync(cancellationToken);
+            World world = RuntimeWorld;
+            if (world == null)
+            {
+                return;
+            }
+
+            await world.InitializeAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            if (RuntimeWorld.GameMode is INetworkPrePlayExecution networkGameMode)
+            if (world.GameMode is INetworkPrePlayExecution networkGameMode)
             {
                 await networkGameMode.WaitForNetworkStartAsync(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
             }
-            RuntimeWorld.StartPlay();
+            world.StartPlay();
         }
 
         private static async Task ObserveInitializationAsync(Task initializationTask)

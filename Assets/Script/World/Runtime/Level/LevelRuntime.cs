@@ -48,6 +48,23 @@ namespace CGame
             return reservations;
         }
 
+        public SpawnPointReservation ReserveEnemyPoint(string pointId)
+        {
+            if (string.IsNullOrWhiteSpace(pointId))
+            {
+                throw new ArgumentException("Enemy PointId is required.", nameof(pointId));
+            }
+
+            if (!points.TryGetValue(pointId, out PointRecord point)
+                || point.Kind != SpawnPointKind.Enemy
+                || point.State != SpawnPointState.Available)
+            {
+                throw new InvalidOperationException($"EnemyPoint '{pointId}' is not available.");
+            }
+
+            return Reserve(point);
+        }
+
         public bool ReleaseOccupied(string pointId, Guid registrationId)
         {
             if (!points.TryGetValue(pointId, out PointRecord point) || point.State != SpawnPointState.Occupied || point.RegistrationId != registrationId) return false;
