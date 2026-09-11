@@ -13,15 +13,17 @@ namespace CGame.Tests.Gameplay
 {
     public sealed class LevelRuntimeTests
     {
-        private const string ScenePath = "Assets/LevelRuntimeTests.unity";
+        private const string ScenePath = "Assets/Scenes/DedicatedServerBootstrap.unity";
         private Scene scene;
         private LevelDefinition definition;
 
         [SetUp]
         public void SetUp()
         {
-            scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            EditorSceneManager.SaveScene(scene, ScenePath);
+            // Keep a real saved scene identity, but change only its loaded in-memory copy.
+            scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            foreach (GameObject root in scene.GetRootGameObjects())
+                UnityEngine.Object.DestroyImmediate(root);
             definition = ScriptableObject.CreateInstance<LevelDefinition>();
             Transform players = CreateRoot(LevelDefinitionScanner.PlayerContainerName);
             CreateChild(players, "PlayerPoint 1", Vector3.zero);
@@ -37,7 +39,8 @@ namespace CGame.Tests.Gameplay
         {
             if (definition != null) UnityEngine.Object.DestroyImmediate(definition);
             Undo.ClearAll();
-            AssetDatabase.DeleteAsset(ScenePath);
+            // Discard the fixture without saving or deleting the backing scene asset.
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         }
 
         [Test]

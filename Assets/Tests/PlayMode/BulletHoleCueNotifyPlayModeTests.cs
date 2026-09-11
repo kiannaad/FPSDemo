@@ -1,5 +1,6 @@
 using System.Collections;
 using CGame.Ability.Cues;
+using CGame.Ability.Effects;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -8,6 +9,58 @@ namespace CGame.GameplayCue.PlayModeTests
 {
     public sealed class BulletHoleCueNotifyPlayModeTests
     {
+        [TestCase(0, 1)]
+        [TestCase(101, 0)]
+        public void AuthorityImpact_OnlyEnvironmentHitsRouteToSurfaceDecals(long hitEnemyId, int expectedCount)
+        {
+            var source = ScriptableObject.CreateInstance<CGame.GameplayTags.GameplayTagSource>();
+            source.SetDefinition("ImpactRouting", new[]
+            {
+                new CGame.GameplayTags.GameplayTagSourceNode("GameplayCue", false, children: new[]
+                {
+                    new CGame.GameplayTags.GameplayTagSourceNode("Weapon", false, children: new[]
+                    {
+                        new CGame.GameplayTags.GameplayTagSourceNode("Impact", true)
+                    })
+                })
+            });
+            var previousRouter = GameplayCueRouter.Current;
+            var router = new RecordingImpactRouter();
+            try
+            {
+                CGame.GameplayTags.GameplayTagManager.Instance.Initialize(new[] { source });
+                GameplayCueRouter.Register(router);
+                var committed = new CGame.Network.FireCommitted
+                {
+                    HasImpact = true, ImpactId = 1, HitEnemyId = hitEnemyId,
+                    ImpactPositionY = 1.3f, ImpactNormalZ = -1f
+                };
+                var wire = CGame.Network.NetworkMessageSerializer.Serialize(committed);
+                committed = CGame.Network.NetworkMessageSerializer.Deserialize<CGame.Network.FireCommitted>(wire);
+                Assert.That(committed.HitEnemyId, Is.EqualTo(hitEnemyId));
+                typeof(NetworkGameMode).GetMethod("ExecuteAuthorityImpactCue",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+                    .Invoke(null, new object[] { null, committed, "RoutingContract" });
+                Assert.That(router.ExecuteCount, Is.EqualTo(expectedCount),
+                    "Enemy Hit/Death actions must not leave a static wall decal at the old body position.");
+            }
+            finally
+            {
+                GameplayCueRouter.Register(previousRouter);
+                CGame.GameplayTags.GameplayTagManager.Instance.Shutdown();
+                Object.DestroyImmediate(source);
+            }
+        }
+
+        private sealed class RecordingImpactRouter : IGameplayCueRouter
+        {
+            public int ExecuteCount { get; private set; }
+            public void Execute(CGame.GameplayTags.GameplayTag cueTag, GameplayCueParameters parameters) => ExecuteCount++;
+            public GameplayCueHandle Add(CGame.GameplayTags.GameplayTag cueTag, GameplayCueParameters parameters) => default;
+            public bool Remove(GameplayCueHandle handle) => false;
+            public void RemoveForTarget(object target) { }
+        }
+
         [UnityTest]
         public IEnumerator ExecutedImpact_CreatesSurfaceOffsetBulletHole_ThenFadesAndCleansUp()
         {

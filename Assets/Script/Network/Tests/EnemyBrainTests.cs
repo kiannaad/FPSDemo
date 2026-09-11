@@ -7,6 +7,36 @@ namespace CGame.Network.Tests
     public sealed class EnemyBrainTests
     {
         [Test]
+        public void Fire_WithoutUsableCover_RemainsStationaryAndTracksTarget()
+        {
+            var definition = CreateDefinition("Enemy.Rifle", 0);
+            try
+            {
+                var navigation = new CompletePathQuery();
+                var perception = new VisibleOnlyPerceptionQuery(2);
+                var selector = new EnemyCoverSelector(System.Array.Empty<CoverPointDefinition>(),
+                    navigation, perception, new CoverReservationRegistry());
+                var brain = new EnemyBrain(definition, navigation, perception, selector, 101);
+                var target = new[] { new EnemyPerceptionCandidate(2, Vector3.right, true, true) };
+                brain.Tick(181, Motor(Vector3.zero), target);
+                for (long tick = 182; tick < 186; tick++)
+                {
+                    var output = brain.Tick(tick, Motor(Vector3.zero), target);
+                    Assert.That(output.State, Is.EqualTo(EnemyBrainState.Fire));
+                    Assert.That(output.MovementIntent.NavigationIntent.HasPath, Is.False);
+                    Assert.That(output.MovementIntent.NavigationIntent.HasFacing, Is.True);
+                    Assert.That(Vector3.Angle(output.MovementIntent.NavigationIntent.DesiredFacing * Vector3.forward,
+                        Vector3.right), Is.LessThan(0.1f));
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(definition.PatrolRoute);
+                Object.DestroyImmediate(definition);
+            }
+        }
+
+        [Test]
         public void CoverBrain_TransitionsThroughTakeCoverHoldAndPeekFire()
         {
             EnemyArchetypeCombatDefinition definition = CreateDefinition("Enemy.Cover", 0);
@@ -32,6 +62,11 @@ namespace CGame.Network.Tests
                 Assert.That(peek.State, Is.EqualTo(EnemyBrainState.PeekFire));
                 Assert.That(fire.State, Is.EqualTo(EnemyBrainState.PeekFire));
                 Assert.That(fire.HasFireRequest, Is.True);
+                Assert.That(Vector3.Dot(fire.MovementIntent.NavigationIntent.DesiredFacing * Vector3.forward,
+                    Vector3.right), Is.GreaterThan(0.99f), "Stationary firing must face the target, not the last path segment.");
+                EnemyBrainOutput pendingFire = brain.Tick(261, Motor(point.PeekPosition), target);
+                Assert.That(pendingFire.State, Is.EqualTo(EnemyBrainState.PeekFire),
+                    "A fire request is not a confirmed shot; cooldown or facing may defer it.");
             }
             finally
             {
@@ -60,6 +95,7 @@ namespace CGame.Network.Tests
                 brain.Tick(220, Motor(point.CoverPosition), target);
                 brain.Tick(241, Motor(point.CoverPosition), target);
                 EnemyBrainOutput fired = brain.Tick(260, Motor(point.PeekPosition), target);
+                brain.NotifyFireConfirmed();
                 EnemyBrainOutput returning = brain.Tick(261, Motor(point.PeekPosition), target);
                 EnemyBrainOutput held = brain.Tick(280, Motor(point.CoverPosition), target);
 

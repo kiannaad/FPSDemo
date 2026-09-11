@@ -51,6 +51,9 @@ namespace CGame.Network.Tests
                 Assert.That(pawn.PeekingMovementInput(), Is.EqualTo(Vector3.forward));
                 Assert.That(Vector3.Angle(pawn.ControlRotation * Vector3.forward, Vector3.right), Is.LessThan(0.1f));
                 Assert.That(simulation.Capture().PlanarVelocity, Is.EqualTo(Vector3.zero));
+                simulation.ApplyIntent(EnemyNavigationIntent.FaceTarget(Quaternion.LookRotation(Vector3.left)));
+                Assert.That(pawn.PeekingMovementInput(), Is.EqualTo(Vector3.zero));
+                Assert.That(Vector3.Angle(pawn.ControlRotation * Vector3.forward, Vector3.left), Is.LessThan(0.1f));
             }
             finally
             {

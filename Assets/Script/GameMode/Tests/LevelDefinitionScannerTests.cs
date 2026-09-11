@@ -10,15 +10,17 @@ namespace CGame.Tests.Gameplay
 {
     public sealed class LevelDefinitionScannerTests
     {
-        private const string ScenePath = "Assets/LevelDefinitionScannerTests.unity";
+        private const string ScenePath = "Assets/Scenes/DedicatedServerBootstrap.unity";
         private Scene scene;
         private LevelDefinition definition;
 
         [SetUp]
         public void SetUp()
         {
-            scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            EditorSceneManager.SaveScene(scene, ScenePath);
+            // Keep a real saved scene identity, but change only its loaded in-memory copy.
+            scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            foreach (GameObject root in scene.GetRootGameObjects())
+                UnityEngine.Object.DestroyImmediate(root);
             definition = ScriptableObject.CreateInstance<LevelDefinition>();
         }
 
@@ -27,7 +29,8 @@ namespace CGame.Tests.Gameplay
         {
             if (definition != null) UnityEngine.Object.DestroyImmediate(definition);
             Undo.ClearAll();
-            AssetDatabase.DeleteAsset(ScenePath);
+            // Discard the fixture without saving or deleting the backing scene asset.
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         }
 
         [Test]
@@ -51,9 +54,9 @@ namespace CGame.Tests.Gameplay
             LevelDefinitionScanner.ScanAndApply(scene, definition);
 
             Assert.That(players.childCount, Is.EqualTo(2));
-            Assert.That(players.GetChild(0).name, Is.EqualTo("PlayerPoint1"));
+            Assert.That(players.GetChild(0).name, Is.EqualTo("PlayerPoint 1"));
             Assert.That(players.GetChild(0).position.x, Is.EqualTo(2));
-            Assert.That(players.GetChild(1).name, Is.EqualTo("PlayerPoint2"));
+            Assert.That(players.GetChild(1).name, Is.EqualTo("PlayerPoint 2"));
             Assert.That(players.GetChild(0).GetComponent<LevelSpawnPointMarker>(), Is.Not.Null);
             Assert.That(LevelDefinitionScanner.IsSnapshotCurrent(scene, definition), Is.True);
         }
@@ -86,7 +89,7 @@ namespace CGame.Tests.Gameplay
             CreateRoot(LevelDefinitionScanner.EnemyContainerName);
             LevelDefinitionScanner.ScanAndApply(scene, definition);
             Assert.That(players.childCount, Is.EqualTo(1));
-            Assert.That(players.GetChild(0).name, Is.EqualTo("PlayerPoint1"));
+            Assert.That(players.GetChild(0).name, Is.EqualTo("PlayerPoint 1"));
             Assert.That(LevelDefinitionScanner.IsSnapshotCurrent(scene, definition), Is.True);
             Undo.PerformUndo();
             Assert.That(players.GetChild(0).name, Is.EqualTo("PlayerPoint3"));
@@ -110,7 +113,7 @@ namespace CGame.Tests.Gameplay
         public void AddPoint_PerformsFullScanAndSelectsNewPoint()
         {
             LevelDefinitionScanner.AddPointAndScan(scene, definition, SpawnPointKind.Enemy);
-            GameObject point = GameObject.Find("EnemyPoint1");
+            GameObject point = GameObject.Find("EnemyPoint 1");
             Assert.That(point, Is.Not.Null);
             Assert.That(Selection.activeGameObject, Is.SameAs(point));
             Assert.That(LevelDefinitionScanner.IsSnapshotCurrent(scene, definition), Is.True);

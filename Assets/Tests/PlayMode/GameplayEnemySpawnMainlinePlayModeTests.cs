@@ -14,6 +14,7 @@ namespace CGame.GameplayCue.PlayModeTests
         [UnityTest]
         public IEnumerator QueueStateEvent_MovesPlayerCameraAndCapturesThreeTargets()
         {
+            using var offlineFixture = new OfflineSampleSceneFixture();
             if (World.Current != null)
             {
                 var shutdown = World.Current.ShutdownAsync();
@@ -32,6 +33,7 @@ namespace CGame.GameplayCue.PlayModeTests
 #endif
                 while (!load.isDone) yield return null;
                 GameInstance gameInstance = Object.FindObjectOfType<GameInstance>();
+                yield return offlineFixture.Start(gameInstance);
                 while (gameInstance.InitializationTask == null || !gameInstance.InitializationTask.IsCompleted) yield return null;
                 if (gameInstance.InitializationTask.IsFaulted) throw gameInstance.InitializationTask.Exception.GetBaseException();
                 World world = gameInstance.RuntimeWorld;

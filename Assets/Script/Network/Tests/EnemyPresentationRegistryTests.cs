@@ -65,7 +65,8 @@ namespace CGame.Network.Tests
 
             Assert.That(state.IsMoving, Is.True);
             Assert.That(state.Speed, Is.EqualTo(2f).Within(0.001f));
-            Assert.That(state.MoveDirection, Is.EqualTo(Vector2.right));
+            Assert.That(state.MoveDirection.x, Is.EqualTo(0f).Within(0.001f));
+            Assert.That(state.MoveDirection.y, Is.EqualTo(1f).Within(0.001f));
             Assert.That(state.IsGrounded, Is.True);
             Assert.That(state.BrainState, Is.EqualTo(EnemyBrainState.CoverHold));
             Assert.That(state.IsInCover, Is.True);
@@ -88,6 +89,44 @@ namespace CGame.Network.Tests
         }
 
         [Test]
+        public void RemoteEnemyAnimationState_SubThresholdVelocityHasNoDirection()
+        {
+            EnemySnapshotEvent snapshot = Snapshot(0);
+            snapshot.PlanarVelocity = QuantizedVector3WireMessage.FromValue(
+                QuantizedVector3.FromMeters(new Vector3(0.02f, 0f, 0f)));
+            RemoteEnemyAnimationState state = RemoteEnemyAnimationState.FromSnapshot(snapshot);
+            Assert.That(state.IsMoving, Is.False);
+            Assert.That(state.MoveDirection, Is.EqualTo(Vector2.zero));
+        }
+
+        [Test]
+        public void RemotePresentation_MovementReachesTheRenderedControllerPlayable()
+        {
+            GameObject asset = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemyRifle.prefab");
+            GameObject root = Object.Instantiate(asset);
+            try
+            {
+                EnemyPresentation presentation = root.GetComponentInChildren<EnemyPresentation>();
+                presentation.ApplyRemoteAnimationState(
+                    new RemoteEnemyAnimationState(2f, Vector2.up, true, Quaternion.identity,
+                        EnemyBrainState.PeekFire), 0.1f);
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                object controller = typeof(EnemyPresentation).GetField("playablesController", flags)
+                    .GetValue(presentation);
+                var source = (UnityEngine.Animations.AnimatorControllerPlayable)controller.GetType()
+                    .GetField("animatorControllerSource", flags).GetValue(controller);
+                Assert.That(source.GetFloat("Speed"), Is.EqualTo(2f).Within(0.001f));
+                Assert.That(source.GetBool("IsInCover"), Is.True);
+                Assert.That(source.GetBool("IsPeeking"), Is.True);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void RemotePresentation_SourceUsesSnapshotStateWithoutClientMotorOrNavMesh()
         {
             string sourcePath = Path.Combine(
@@ -102,6 +141,39 @@ namespace CGame.Network.Tests
         }
 
         [Test]
+        public void SharedPlayback_DoesNotOverwriteCurveDrivenPlayerParameters()
+        {
+            GameObject asset = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemyRifle.prefab");
+            GameObject root = Object.Instantiate(asset);
+            CGame.Animation.CharacterPlayablesController playback = null;
+            try
+            {
+                Animator animator = root.GetComponent<EnemyPresentation>().Animator;
+                string guid = UnityEditor.AssetDatabase.FindAssets("FPSAnimator_Generic_Project t:AnimatorController",
+                    new[] { "Assets/Art" }).Single();
+                animator.runtimeAnimatorController = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(
+                    UnityEditor.AssetDatabase.GUIDToAssetPath(guid));
+                animator.Rebind();
+                animator.Update(0f);
+                playback = new CGame.Animation.CharacterPlayablesController(new Pawn(root), animator);
+                Assert.That(playback.TryRebuild(), Is.True);
+                animator.playableGraph.Evaluate(0.1f);
+                var source = (UnityEngine.Animations.AnimatorControllerPlayable)playback.GetType()
+                    .GetField("animatorControllerSource", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    .GetValue(playback);
+                Assert.That(source.IsParameterControlledByCurve("FullBodyWeight"), Is.True);
+                playback.Update(0.1f);
+                UnityEngine.TestTools.LogAssert.NoUnexpectedReceived();
+            }
+            finally
+            {
+                playback?.Dispose();
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void ActionPresentation_RecordsOnlyConfirmedFireAndHitActions()
         {
             using var registry = new EnemyPresentationRegistry(catalog);
@@ -113,6 +185,42 @@ namespace CGame.Network.Tests
             Assert.That(instance.LastConfirmedAction, Is.EqualTo(EnemyActionKind.Fire));
             Assert.That(registry.ApplyAction(new EnemyActionEvent { EnemyId = 1, ActionSequence = 2, ActionKind = EnemyActionKind.Hit, AuthorityServerTick = 2 }), Is.True);
             Assert.That(instance.LastConfirmedAction, Is.EqualTo(EnemyActionKind.Hit));
+        }
+
+        [Test]
+        public void Death_PreservesTerminalPresentationThenReclaimsOnce()
+        {
+            using var registry = new EnemyPresentationRegistry(catalog);
+            registry.Spawn(Spawn());
+            var death = new EnemyActionEvent
+            {
+                EnemyId = 1, ActionSequence = 3, ActionKind = EnemyActionKind.Death,
+                AuthorityServerTick = 3
+            };
+            Assert.That(registry.ApplyAction(death), Is.True);
+            Assert.That(registry.Count, Is.EqualTo(1), "Death must be visible before reclamation.");
+            Assert.That(registry.ApplyAction(death), Is.False);
+            Assert.That(registry.ApplyAction(new EnemyActionEvent
+            {
+                EnemyId = 1, ActionSequence = 4, ActionKind = EnemyActionKind.Fire
+            }), Is.False);
+            Assert.That(registry.ApplySnapshot(Snapshot(1000)), Is.False);
+            EnemyPresentation instance = Object.FindObjectsByType<EnemyPresentation>(FindObjectsSortMode.None)
+                .Single(candidate => candidate.gameObject != prefab);
+            Assert.That(instance.LastConfirmedAction, Is.EqualTo(EnemyActionKind.Death));
+            registry.Tick(0.1f, Time.realtimeSinceStartup + 10f);
+            Assert.That(registry.Count, Is.Zero);
+            Assert.That(registry.Spawn(Spawn()), Is.False, "A late spawn cannot resurrect a dead enemy.");
+            Assert.DoesNotThrow(() => registry.Tick(0.1f, Time.realtimeSinceStartup + 11f));
+        }
+
+        [Test]
+        public void Hit_HasPriorityOverFireDuringReaction()
+        {
+            EnemyPresentation presentation = prefab.GetComponent<EnemyPresentation>();
+            presentation.PlayHit();
+            presentation.PlayFire();
+            Assert.That(presentation.LastConfirmedAction, Is.EqualTo(EnemyActionKind.Hit));
         }
 
         private static EnemySpawnedEvent Spawn() => new EnemySpawnedEvent

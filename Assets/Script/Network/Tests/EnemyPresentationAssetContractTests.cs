@@ -1,0 +1,178 @@
+using System.Linq;
+using NUnit.Framework;
+using UnityEditor;
+using UnityEditor.Animations;
+using UnityEngine;
+
+namespace CGame.Network.Tests
+{
+    public sealed class EnemyPresentationAssetContractTests
+    {
+        [TestCase("Pistol", 0f, 60)]
+        [TestCase("Rifle", 0f, 60)]
+        [TestCase("Ak", 0f, 60)]
+        [TestCase("Pistol", 35f, 30)]
+        [TestCase("Rifle", 35f, 30)]
+        [TestCase("Ak", 35f, 30)]
+        [TestCase("Pistol", 90f, 144)]
+        [TestCase("Rifle", 90f, 144)]
+        [TestCase("Ak", 90f, 144)]
+        [TestCase("Pistol", 175f, 59)]
+        [TestCase("Rifle", 175f, 59)]
+        [TestCase("Ak", 175f, 59)]
+        public void RenderedDeathBody_RestsAtAuthorityFootPlane(string variant, float yaw, int frameRate)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                $"Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy{variant}.prefab");
+            Quaternion rotation = Quaternion.Euler(0f, yaw, 0f);
+            var root = Object.Instantiate(prefab, Vector3.zero, rotation);
+            rotation = root.transform.rotation;
+            try
+            {
+                var presentation = root.GetComponent<EnemyPresentation>();
+                presentation.Animator.Rebind();
+                presentation.ApplyRemoteAnimationState(new RemoteEnemyAnimationState(
+                    0f, Vector2.zero, true, Quaternion.identity, EnemyBrainState.Fire), .1f);
+                presentation.Animator.playableGraph.Evaluate(.5f);
+                for (int hit = 0; hit < 4; hit++)
+                {
+                    presentation.PlayHit();
+                    for (int frame = 0; frame < frameRate; frame++)
+                    {
+                        presentation.TickPresentation(.8f / frameRate);
+                        presentation.Animator.playableGraph.Evaluate(.8f / frameRate);
+                    }
+                }
+                presentation.PlayDeath();
+                for (int frame = 0; frame < frameRate; frame++)
+                {
+                    presentation.TickPresentation(1f / frameRate);
+                    presentation.Animator.playableGraph.Evaluate(1f / frameRate);
+                }
+                float lowest = float.PositiveInfinity;
+                foreach (var renderer in root.GetComponentsInChildren<SkinnedMeshRenderer>())
+                {
+                    var mesh = new Mesh();
+                    try
+                    {
+                        renderer.BakeMesh(mesh);
+                        foreach (Vector3 vertex in mesh.vertices)
+                            lowest = Mathf.Min(lowest, renderer.transform.TransformPoint(vertex).y);
+                    }
+                    finally { Object.DestroyImmediate(mesh); }
+                }
+                Debug.Log($"[Lab068] DeathGroundContract {variant} LowestVertexY={lowest:F4}");
+                Assert.That(lowest, Is.EqualTo(root.transform.position.y).Within(.03f),
+                    "The baked corpse must neither penetrate nor float above its authority foot plane.");
+                Assert.That(root.transform.position, Is.EqualTo(Vector3.zero));
+                Assert.That(root.transform.rotation, Is.EqualTo(rotation));
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        [TestCase("Pistol")]
+        [TestCase("Rifle")]
+        [TestCase("Ak")]
+        public void DeathBesideCover_FallsIntoClearSpaceWithoutMovingNetworkRoot(string variant)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                $"Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy{variant}.prefab");
+            var root = Object.Instantiate(prefab, Vector3.zero, Quaternion.identity);
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                wall.transform.position = new Vector3(1f, 1f, 0f);
+                wall.transform.localScale = new Vector3(0.5f, 2f, 4f);
+                Physics.SyncTransforms();
+                var presentation = root.GetComponent<EnemyPresentation>();
+                presentation.PlayDeath();
+                presentation.TickPresentation(1f);
+                Vector3 fallDirection = Vector3.ProjectOnPlane(presentation.VisualRoot.up, Vector3.up).normalized;
+                Assert.That(Vector3.Dot(fallDirection, Vector3.right), Is.LessThan(0.1f),
+                    "The death silhouette must not topple into the adjacent cover.");
+                Assert.That(Physics.OverlapCapsule(Vector3.up * 0.4f,
+                    Vector3.up * 0.4f + fallDirection * 1.6f, 0.3f).Contains(wall.GetComponent<Collider>()), Is.False);
+                Assert.That(Quaternion.Angle(Quaternion.identity, presentation.VisualRoot.localRotation), Is.GreaterThan(60f));
+                Assert.That(root.transform.position, Is.EqualTo(Vector3.zero));
+                Assert.That(root.transform.rotation, Is.EqualTo(Quaternion.identity));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(wall);
+            }
+        }
+
+        [TestCase("Pistol")]
+        [TestCase("Rifle")]
+        [TestCase("Ak")]
+        public void RenderedAimPose_PointsMuzzleAlongEnemyFacing(string variant)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                $"Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy{variant}.prefab");
+            var root = Object.Instantiate(prefab);
+            try
+            {
+                var presentation = root.GetComponent<EnemyPresentation>();
+                presentation.Animator.Rebind();
+                presentation.Animator.Update(0f);
+                presentation.ApplyRemoteAnimationState(new RemoteEnemyAnimationState(
+                    0f, Vector2.zero, true, Quaternion.identity, EnemyBrainState.Fire), 0.1f);
+                presentation.Animator.playableGraph.Evaluate(0.5f);
+                Transform muzzle = root.GetComponentsInChildren<Transform>(true).Single(value => value.name == "muzzle");
+                Vector3 handToMuzzle = muzzle.position - presentation.Animator.GetBoneTransform(HumanBodyBones.RightHand).position;
+                // TPS Bundle authored its barrel along the muzzle's negative X axis.
+                Vector3 barrelDirection = -muzzle.right;
+                Debug.Log($"[Lab068] AimContract {variant} BarrelLocal={root.transform.InverseTransformDirection(barrelDirection)} HandToMuzzleLocal={root.transform.InverseTransformDirection(handToMuzzle.normalized)}");
+                Assert.That(Vector3.Dot(barrelDirection, root.transform.forward), Is.GreaterThan(0.98f),
+                    "The rendered weapon must aim in the same direction as the authority-facing root.");
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        [TestCase("Pistol")]
+        [TestCase("Rifle")]
+        [TestCase("Ak")]
+        public void Prefab_HasLocalLocomotionWeaponLayerAndIsolatedVisualRoot(string variant)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                $"Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy{variant}.prefab");
+            Assert.That(prefab, Is.Not.Null);
+            Debug.Log($"[DeathPhysics] {variant} " + string.Join(";", prefab.GetComponentsInChildren<Rigidbody>(true)
+                .Select(body => $"{body.name} kinematic={body.isKinematic} gravity={body.useGravity}")));
+            foreach (var body in prefab.GetComponentsInChildren<Rigidbody>(true))
+            {
+                Assert.That(body.isKinematic, Is.True, "Replicated presentation bones must not be driven by local ragdoll physics.");
+                Assert.That(body.useGravity, Is.False, "Only the server motor owns enemy movement.");
+            }
+            var presentation = prefab.GetComponent<EnemyPresentation>();
+            Assert.That(presentation, Is.Not.Null);
+            Assert.That(presentation.VisualRoot, Is.Not.Null);
+            Assert.That(presentation.VisualRoot, Is.Not.EqualTo(prefab.transform));
+            Animator animator = presentation.Animator;
+            Assert.That(animator.avatar != null && animator.avatar.isValid && animator.avatar.isHuman, Is.True);
+            Assert.That(animator.applyRootMotion, Is.False);
+            Assert.That(animator.transform.IsChildOf(presentation.VisualRoot), Is.True);
+            var controller = animator.runtimeAnimatorController as AnimatorController;
+            Assert.That(controller, Is.Not.Null);
+            foreach (string parameter in new[] { "Speed", "MoveX", "MoveY", "IsInCover", "IsPeeking", "Fire", "Hit" })
+                Assert.That(controller.parameters.Any(value => value.name == parameter), Is.True, parameter);
+            string[] states = controller.layers[0].stateMachine.states.Select(value => value.state.name).ToArray();
+            Assert.That(states, Does.Contain("Locomotion"));
+            Assert.That(states, Does.Contain("Cover"));
+            Assert.That(states, Does.Contain("Peek"));
+            Assert.That(controller.layers.Length, Is.GreaterThanOrEqualTo(2));
+            Assert.That(controller.layers[1].avatarMask, Is.Not.Null);
+            AvatarMask weaponMask = controller.layers[1].avatarMask;
+            Assert.That(weaponMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.RightArm), Is.True);
+            Assert.That(weaponMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftArm), Is.True);
+            Assert.That(weaponMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.Root), Is.False);
+            Assert.That(weaponMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftLeg), Is.False);
+            Assert.That(weaponMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.RightLeg), Is.False);
+            Transform muzzle = prefab.GetComponentsInChildren<Transform>(true).Single(t => t.name == "muzzle");
+            Assert.That(muzzle.IsChildOf(animator.GetBoneTransform(HumanBodyBones.RightHand)), Is.True);
+            Assert.That(prefab.GetComponentsInChildren<MonoBehaviour>(true)
+                .All(component => component != null && component.GetType().Namespace == "CGame.Network"), Is.True);
+        }
+    }
+}

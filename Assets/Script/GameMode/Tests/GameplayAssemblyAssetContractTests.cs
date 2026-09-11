@@ -31,12 +31,12 @@ namespace CGame.Tests.Gameplay
             EnemyArchetypeSpec first = ScriptableObject.CreateInstance<EnemyArchetypeSpec>();
             EnemyArchetypeSpec second = ScriptableObject.CreateInstance<EnemyArchetypeSpec>();
             EnemyPresentationCatalog catalog = ScriptableObject.CreateInstance<EnemyPresentationCatalog>();
-            const string prefabPath = "Assets/Tests/TemporaryEnemyPresentation.prefab";
-            var root = new GameObject("EnemyPresentation");
-            root.AddComponent<EnemyPresentation>();
-            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+            // Duplicate-ID validation only needs a valid existing prefab, not a disk write.
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemyPistol.prefab");
             try
             {
+                Assert.That(prefab, Is.Not.Null);
                 first.Configure("Enemy.Pistol", prefab);
                 second.Configure("Enemy.Pistol", prefab);
                 catalog.Configure(first, second);
@@ -46,8 +46,6 @@ namespace CGame.Tests.Gameplay
             }
             finally
             {
-                AssetDatabase.DeleteAsset(prefabPath);
-                UnityEngine.Object.DestroyImmediate(root);
                 UnityEngine.Object.DestroyImmediate(catalog);
                 UnityEngine.Object.DestroyImmediate(second);
                 UnityEngine.Object.DestroyImmediate(first);

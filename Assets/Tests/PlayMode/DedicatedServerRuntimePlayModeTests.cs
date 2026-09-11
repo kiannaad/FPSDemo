@@ -15,6 +15,8 @@ namespace CGame.GameplayCue.PlayModeTests
 {
     public sealed class DedicatedServerRuntimePlayModeTests
     {
+        private readonly List<ScriptableObject> fixtureAssets = new List<ScriptableObject>();
+        private static readonly string captureRunId = "DedicatedCombatIntegration-" + System.DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
         [UnityTearDown]
         public IEnumerator TearDown()
         {
@@ -27,6 +29,31 @@ namespace CGame.GameplayCue.PlayModeTests
             }
 
             yield return null;
+            foreach (ScriptableObject asset in fixtureAssets) Object.Destroy(asset);
+            fixtureAssets.Clear();
+        }
+
+        private GameBootstrap CreateCombatFixtureBootstrap(GameBootstrap source)
+        {
+            // Test finite-ammo behavior without changing production balance or killing the observer first.
+            var definitions = new List<EnemyArchetypeCombatDefinition>();
+            foreach (EnemyArchetypeCombatDefinition original in source.EnemyArchetypeCombatCatalog.Definitions)
+            {
+                var definition = Object.Instantiate(original);
+                EnemyFireDefinition fire = original.FireDefinition;
+                definition.Configure(original.ArchetypeId, original.PatrolRoute,
+                    new EnemyFireDefinition(fire.EngagementRange, fire.HitscanRange, fire.MinimumFacingDot,
+                        fire.CooldownTicks, 6, 1));
+                definitions.Add(definition);
+                fixtureAssets.Add(definition);
+            }
+            var catalog = ScriptableObject.CreateInstance<EnemyArchetypeCombatCatalog>();
+            catalog.Configure(definitions.ToArray());
+            fixtureAssets.Add(catalog);
+            GameBootstrap configuration = Object.Instantiate(source);
+            configuration.ConfigureEnemyArchetypeCombatCatalog(catalog);
+            fixtureAssets.Add(configuration);
+            return configuration;
         }
 
         private static IEnumerator StopSceneWorlds()
@@ -166,7 +193,7 @@ namespace CGame.GameplayCue.PlayModeTests
 
         [UnityTest]
         [Category("Network038")]
-        public IEnumerator FormalBootstrap_CreatesMotorAuthorityWithoutLocalInputOrCamera()
+        public IEnumerator ConfiguredBootstrap_CreatesMotorAuthorityWithoutLocalInputOrCamera()
         {
             yield return StopSceneWorlds();
 
@@ -182,7 +209,7 @@ namespace CGame.GameplayCue.PlayModeTests
                 new[] { new DedicatedAuthorityPawnConfiguration(100, 1, 1, "PlayerPoint 1", "connection-a") });
             var root = new GameObject("FormalDedicatedRuntimeTest");
             DedicatedServerRuntime runtime = root.AddComponent<DedicatedServerRuntime>();
-            Task start = runtime.StartAsync(launch, bootstrap.Configuration, loadLevel: true);
+            Task start = runtime.StartAsync(launch, CreateCombatFixtureBootstrap((GameBootstrap)bootstrap.Configuration), loadLevel: true);
             while (!start.IsCompleted) yield return null;
             Assert.That(start.IsFaulted, Is.False, start.Exception?.GetBaseException().ToString());
 
@@ -239,6 +266,26 @@ namespace CGame.GameplayCue.PlayModeTests
                 Assert.That(snapshots[snapshots.Count - 1].AuthorityServerTick, Is.GreaterThan(snapshots[0].AuthorityServerTick));
             yield return CaptureFormalFrame("patrol.png");
 
+            // Enter the larger arena through real movement messages, not Transform/Motor writes.
+            long moveSequence = 0;
+            float moveDeadline = Time.realtimeSinceStartup + 30f;
+            while (Time.realtimeSinceStartup < moveDeadline && pawn.Transform.position.z < 6f)
+            {
+                channel.Send(new PawnMove(18, 100, 1, ++moveSequence, runtime.FixedStepCount,
+                    new QuantizedInput(0, short.MaxValue), new QuantizedView(0, 0), PawnMoveFlags.None,
+                    QuantizedVector3.FromMeters(pawn.Transform.position)));
+                channel.PollEvents();
+                yield return new WaitForFixedUpdate();
+            }
+            Debug.Log($"[DedicatedFixture] MoveSequence={moveSequence} Position={pawn.Transform.position} LastReconcile={received?.Kind}/{received?.Reason}");
+            Assert.That(pawn.Transform.position.z, Is.GreaterThanOrEqualTo(6f),
+                "Authority movement must reach the same z6 observation position as the network mainline. Nearby=" +
+                string.Join(",", Physics.OverlapSphere(pawn.Transform.position + Vector3.forward * .7f + Vector3.up, 1f)
+                    .Select(collider => collider.name + "@" + collider.transform.position)));
+            channel.Send(new PawnMove(18, 100, 1, ++moveSequence, runtime.FixedStepCount,
+                new QuantizedInput(0, 0), new QuantizedView(0, 0), PawnMoveFlags.None,
+                QuantizedVector3.FromMeters(pawn.Transform.position)));
+
             for (int frame = 0; frame < 180 && snapshotsByEnemyId.Values.Any(snapshots =>
                      !snapshots.Any(snapshot => snapshot.PlanarVelocity.ToValue().ToMeters().sqrMagnitude > 0.01f)); frame++)
             {
@@ -254,7 +301,7 @@ namespace CGame.GameplayCue.PlayModeTests
             }
             yield return CaptureFormalFrame("chase.png");
 
-            for (int frame = 0; frame < 360 && snapshotsByEnemyId.Values.Any(snapshots =>
+            for (int frame = 0; frame < 2400 && snapshotsByEnemyId.Values.Any(snapshots =>
                      !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.CoverHold) ||
                      !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire) ||
                      !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.ReturnToCover)); frame++)
@@ -267,7 +314,8 @@ namespace CGame.GameplayCue.PlayModeTests
             foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Values)
             {
                 Assert.That(snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.CoverHold), Is.True,
-                    "Each enemy must hold its selected cover point through the authoritative Snapshot stream.");
+                    "Each enemy must hold its selected cover point through the authoritative Snapshot stream. States=" +
+                    string.Join(",", snapshots.Select(snapshot => snapshot.BrainState).Distinct()));
                 Assert.That(snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire), Is.True,
                     "Each enemy must enter PeekFire through the authoritative Snapshot stream.");
                 EnemySnapshotEvent returnSnapshot = snapshots.FirstOrDefault(snapshot =>
@@ -285,10 +333,9 @@ namespace CGame.GameplayCue.PlayModeTests
             yield return CaptureFormalFrame("cover-hold.png");
             yield return CaptureFormalFrame("peek-fire.png");
 
-            for (int frame = 0; frame < 180 &&
+            for (int frame = 0; frame < 3000 &&
                  (!enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Fire) ||
-                  !enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Hit) ||
-                  !enemyActions.Exists(action => action.ActionKind == EnemyActionKind.NoAmmo) ||
+                  enemyActions.Where(action => action.ActionKind == EnemyActionKind.NoAmmo).Select(action => action.EnemyId).Distinct().Count() < 3 ||
                   !ownerGameplayStates.Exists(state => state.PawnId == 100 && state.Health < 100)); frame++)
             {
                 channel.PollEvents();
@@ -296,8 +343,8 @@ namespace CGame.GameplayCue.PlayModeTests
             }
             Assert.That(enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Fire), Is.True,
                 "Dedicated hitscan must publish a reliable Fire action.");
-            Assert.That(enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Hit), Is.True,
-                "Only a confirmed hitscan target may publish a Hit action.");
+            Assert.That(enemyActions.Exists(action => action.ActionKind == EnemyActionKind.Hit), Is.False,
+                "Enemy Hit means the enemy received damage; hitting the owner must not play enemy hit reactions.");
             Assert.That(enemyActions.Exists(action => action.ActionKind == EnemyActionKind.NoAmmo), Is.True,
                 "A depleted enemy magazine must publish NoAmmo exactly through the authoritative action stream.");
             Assert.That(ownerGameplayStates.Exists(state => state.PawnId == 100 && state.Health < 100 && state.VitalsRevision > 0), Is.True,
@@ -312,12 +359,13 @@ namespace CGame.GameplayCue.PlayModeTests
                 channel.PollEvents();
                 yield return new WaitForFixedUpdate();
             }
-            Assert.That(snapshotsByEnemyId.Values.Any(snapshots =>
+            Assert.That(snapshotsByEnemyId.Values.All(snapshots =>
                     snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.NoAmmo)), Is.True,
                 "An enemy with an unobstructed sight line must reach the stationary NoAmmo terminal state; enemies behind authored cover remain in patrol until cover selection is introduced.");
 
+            received = null;
             channel.Send(new PawnMove(
-                18, 100, 1, 1, System.Math.Max(1, runtime.FixedStepCount),
+                18, 100, 1, ++moveSequence, System.Math.Max(1, runtime.FixedStepCount),
                 new QuantizedInput(short.MaxValue, 0), new QuantizedView(0, 0), PawnMoveFlags.None,
                 new QuantizedVector3(int.MaxValue, 0, 0)));
             for (int frame = 0; frame < 60 && !received.HasValue; frame++)
@@ -354,10 +402,9 @@ namespace CGame.GameplayCue.PlayModeTests
             camera.transform.position = new Vector3(0f, 9f, -13f);
             camera.transform.rotation = Quaternion.LookRotation(Vector3.zero - camera.transform.position, Vector3.up);
             string harnessRoot = Directory.GetParent(Application.dataPath).Parent.FullName;
-            string directory = Path.Combine(harnessRoot, ".harness", "runs", "ThreeEnemyCoverFormalAcceptance-064-20260905-formal");
+            string directory = Path.Combine(harnessRoot, ".harness", "runs", captureRunId);
             Directory.CreateDirectory(directory);
             string screenshotPath = Path.Combine(directory, fileName);
-            if (File.Exists(screenshotPath)) File.Delete(screenshotPath);
             ScreenCapture.CaptureScreenshot(screenshotPath);
             for (int frame = 0; frame < 8 && !File.Exists(screenshotPath); frame++)
                 yield return new WaitForEndOfFrame();

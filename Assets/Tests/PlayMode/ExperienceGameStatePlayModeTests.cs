@@ -13,8 +13,9 @@ namespace CGame.GameplayCue.PlayModeTests
     public sealed class ExperienceGameStatePlayModeTests
     {
         [UnityTest]
-        public IEnumerator SampleScene_FormalBootstrapCreatesMandatoryGameStateAndReachesReadyOnce()
+        public IEnumerator SampleScene_OfflineBootstrapCreatesMandatoryGameStateAndReachesReadyOnce()
         {
+            using var offlineFixture = new OfflineSampleSceneFixture();
             if (World.Current != null)
             {
                 yield return WaitForTask(World.Current.ShutdownAsync());
@@ -31,6 +32,7 @@ namespace CGame.GameplayCue.PlayModeTests
 
             GameInstance gameInstance = Object.FindObjectOfType<GameInstance>();
             Assert.That(gameInstance, Is.Not.Null);
+            yield return offlineFixture.Start(gameInstance);
             yield return WaitForTask(gameInstance.InitializationTask);
 
             World world = gameInstance.RuntimeWorld;
@@ -59,13 +61,14 @@ namespace CGame.GameplayCue.PlayModeTests
                 EnemySpawnHandle handle = enemySpawns.Handles[index];
                 pointIds.Add(handle.PointId);
                 registrationIds.Add(handle.RegistrationId);
-                initialEnemyHeights.Add(handle.Pawn.Transform.position.y);
+                // Spawn completion may already have advanced physics; the authored point is the spawn baseline.
+                initialEnemyHeights.Add(world.LevelRuntime.GetStatus(handle.PointId).Transform.position.y);
                 Assert.That(handle.Controller.State, Is.EqualTo(ActorState.Playing));
                 Assert.That(handle.Pawn.State, Is.EqualTo(ActorState.Playing));
                 Assert.That(handle.Pawn.PeekingMovementInput(), Is.EqualTo(Vector3.zero));
                 Assert.That(handle.Pawn.Components.Count, Is.EqualTo(2));
                 Assert.That(handle.Pawn.TryGetComponent(out PawnMovementComponent _), Is.True);
-                Assert.That(handle.Pawn.TryGetComponent(out HealthDeathComponent _), Is.True);
+                Assert.That(handle.Pawn.TryGetComponent(out HealthComponent _), Is.True);
                 Assert.That(handle.Pawn.TryGetComponent(out PawnHeroComponent _), Is.False);
                 Assert.That(handle.Pawn.TryGetComponent(out PawnAnimationComponent _), Is.False);
             }
@@ -102,16 +105,15 @@ namespace CGame.GameplayCue.PlayModeTests
 
             EnemySpawnHandle deathHandle = enemySpawns.Handles[0];
             string deathPoint = deathHandle.PointId;
-            deathHandle.Pawn.GetComponent<HealthDeathComponent>().ApplyDamage(1000f);
+            HealthComponent deathHealth = deathHandle.Pawn.GetComponent<HealthComponent>();
+            deathHealth.ApplyAuthoritativeState(0f, deathHealth.MaxHealth, 1, true);
             yield return null;
             Assert.That(world.LevelRuntime.GetStatus(deathPoint).State, Is.EqualTo(SpawnPointState.Available));
             Assert.That(deathHandle.IsDisposed, Is.True);
 
             EnemySpawnHandle unregisterHandle = enemySpawns.Handles[1];
-            HealthDeathComponent lateHealth = unregisterHandle.Pawn.GetComponent<HealthDeathComponent>();
             string unregisterPoint = unregisterHandle.PointId;
             world.UnregisterActor(unregisterHandle.PawnRegistration);
-            lateHealth.ApplyDamage(1000f);
             Assert.That(world.LevelRuntime.GetStatus(unregisterPoint).State, Is.EqualTo(SpawnPointState.Available));
 
             Object.Destroy(gameInstance.gameObject);

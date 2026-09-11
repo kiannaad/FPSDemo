@@ -68,6 +68,14 @@ namespace CGame.GameplayCue.PlayModeTests
                     Assert.That(remoteCamera.enabled, Is.False, "Remote pawn camera can take over the local Game View.");
                 foreach (AudioListener remoteListener in remotePawn.Transform.GetComponentsInChildren<AudioListener>(true))
                     Assert.That(remoteListener.enabled, Is.False, "Remote pawn must not own the client audio listener.");
+                Camera ownerCamera = localPawn.Transform.GetComponentInChildren<Camera>(true);
+                foreach (SkinnedMeshRenderer remoteRenderer in remotePawn.Transform.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                    Assert.That(ownerCamera.cullingMask & (1 << remoteRenderer.gameObject.layer), Is.Not.Zero,
+                        $"Remote {remoteRenderer.name} must not retain a first-person hidden layer.");
+                foreach (SkinnedMeshRenderer ownerRenderer in localPawn.Transform.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                    if (ownerRenderer.name == "Head")
+                        Assert.That(ownerCamera.cullingMask & (1 << ownerRenderer.gameObject.layer), Is.Zero,
+                            "Owner head must remain hidden from its first-person camera.");
             }
             finally
             {
@@ -92,6 +100,7 @@ namespace CGame.GameplayCue.PlayModeTests
             GameInstance defaultGameInstance = Object.FindObjectOfType<GameInstance>();
             Assert.That(defaultGameInstance, Is.Not.Null);
             World defaultWorld = defaultGameInstance.RuntimeWorld;
+            yield return WaitForSceneWorldInitialized(defaultWorld);
             Object.Destroy(defaultGameInstance.gameObject);
             yield return null;
             if (defaultWorld != null)
@@ -190,6 +199,7 @@ namespace CGame.GameplayCue.PlayModeTests
             while (!load.isDone) yield return null;
             GameInstance defaultGameInstance = Object.FindObjectOfType<GameInstance>();
             World defaultWorld = defaultGameInstance?.RuntimeWorld;
+            yield return WaitForSceneWorldInitialized(defaultWorld);
             if (defaultGameInstance != null) Object.Destroy(defaultGameInstance.gameObject);
             yield return null;
             if (defaultWorld != null)
@@ -286,6 +296,15 @@ namespace CGame.GameplayCue.PlayModeTests
             Assert.Ignore("This mainline fixture requires the Editor formal assets.");
             yield return null;
 #endif
+        }
+
+        private static IEnumerator WaitForSceneWorldInitialized(World world)
+        {
+            Assert.That(world, Is.Not.Null);
+            float deadline = Time.realtimeSinceStartup + 15f;
+            while ((world.State == WorldState.Created || world.State == WorldState.Initializing) &&
+                   Time.realtimeSinceStartup < deadline) yield return null;
+            Assert.That(world.State, Is.EqualTo(WorldState.Initialized), world.Failure);
         }
 
         private static void TickNetworkWorld(World world, NetworkRpcClient secondClient)

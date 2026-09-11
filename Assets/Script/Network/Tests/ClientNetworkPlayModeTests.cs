@@ -11,6 +11,22 @@ namespace CGame.Network.Tests
     public sealed class ClientNetworkPlayModeTests
     {
         [Test]
+        public void ReadyTimeout_AllowsDedicatedStartupWithoutExtendingOrdinaryRequests()
+        {
+            var definition = ScriptableObject.CreateInstance<ClientNetworkDefinition>();
+            try
+            {
+                Assert.That(definition.RequestTimeoutSeconds, Is.EqualTo(5f));
+                Assert.That(definition.ReadyTimeoutSeconds, Is.GreaterThan(20f));
+                var serialized = new UnityEditor.SerializedObject(definition);
+                serialized.FindProperty("requestTimeoutSeconds").floatValue = 60f;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                Assert.That(definition.ReadyTimeoutSeconds, Is.EqualTo(60f));
+            }
+            finally { Object.DestroyImmediate(definition); }
+        }
+
+        [Test]
         public void ClientWorld_AppliesPossessionAfterDelayedPawnSpawn()
         {
             var clientWorld = new ClientWorld();
@@ -171,13 +187,14 @@ namespace CGame.Network.Tests
                 Assert.That(joinTask.IsFaulted, Is.False);
 
                 Task<SetReadyResponse> firstReadyTask = firstClient.SetReadyAsync(roomId, true);
-                yield return TickUntil(world, secondClient, () => firstReadyTask.IsCompleted, 6f);
+                yield return TickUntil(world, secondClient, () => firstReadyTask.IsCompleted, definition.ReadyTimeoutSeconds + 1f);
+                Assert.That(firstReadyTask.IsFaulted, Is.False, firstReadyTask.Exception?.GetBaseException().ToString());
                 Task<NetworkRpcResponse> secondReadyTask = secondClient.RequestAsync(
                     NetworkMessageId.SetReadyRequest,
                     NetworkMessageSerializer.Serialize(new SetReadyRequest { RoomId = roomId, IsReady = true }),
-                    System.TimeSpan.FromSeconds(5));
-                yield return TickUntil(world, secondClient, () => secondReadyTask.IsCompleted, 6f);
-                Assert.That(secondReadyTask.IsFaulted, Is.False);
+                    System.TimeSpan.FromSeconds(definition.ReadyTimeoutSeconds));
+                yield return TickUntil(world, secondClient, () => secondReadyTask.IsCompleted, definition.ReadyTimeoutSeconds + 1f);
+                Assert.That(secondReadyTask.IsFaulted, Is.False, secondReadyTask.Exception?.GetBaseException().ToString());
                 yield return TickUntil(world, secondClient, () =>
                     firstClient.ClientWorld.Pawns.Count == 2 && firstClient.ClientWorld.ControlledPawnId != 0, 6f);
 
@@ -228,13 +245,14 @@ namespace CGame.Network.Tests
                 Assert.That(joinTask.IsFaulted, Is.False);
 
                 Task<SetReadyResponse> firstReadyTask = firstClient.SetReadyAsync(roomId, true);
-                yield return TickUntil(world, secondClient, () => firstReadyTask.IsCompleted, 6f);
+                yield return TickUntil(world, secondClient, () => firstReadyTask.IsCompleted, definition.ReadyTimeoutSeconds + 1f);
+                Assert.That(firstReadyTask.IsFaulted, Is.False, firstReadyTask.Exception?.GetBaseException().ToString());
                 Task<NetworkRpcResponse> secondReadyTask = secondClient.RequestAsync(
                     NetworkMessageId.SetReadyRequest,
                     NetworkMessageSerializer.Serialize(new SetReadyRequest { RoomId = roomId, IsReady = true }),
-                    System.TimeSpan.FromSeconds(10));
-                yield return TickUntil(world, secondClient, () => secondReadyTask.IsCompleted, 10f);
-                Assert.That(secondReadyTask.IsFaulted, Is.False);
+                    System.TimeSpan.FromSeconds(definition.ReadyTimeoutSeconds));
+                yield return TickUntil(world, secondClient, () => secondReadyTask.IsCompleted, definition.ReadyTimeoutSeconds + 1f);
+                Assert.That(secondReadyTask.IsFaulted, Is.False, secondReadyTask.Exception?.GetBaseException().ToString());
                 yield return TickUntil(world, secondClient, () =>
                     firstClient.ClientWorld.MatchId > 0 && firstClient.ClientWorld.ControlledPawnId > 0, 10f);
 

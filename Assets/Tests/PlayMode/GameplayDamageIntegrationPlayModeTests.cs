@@ -19,6 +19,7 @@ namespace CGame.GameplayCue.PlayModeTests
         [UnityTest]
         public IEnumerator FormalFireInput_CharacterHitAppliesDamageEffectAndCuesInOrder()
         {
+            using var offlineFixture = new OfflineSampleSceneFixture();
             if (World.Current != null)
             {
                 var shutdown = World.Current.ShutdownAsync();
@@ -39,6 +40,7 @@ namespace CGame.GameplayCue.PlayModeTests
                 while (!load.isDone) yield return null;
                 gameInstance = Object.FindObjectOfType<GameInstance>();
                 Assert.That(gameInstance, Is.Not.Null);
+                yield return offlineFixture.Start(gameInstance);
                 while (gameInstance.InitializationTask == null || !gameInstance.InitializationTask.IsCompleted)
                     yield return null;
                 if (gameInstance.InitializationTask.IsFaulted)

@@ -17,11 +17,12 @@ namespace CGame.GameplayCue.PlayModeTests
 {
     public sealed class GameplayDamageMainlinePlayModeTests
     {
-        private const string RunId = "DamageMainlineAcceptance-030-20260830-222500";
+        private static readonly string runId = "GameplayDamageOffline-" + System.DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
 
         [UnityTest]
-        public IEnumerator FormalInput_WallThenRepeatedEnemyHits_CompletesDeathCleanupAndVisualClosure()
+        public IEnumerator OfflineInput_WallThenRepeatedEnemyHits_CompletesDeathCleanupAndVisualClosure()
         {
+            using var offlineFixture = new OfflineSampleSceneFixture();
             if (World.Current != null)
             {
                 var shutdown = World.Current.ShutdownAsync();
@@ -43,6 +44,7 @@ namespace CGame.GameplayCue.PlayModeTests
                 while (!load.isDone) yield return null;
                 gameInstance = Object.FindObjectOfType<GameInstance>();
                 Assert.That(gameInstance, Is.Not.Null);
+                yield return offlineFixture.Start(gameInstance);
                 while (gameInstance.InitializationTask == null || !gameInstance.InitializationTask.IsCompleted)
                     yield return null;
                 if (gameInstance.InitializationTask.IsFaulted)
@@ -105,7 +107,7 @@ namespace CGame.GameplayCue.PlayModeTests
 
                 acceptanceWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 acceptanceWall.name = "DamageMainlineAcceptanceWall";
-                acceptanceWall.transform.position = camera.transform.position + Vector3.up * 7f;
+                acceptanceWall.transform.position = camera.transform.position + camera.transform.forward * 4f + Vector3.up * 3f;
                 acceptanceWall.transform.localScale = new Vector3(4f, 4f, 0.4f);
                 Physics.SyncTransforms();
                 Collider wallCollider = acceptanceWall.GetComponent<Collider>();
@@ -169,8 +171,10 @@ namespace CGame.GameplayCue.PlayModeTests
                 Assert.That(pawnRegistration.IsDisposed, Is.True);
                 Assert.That(world.RegisteredActorCount, Is.EqualTo(actorsBeforeDeath - 2));
                 Assert.That(world.LevelRuntime.GetStatus(target.PointId).State, Is.EqualTo(SpawnPointState.Available));
-                Assert.That(enemies.Handles[1].Pawn.Root.activeSelf, Is.True);
-                Assert.That(enemies.Handles[2].Pawn.Root.activeSelf, Is.True);
+                Assert.That(enemies.Handles.Count, Is.EqualTo(2));
+                Assert.That(enemies.Handles, Has.No.Member(target));
+                foreach (EnemySpawnHandle survivor in enemies.Handles)
+                    Assert.That(survivor.Pawn.Root.activeSelf, Is.True);
 
                 float secondHealth = healthSets[1].Health.CurrentValue;
                 float thirdHealth = healthSets[2].Health.CurrentValue;
@@ -206,22 +210,30 @@ namespace CGame.GameplayCue.PlayModeTests
             WeaponInstance weapon,
             Vector3 targetPosition)
         {
+            var controller = (PlayerController)World.Current.GameMode.PlayerController;
+            float aimDeadline = Time.realtimeSinceStartup + 5f;
+            float aimError;
+            do
+            {
+                Vector3 aim = targetPosition - camera.transform.position;
+                float yaw = Mathf.Atan2(aim.x, aim.z) * Mathf.Rad2Deg;
+                float pitch = -Mathf.Atan2(aim.y, new Vector2(aim.x, aim.z).magnitude) * Mathf.Rad2Deg;
+                float yawDelta = Mathf.DeltaAngle(controller.ControlYaw, yaw);
+                float pitchDelta = controller.ControlPitch - pitch;
+                aimError = Mathf.Max(Mathf.Abs(yawDelta), Mathf.Abs(pitchDelta));
+                InputSystem.QueueDeltaStateEvent(mouse.delta, new Vector2(
+                    Mathf.Clamp(yawDelta, -3f, 3f), Mathf.Clamp(pitchDelta, -3f, 3f)));
+                yield return null;
+            } while (aimError > .5f && Time.realtimeSinceStartup < aimDeadline);
+            Assert.That(aimError, Is.LessThanOrEqualTo(.5f), "Formal mouse input must aim before firing.");
             int ammoBefore = weapon.Item.MagazineAmmo;
             for (int attempt = 0; attempt < 3 && weapon.Item.MagazineAmmo == ammoBefore; attempt++)
             {
                 InputSystem.QueueStateEvent(mouse, new MouseState());
                 InputSystem.Update();
                 yield return null;
-                Vector3 aimDirection = (targetPosition - camera.transform.position).normalized;
-                Quaternion aimRotation = Quaternion.LookRotation(aimDirection, Vector3.up);
-                pawn.Transform.rotation = Quaternion.Euler(0f, aimRotation.eulerAngles.y, 0f);
-                pawn.ApplyingControlRotation(aimRotation);
-                yield return null;
-                aimDirection = (targetPosition - camera.transform.position).normalized;
-                pawn.PublishCameraShotRay(camera.transform.position, aimDirection);
                 InputSystem.QueueStateEvent(mouse, new MouseState().WithButton(MouseButton.Left));
                 InputSystem.Update();
-                pawn.PublishCameraShotRay(camera.transform.position, aimDirection);
                 yield return null;
                 InputSystem.QueueStateEvent(mouse, new MouseState());
                 InputSystem.Update();
@@ -252,9 +264,9 @@ namespace CGame.GameplayCue.PlayModeTests
         {
             Vector3 forward = Vector3.ProjectOnPlane(camera.transform.forward, Vector3.up).normalized;
             Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
-            for (int index = 1; index < enemies.Handles.Count; index++)
+            for (int index = 0; index < enemies.Handles.Count; index++)
             {
-                float horizontalOffset = index == 1 ? -1.25f : 1.25f;
+                float horizontalOffset = index == 0 ? -1.25f : 1.25f;
                 Vector3 position = camera.transform.position + forward * 3.5f + right * horizontalOffset;
                 position.y = enemies.Handles[index].Pawn.Transform.position.y;
                 enemies.Handles[index].Pawn.GetComponent<PawnMovementComponent>().Motor.SetPosition(position);
@@ -264,7 +276,7 @@ namespace CGame.GameplayCue.PlayModeTests
         private static string GetRunDirectory()
         {
             DirectoryInfo repository = Directory.GetParent(Application.dataPath);
-            return Path.Combine(repository.Parent.FullName, ".harness", "runs", RunId);
+            return Path.Combine(repository.Parent.FullName, ".harness", "runs", runId);
         }
 
         private static int FindDamageWeaponSlot(PlayerController controller)
