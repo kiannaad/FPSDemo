@@ -57,7 +57,8 @@ public sealed class AuthorityFireProcessor
                 resolvedImpact.NormalX,
                 resolvedImpact.NormalY,
                 resolvedImpact.NormalZ,
-                resolvedImpact.SurfaceId ?? string.Empty), null, false);
+                resolvedImpact.SurfaceId ?? string.Empty,
+                resolvedImpact.HitEnemyId), null, false, resolvedImpact.HitEnemyId);
         }
         resolutionsByClientSequence.Add(request.ClientShotSequence, resolution);
         return resolution;
@@ -78,7 +79,8 @@ public sealed class AuthorityFireProcessor
         new FireRejectedMessage(request.PawnId, request.PossessionRevision, request.PredictionNonce, request.ClientShotSequence, reason, ammo));
 }
 
-public readonly record struct FireResolution(FireCommittedMessage? Committed, FireRejectedMessage? Rejected, bool IsReplay = false);
+public readonly record struct FireResolution(FireCommittedMessage? Committed, FireRejectedMessage? Rejected,
+    bool IsReplay = false, long HitEnemyId = 0);
 
 public readonly record struct AuthorityFireImpact(
     bool Hit,
@@ -88,4 +90,5 @@ public readonly record struct AuthorityFireImpact(
     float NormalX,
     float NormalY,
     float NormalZ,
-    string? SurfaceId);
+    string? SurfaceId,
+    long HitEnemyId = 0);

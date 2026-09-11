@@ -37,8 +37,9 @@ public sealed class AuthorityFireProcessorTests
         Assert.That(equipment.MagazineAmmo, Is.EqualTo(11));
     }
 
-    [Test]
-    public void Process_HitQuery_EmbedsOneAuthorityImpactInCommit()
+    [TestCase(0)]
+    [TestCase(101)]
+    public void Process_HitQuery_EmbedsOneAuthorityImpactInCommit(long hitEnemyId)
     {
         var equipment = new AuthorityActionEquipmentState();
         Assert.That(equipment.TryBegin(new NetworkAnimationActionRequestMessage(7, 1, 1, NetworkAnimationActionKind.Equip, "ak", 9), out _, out _), Is.True);
@@ -51,12 +52,16 @@ public sealed class AuthorityFireProcessorTests
             1,
             20,
             equipment,
-            new AuthorityFireImpact(true, 1f, 2f, 3f, 0f, 1f, 0f, "Ground"));
+            new AuthorityFireImpact(true, 1f, 2f, 3f, 0f, 1f, 0f, "Ground", hitEnemyId));
 
         Assert.That(resolution.Committed, Is.Not.Null);
         Assert.That(resolution.Committed!.HasImpact, Is.True);
         Assert.That(resolution.Committed.ImpactId, Is.EqualTo(resolution.Committed.ShotSequence));
         Assert.That(resolution.Committed.ImpactPositionY, Is.EqualTo(2f));
         Assert.That(resolution.Committed.SurfaceId, Is.EqualTo("Ground"));
+        Assert.That(resolution.Committed.HitEnemyId, Is.EqualTo(hitEnemyId));
+        var roundTrip = MessagePack.MessagePackSerializer.Deserialize<FireCommittedMessage>(
+            MessagePack.MessagePackSerializer.Serialize(resolution.Committed));
+        Assert.That(roundTrip.HitEnemyId, Is.EqualTo(hitEnemyId));
     }
 }

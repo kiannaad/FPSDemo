@@ -17,4 +17,7 @@ public sealed record DedicatedServerHealth(
     int AuthorityPawnCount,
     long FixedStepCount,
     string? Failure,
-    IReadOnlyList<string>? TargetIds = null);
+    IReadOnlyList<string>? TargetIds = null,
+    IReadOnlyList<DedicatedEnemyHealth>? EnemySpawns = null);
+
+public sealed record DedicatedEnemyHealth(long EnemyId, string ArchetypeId, int Health);

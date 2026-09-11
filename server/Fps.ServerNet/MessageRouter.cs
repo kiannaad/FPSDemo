@@ -126,9 +126,12 @@ public sealed class MessageRouter
         SetReadyRequest request = MessagePackSerializer.Deserialize<SetReadyRequest>(payload.ToArray());
         ServerRoom room = rooms.SetReady(request.RoomId, connectionId, request.IsReady);
         var messages = new List<RoutedOutboundMessage>(8);
-        messages.AddRange(Respond(connectionId, header, MessageId.SetReadyResponse,
-            new SetReadyResponse(room.RoomId, room.State.ToString(), room.State == ServerRoomState.Starting)));
-        if (room.State != ServerRoomState.Starting) return messages;
+        if (room.State != ServerRoomState.Starting)
+        {
+            messages.AddRange(Respond(connectionId, header, MessageId.SetReadyResponse,
+                new SetReadyResponse(room.RoomId, room.State.ToString(), false)));
+            return messages;
+        }
 
         var players = room.ConnectionIds.Select(GetOrCreatePlayer).ToArray();
         ServerMatch? match = null;
@@ -153,15 +156,20 @@ public sealed class MessageRouter
             physicsReady = await physicsServerLifecycle.StartAsync(physicsRequest, cancellationToken);
             rooms.MarkStarted(room.RoomId);
         }
-        catch
+        catch (Exception exception)
         {
             match?.Stop();
             rooms.ResetToWaiting(room.RoomId);
             long failedMatchId = checked(nextMatchId + 1);
             await physicsServerLifecycle.StopAsync(failedMatchId, CancellationToken.None);
+            Console.Error.WriteLine($"[Server] MatchStartFailed RoomId={room.RoomId} MatchId={failedMatchId}: {exception}");
+            messages.AddRange(Respond(connectionId, header, MessageId.SetReadyResponse,
+                new SetReadyResponse(room.RoomId, ServerRoomState.Waiting.ToString(), false)));
             return messages;
         }
         long matchId = checked(++nextMatchId);
+        messages.AddRange(Respond(connectionId, header, MessageId.SetReadyResponse,
+            new SetReadyResponse(room.RoomId, ServerRoomState.Started.ToString(), true)));
         IReadOnlyList<string> targetIds = physicsReady!.TargetIds ?? throw new InvalidDataException("Dedicated target roster is missing.");
         animationMatchesById.Add(matchId, new ActiveAnimationMatch(players, room.ConnectionIds, targetIds));
         foreach (ServerPlayer player in players)
@@ -321,10 +329,17 @@ public sealed class MessageRouter
                     query.NormalX,
                     query.NormalY,
                     query.NormalZ,
-                    query.SurfaceId))
+                    query.SurfaceId,
+                    query.HitEnemyId))
             : fireProcessor.RejectAuthorityUnavailable(request, equipment.MagazineAmmo);
         if (resolution.Committed is FireCommittedMessage committed)
         {
+            // Replays keep the original hit identity. The Dedicated damage key is
+            // idempotent, including a retry after the lethal response was lost.
+            if (resolution.HitEnemyId > 0 && !await physicsServerLifecycle.ApplyEnemyDamageAsync(
+                    header.MatchId, resolution.HitEnemyId, committed.PawnId,
+                    committed.ClientShotSequence, 20, cancellationToken))
+                throw new InvalidDataException("DedicatedEnemyDamageUnavailable");
             var messages = new List<RoutedOutboundMessage>
             {
                 new(connectionId, new RoutedMessage(

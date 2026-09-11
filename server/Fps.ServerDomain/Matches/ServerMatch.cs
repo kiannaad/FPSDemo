@@ -11,7 +11,7 @@ public sealed class ServerMatch
     public ServerMatch(IEnumerable<ServerPlayer> players, IEnumerable<string> spawnPointIds, int failCreationAt = 0)
     {
         Players = (players ?? throw new ArgumentNullException(nameof(players))).ToArray();
-        if (Players.Count != 2) throw new ArgumentException("V1 matches require exactly two players.", nameof(players));
+        if (Players.Count is < 1 or > 2) throw new ArgumentException("V1 matches require one or two players.", nameof(players));
         world = new ServerWorld(spawnPointIds);
         this.failCreationAt = failCreationAt;
     }

@@ -37,7 +37,7 @@ public sealed class ServerRoom
         if (State != ServerRoomState.Waiting) return;
         if (ready) readyConnectionIds.Add(connectionId);
         else readyConnectionIds.Remove(connectionId);
-        if (connectionIds.Count == 2 && readyConnectionIds.Count == 2) State = ServerRoomState.Starting;
+        if (connectionIds.Count > 0 && readyConnectionIds.Count == connectionIds.Count) State = ServerRoomState.Starting;
     }
 
     internal void MarkStarted()

@@ -23,7 +23,12 @@ public enum MessageId : ushort
     AnimationActionCancelled = 44,
     FireRequest = 50,
     FireCommitted = 51,
-    FireRejected = 52
-    ,TargetStateChanged = 60
-    ,TargetStateSnapshot = 61
+    FireRejected = 52,
+    TargetStateChanged = 60,
+    TargetStateSnapshot = 61,
+    EnemySpawned = 70,
+    EnemySnapshot = 71,
+    EnemyAction = 72,
+    EnemyResyncRequest = 73,
+    OwnerGameplayState = 74
 }

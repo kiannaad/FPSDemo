@@ -46,4 +46,4 @@ public enum ServerHostStatus
     Stopping
 }
 
-public sealed record ServerHostHealth(ServerHostStatus Status, int Port, int HealthPort, string? ContentVersion);
+public sealed record ServerHostHealth(ServerHostStatus Status, int Port, int HealthPort, string? ContentVersion, string? LevelId = null);

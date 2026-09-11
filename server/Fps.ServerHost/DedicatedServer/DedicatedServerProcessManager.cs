@@ -171,7 +171,26 @@ public sealed class DedicatedServerProcessManager
             result.NormalZ,
             result.SurfaceId ?? string.Empty,
             result.Failure,
-            result.TargetId);
+            result.TargetId,
+            result.HitEnemyId);
+    }
+
+    public async Task<bool> ApplyEnemyDamageAsync(long matchId, long enemyId, long causingPawnId,
+        long causingShotSequence, int damage, CancellationToken cancellationToken = default)
+    {
+        DedicatedServerLease? lease;
+        lock (sync) activeLeasesByMatchId.TryGetValue(matchId, out lease);
+        if (lease == null) return false;
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            new Uri($"http://127.0.0.1:{lease.Health.HealthPort}/enemy-damage"),
+            new { MatchId = matchId, EnemyId = enemyId, CausingPawnId = causingPawnId,
+                CausingShotSequence = causingShotSequence, Damage = damage },
+            new JsonSerializerOptions { PropertyNamingPolicy = null }, cancellationToken);
+        if (!response.IsSuccessStatusCode) return false;
+        using JsonDocument result = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+        return result.RootElement.TryGetProperty("Accepted", out JsonElement accepted) && accepted.GetBoolean();
     }
 
     private async Task StopAndDisposeAsync(IDedicatedServerProcess? process)
@@ -245,5 +264,6 @@ internal sealed class DedicatedFireQueryHttpResult
     public float NormalZ { get; set; }
     public string? SurfaceId { get; set; }
     public string? TargetId { get; set; }
+    public long HitEnemyId { get; set; }
     public string? Failure { get; set; }
 }

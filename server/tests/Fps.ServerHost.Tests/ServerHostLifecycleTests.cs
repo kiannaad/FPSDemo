@@ -119,13 +119,15 @@ public sealed class ServerHostLifecycleTests
     public async Task StartAsync_WithHealthPort_ReturnsRunningHealthResponse()
     {
         await using var host = new ServerHost();
-        await host.StartAsync(new ServerHostOptions(await WriteContentAsync(), 0, 30, 0));
+        await host.StartAsync(new ServerHostOptions(await WriteContentAsync(), 0, 30, 0,
+            LevelId: "EnemyCombatPresentationLab"));
 
         using var client = new HttpClient();
         string response = await client.GetStringAsync($"http://127.0.0.1:{host.Health.HealthPort}/health");
 
         Assert.That(response, Does.Contain("Running"));
         Assert.That(response, Does.Contain("test-v1"));
+        Assert.That(response, Does.Contain("EnemyCombatPresentationLab"));
     }
 
     [Test]

@@ -9,6 +9,41 @@ namespace Fps.ServerHost.Tests;
 public sealed class DedicatedServerProcessManagerTests
 {
     [Test]
+    public async Task FireQueryAndEnemyDamage_PreserveDedicatedIdentityAndJsonFieldNames()
+    {
+        using var portReservation = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        portReservation.Start();
+        int port = ((IPEndPoint)portReservation.LocalEndpoint).Port;
+        portReservation.Stop();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+        var manager = new DedicatedServerProcessManager(new SingleProcessFactory(new RecordingDedicatedServerProcess()),
+            new ReadyHealthProbe(new DedicatedServerHealth(DedicatedServerHealthStatus.PhysicsReady,
+                17, 31000, port, "SampleScene", "v1", 2, 1, null)));
+        await manager.StartAsync(CreateRequest() with { HealthPort = port });
+        var query = manager.QueryFireAsync(17, new AuthorityFireQuery(100, 0, 1, 0, 0, 0, 1));
+        var context = await listener.GetContextAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(context.Request.Url!.AbsolutePath, Is.EqualTo("/fire-query"));
+        byte[] bytes = Encoding.UTF8.GetBytes("{\"Accepted\":true,\"Hit\":true,\"HitEnemyId\":101}");
+        context.Response.ContentType = "application/json";
+        await context.Response.OutputStream.WriteAsync(bytes);
+        context.Response.Close();
+        Assert.That((await query)!.HitEnemyId, Is.EqualTo(101));
+
+        var damage = manager.ApplyEnemyDamageAsync(17, 101, 100, 7, 20);
+        context = await listener.GetContextAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(context.Request.Url!.AbsolutePath, Is.EqualTo("/enemy-damage"));
+        using var body = await System.Text.Json.JsonDocument.ParseAsync(context.Request.InputStream);
+        Assert.That(body.RootElement.GetProperty("CausingShotSequence").GetInt64(), Is.EqualTo(7));
+        Assert.That(body.RootElement.GetProperty("EnemyId").GetInt64(), Is.EqualTo(101));
+        await context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes("{\"Accepted\":true,\"IsReplay\":false}"));
+        context.Response.Close();
+        Assert.That(await damage, Is.True);
+        await manager.StopAsync(17);
+    }
+
+    [Test]
     public void SystemProcessFactory_CreateStartInfo_UsesStructuredNoShellArguments()
     {
         var factory = new SystemDedicatedServerProcessFactory();
@@ -353,6 +388,48 @@ public sealed class DedicatedServerProcessManagerTests
         Assert.That(ready.TargetIds, Is.EqualTo(targetIds));
         await lifecycle.StopAsync(17, CancellationToken.None);
         Assert.That(process.StopCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task MatchPhysicsServerLifecycle_WithThreeAuthoritativeEnemies_ReturnsStableEnemyRoster()
+    {
+        var process = new RecordingDedicatedServerProcess();
+        var manager = new DedicatedServerProcessManager(
+            new SingleProcessFactory(process),
+            new ReadyHealthProbe(new DedicatedServerHealth(
+                DedicatedServerHealthStatus.PhysicsReady,
+                17,
+                31000,
+                31001,
+                "SampleScene",
+                "v1",
+                1,
+                1,
+                null,
+                EnemySpawns: new[]
+                {
+                    new DedicatedEnemyHealth(101, "Enemy.Pistol", 60),
+                    new DedicatedEnemyHealth(102, "Enemy.Rifle", 60),
+                    new DedicatedEnemyHealth(103, "Enemy.Ak", 60)
+                })));
+        var lifecycle = new MatchPhysicsServerLifecycle(
+            manager,
+            "dedicated-server.exe",
+            "SampleScene",
+            "v1",
+            TimeSpan.FromSeconds(1),
+            "dedicated-logs",
+            new Queue<int>(new[] { 31000, 31001 }).Dequeue);
+
+        MatchPhysicsServerReady ready = await lifecycle.StartAsync(
+            new MatchPhysicsServerRequest(17, new[]
+            {
+                new MatchPhysicsPawn(100, 1, 1, "PlayerPoint 1", "connection-a")
+            }),
+            CancellationToken.None);
+
+        Assert.That(ready.TargetIds, Is.EqualTo(new[] { "EnemyPoint 1", "EnemyPoint 2", "EnemyPoint 3" }));
+        await lifecycle.StopAsync(17, CancellationToken.None);
     }
 
     private static DedicatedServerLaunchRequest CreateRequest(TimeSpan? readyTimeout = null) => new(

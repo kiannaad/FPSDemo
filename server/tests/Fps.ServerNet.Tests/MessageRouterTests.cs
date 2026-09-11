@@ -8,6 +8,24 @@ namespace Fps.ServerNet.Tests;
 public sealed class MessageRouterTests
 {
     [Test]
+    public void SingleReadyConnection_ReceivesAuthoritativeMatchEvents()
+    {
+        var router = new MessageRouter("server-solo", new[] { "spawn-a" });
+        string roomId = MessagePackSerializer.Deserialize<CreateRoomResponse>(
+            router.Route("connection-a", Request(1, MessageId.CreateRoomRequest),
+                MessagePackSerializer.Serialize(new CreateRoomRequest("solo")))[0].Message.Payload).RoomId;
+
+        IReadOnlyList<RoutedOutboundMessage> messages = router.Route(
+            "connection-a", Request(2, MessageId.SetReadyRequest),
+            MessagePackSerializer.Serialize(new SetReadyRequest(roomId, true)));
+
+        Assert.That(router.GetRoomState(roomId), Is.EqualTo(Fps.ServerDomain.Rooms.ServerRoomState.Started));
+        Assert.That(messages.Count(message => message.Message.Header.MessageId == MessageId.PawnSpawned), Is.EqualTo(1));
+        Assert.That(messages.Count(message => message.Message.Header.MessageId == MessageId.PossessionChanged), Is.EqualTo(1));
+        Assert.That(messages.Count(message => message.Message.Header.MessageId == MessageId.MatchStarting), Is.EqualTo(1));
+    }
+
+    [Test]
     public async Task SecondReady_PhysicsFailure_ResetsRoomAndPublishesNoMatchEvents()
     {
         var lifecycle = new RejectingMatchPhysicsServerLifecycle();
@@ -27,6 +45,12 @@ public sealed class MessageRouterTests
 
         Assert.That(router.GetRoomState(roomId), Is.EqualTo(Fps.ServerDomain.Rooms.ServerRoomState.Waiting));
         Assert.That(lifecycle.StopCount, Is.EqualTo(1));
+        SetReadyResponse response = MessagePackSerializer.Deserialize<SetReadyResponse>(messages
+            .Single(message => message.ConnectionId == "connection-b" &&
+                message.Message.Header.MessageId == MessageId.SetReadyResponse)
+            .Message.Payload);
+        Assert.That(response.MatchStarted, Is.False);
+        Assert.That(response.State, Is.EqualTo(Fps.ServerDomain.Rooms.ServerRoomState.Waiting.ToString()));
         Assert.That(messages.Any(message => message.Message.Header.MessageId == MessageId.MatchStarting), Is.False);
     }
 
@@ -177,10 +201,12 @@ public sealed class MessageRouterTests
         Assert.That(reloadCommit.AuthoritativeReserveAmmo, Is.EqualTo(12));
     }
 
-    [Test]
-    public async Task FireRequest_AcceptedAuthorityQuery_CommitsToOwnerAndRemoteExactlyOnce()
+    [TestCase(0)]
+    [TestCase(101)]
+    public async Task FireRequest_AcceptedAuthorityQuery_CommitsToOwnerAndRemoteExactlyOnce(long enemyId)
     {
         var lifecycle = new FireQueryMatchPhysicsServerLifecycle(true, hit: true);
+        lifecycle.EnemyId = enemyId;
         var router = new MessageRouter("server-045", new[] { "spawn-a", "spawn-b" }, lifecycle);
         string roomId = MessagePackSerializer.Deserialize<CreateRoomResponse>(
             (await router.RouteAsync("connection-a", Request(1, MessageId.CreateRoomRequest),
@@ -217,16 +243,33 @@ public sealed class MessageRouterTests
         Assert.That(committed.HasImpact, Is.True);
         Assert.That(committed.ImpactId, Is.EqualTo(committed.ShotSequence));
         Assert.That(committed.SurfaceId, Is.EqualTo("Ground"));
-        TargetStateMessage targetState = MessagePackSerializer.Deserialize<TargetStateMessage>(routed
-            .Single(message => message.ConnectionId == "connection-a" && message.Message.Header.MessageId == MessageId.TargetStateChanged)
-            .Message.Payload);
-        Assert.That(targetState, Is.EqualTo(new TargetStateMessage("EnemyPoint 1", 1, 40f, 60f, false, possession.PawnId, committed.ShotSequence)));
-        Assert.That(routed.Count(message => message.Message.Header.MessageId == MessageId.TargetStateChanged), Is.EqualTo(2));
+        if (enemyId == 0)
+        {
+            TargetStateMessage targetState = MessagePackSerializer.Deserialize<TargetStateMessage>(routed
+                .Single(message => message.ConnectionId == "connection-a" && message.Message.Header.MessageId == MessageId.TargetStateChanged)
+                .Message.Payload);
+            Assert.That(targetState, Is.EqualTo(new TargetStateMessage("EnemyPoint 1", 1, 40f, 60f, false, possession.PawnId, committed.ShotSequence)));
+            Assert.That(routed.Count(message => message.Message.Header.MessageId == MessageId.TargetStateChanged), Is.EqualTo(2));
+        }
+        Assert.That(lifecycle.DamageRequests.Count, Is.EqualTo(enemyId == 0 ? 0 : 1));
+        lifecycle.EnemyId = enemyId == 0 ? 0 : 202;
 
         IReadOnlyList<RoutedOutboundMessage> replay = await router.RouteAsync("connection-a",
             new PacketHeader(ProtocolVersion.Current, MessageId.FireRequest, PacketFlags.Request, 11, 1),
             MessagePackSerializer.Serialize(request));
         Assert.That(replay.Count(message => message.Message.Header.MessageId == MessageId.TargetStateChanged), Is.EqualTo(0));
+        if (enemyId > 0)
+        {
+            Assert.That(lifecycle.DamageRequests.Count, Is.EqualTo(2));
+            Assert.That(lifecycle.DamageRequests, Is.All.EqualTo((enemyId, possession.PawnId, request.ClientShotSequence, 20)));
+        }
+        var rejected = await router.RouteAsync("connection-a",
+            new PacketHeader(ProtocolVersion.Current, MessageId.FireRequest, PacketFlags.Request, 12, 1),
+            MessagePackSerializer.Serialize(new FireRequestMessage(possession.PawnId, possession.PossessionRevision,
+                2, 2, 9, 1, 0f, 1.6f, 0f, 0f, 0f, 1f)));
+        Assert.That(rejected.Any(message => message.Message.Header.MessageId == MessageId.FireRejected), Is.True);
+        Assert.That(lifecycle.DamageRequests.Count, Is.EqualTo(enemyId > 0 ? 2 : 0),
+            "Rejected fire must never reach the damage endpoint.");
     }
 
     private static PacketHeader Request(ulong requestId, MessageId messageId)
@@ -246,6 +289,15 @@ public sealed class MessageRouterTests
         }
 
         public int QueryCount { get; private set; }
+        public long EnemyId { get; set; }
+        public List<(long EnemyId, long PawnId, long ShotSequence, int Damage)> DamageRequests { get; } = new();
+
+        public Task<bool> ApplyEnemyDamageAsync(long matchId, long enemyId, long causingPawnId,
+            long causingShotSequence, int damage, CancellationToken cancellationToken)
+        {
+            DamageRequests.Add((enemyId, causingPawnId, causingShotSequence, damage));
+            return Task.FromResult(true);
+        }
 
         public Task<Fps.ServerNet.Matches.MatchPhysicsServerReady> StartAsync(
             Fps.ServerNet.Matches.MatchPhysicsServerRequest request,
@@ -261,7 +313,8 @@ public sealed class MessageRouterTests
         {
             QueryCount++;
             return Task.FromResult<Fps.ServerNet.Matches.AuthorityFireQueryResult?>(
-                new Fps.ServerNet.Matches.AuthorityFireQueryResult(accepted, hit, 1f, 2f, 3f, 0f, 1f, 0f, hit ? "Ground" : string.Empty, null, hit ? "EnemyPoint 1" : null));
+                new Fps.ServerNet.Matches.AuthorityFireQueryResult(accepted, hit, 1f, 2f, 3f, 0f, 1f, 0f, hit ? "Ground" : string.Empty, null,
+                    hit && EnemyId == 0 ? "EnemyPoint 1" : null, EnemyId));
         }
     }
 

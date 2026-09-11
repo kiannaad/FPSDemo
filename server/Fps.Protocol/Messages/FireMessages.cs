@@ -47,7 +47,8 @@ public sealed record FireCommittedMessage(
     [property: Key(14)] float ImpactNormalX,
     [property: Key(15)] float ImpactNormalY,
     [property: Key(16)] float ImpactNormalZ,
-    [property: Key(17)] string SurfaceId);
+    [property: Key(17)] string SurfaceId,
+    [property: Key(18)] long HitEnemyId = 0);
 
 [MessagePackObject]
 public sealed record FireRejectedMessage(

@@ -64,7 +64,7 @@ public sealed class ServerHost : IAsyncDisposable
             healthListener.Prefixes.Add($"http://127.0.0.1:{healthPort}/");
             healthListener.Start();
             tickTask = RunTickLoopAsync(transport, options.TickRate, tickCancellation.Token);
-            Health = new ServerHostHealth(ServerHostStatus.Running, transport.Port, healthPort, content.ContentVersion);
+            Health = new ServerHostHealth(ServerHostStatus.Running, transport.Port, healthPort, content.ContentVersion, options.LevelId);
             healthTask = RunHealthLoopAsync(healthListener, tickCancellation.Token);
         }
         catch

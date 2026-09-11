@@ -16,6 +16,9 @@ public interface IMatchPhysicsServerLifecycle
         AuthorityFireQuery query,
         CancellationToken cancellationToken) =>
         Task.FromResult<AuthorityFireQueryResult?>(null);
+
+    Task<bool> ApplyEnemyDamageAsync(long matchId, long enemyId, long causingPawnId,
+        long causingShotSequence, int damage, CancellationToken cancellationToken) => Task.FromResult(false);
 }
 
 public sealed record AuthorityFireQuery(
@@ -39,4 +42,5 @@ public sealed record AuthorityFireQueryResult(
     float NormalZ,
     string SurfaceId,
     string? Failure,
-    string? TargetId = null);
+    string? TargetId = null,
+    long HitEnemyId = 0);
