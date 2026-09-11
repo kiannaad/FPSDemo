@@ -35,7 +35,7 @@ namespace CGame.InventoryEquipment.Tests
                 PrefabUtility.UnloadPrefabContents(contents);
             }
 
-            string animationDirectory = $"Assets/Art/Weapon/Profile/{name}/";
+            string animationDirectory = $"Assets/Settings/Gameplay/Weapon/WeaponProfile/{name}/";
             string profileName = name == "AK12" ? "AK12ProceduralBoneProfile.asset" : "KnifeBoneProfile.asset";
             BoneProfile profile = AssetDatabase.LoadAssetAtPath<BoneProfile>(animationDirectory + profileName);
             KRig rig = AssetDatabase.LoadAssetAtPath<KRig>(
@@ -51,13 +51,13 @@ namespace CGame.InventoryEquipment.Tests
                 WeaponBoneProfileValidator.ValidateKnife(profile);
             }
             Assert.That(profile.Layers.OfType<IkMotionLayerSettings>().Any(layer => layer.name == "WeaponSwitchIkMotionReceiver"), Is.True);
-            Assert.That(AssetDatabase.LoadAssetAtPath<IkMotionLayerSettings>("Assets/Art/Weapon/Profile/Shared/WeaponEquipIkMotion.asset"), Is.Not.Null);
-            Assert.That(AssetDatabase.LoadAssetAtPath<IkMotionLayerSettings>("Assets/Art/Weapon/Profile/Shared/WeaponUnequipIkMotion.asset"), Is.Not.Null);
+            Assert.That(AssetDatabase.LoadAssetAtPath<IkMotionLayerSettings>("Assets/Settings/Gameplay/Weapon/WeaponProfile/Shared/WeaponEquipIkMotion.asset"), Is.Not.Null);
+            Assert.That(AssetDatabase.LoadAssetAtPath<IkMotionLayerSettings>("Assets/Settings/Gameplay/Weapon/WeaponProfile/Shared/WeaponUnequipIkMotion.asset"), Is.Not.Null);
 
             WeaponDefinition definition = AssetDatabase.LoadAssetAtPath<WeaponDefinition>(
-                $"Assets/Settings/Gameplay/WeaponDefinition/{name}/{name}WeaponDefinition.asset");
+                $"Assets/Settings/Gameplay/Weapon/WeaponDefinition/{name}/{name}WeaponDefinition.asset");
             WeaponItemDefinition item = AssetDatabase.LoadAssetAtPath<WeaponItemDefinition>(
-                $"Assets/Settings/Gameplay/WeaponDefinition/{name}/{name}WeaponItemDefinition.asset");
+                $"Assets/Settings/Gameplay/Weapon/WeaponDefinition/{name}/{name}WeaponItemDefinition.asset");
             Assert.That(definition.Prefab, Is.SameAs(prefab));
             Assert.That(definition.ArmedProfile, Is.SameAs(profile));
             Assert.That(definition.OverlayPose, Is.Not.Null);

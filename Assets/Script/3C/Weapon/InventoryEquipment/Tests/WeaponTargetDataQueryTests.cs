@@ -30,24 +30,16 @@ namespace CGame.InventoryEquipment.Tests
                 var weapon = (WeaponInstance)definition.CreateInstance(new EquipmentCreateContext(lease, abilitySystem));
                 weapon.PreparePresentation(presentation);
                 Physics.SyncTransforms();
-                var spread = new WeaponSpreadContext(
-                    Vector3.forward,
-                    Vector3.right,
-                    Vector3.up,
-                    false,
-                    true,
-                    0f);
-
                 Vector3 cameraOrigin = Vector3.right * 1000f;
-                GameplayAbilityTargetDataHandle hit = weapon.QueryTargetData(cameraOrigin, Vector3.forward, spread);
+                GameplayAbilityTargetDataHandle hit = weapon.QueryTargetData(cameraOrigin, Vector3.forward);
                 Assert.That(hit.Count, Is.EqualTo(1));
-                Assert.That(hit[0].ShotId, Is.EqualTo(1UL));
+                Assert.That(hit.ShotId, Is.EqualTo(1UL));
                 Assert.That(hit[0].TraceIndex, Is.Zero);
                 Assert.That(hit[0].HitResult.Collider, Is.SameAs(targetCollider));
                 Assert.That(hit[0].HitResult.TraceStart, Is.EqualTo(cameraOrigin));
 
                 target.SetActive(false);
-                GameplayAbilityTargetDataHandle miss = weapon.QueryTargetData(cameraOrigin, Vector3.forward, spread);
+                GameplayAbilityTargetDataHandle miss = weapon.QueryTargetData(cameraOrigin, Vector3.forward);
                 Assert.That(miss.Count, Is.Zero);
                 weapon.Dispose();
             }

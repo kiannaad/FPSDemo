@@ -11,9 +11,9 @@ namespace CGame.InventoryEquipment.Tests
         private const string UpperBodyMaskPath = "Assets/Art/Animation/Masks/UpperBody.mask";
         private const string RuntimeAnimationConfigPath = "Assets/Resources/CharacterAnimationConfig.asset";
         private const string DefaultAnimationConfigPath =
-            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/DefaultCharacterAnimationConfig.asset";
+            "Assets/Settings/Gameplay/SampleScene/DefaultConfig/Gameplay/Player/Animation/DefaultCharacterAnimationConfig.asset";
         private const string Ak12DefinitionPath =
-            "Assets/Settings/Gameplay/WeaponDefinition/AK12/AK12WeaponDefinition.asset";
+            "Assets/Settings/Gameplay/Weapon/WeaponDefinition/AK12/AK12WeaponDefinition.asset";
 
         [Test]
         public void FormalCharacterAnimationConfigs_UseWeaponCapableUpperBodyMask()

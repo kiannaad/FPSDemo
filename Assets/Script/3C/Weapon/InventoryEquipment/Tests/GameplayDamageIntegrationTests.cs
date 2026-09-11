@@ -31,10 +31,10 @@ namespace CGame.InventoryEquipment.Tests
             GameplayEffectDefinition damageEffect = CreateDamageEffect(20f);
             try
             {
-                var targetData = new GameplayAbilityTargetDataHandle(new[]
+                var targetData = new GameplayAbilityTargetDataHandle(9UL, new[]
                 {
-                    Hit(9UL, 0, wall),
-                    Hit(9UL, 1, targetCollider)
+                    Hit(0, wall),
+                    Hit(1, targetCollider)
                 });
 
                 WeaponDamageApplicationResult result = new WeaponDamageApplication(resolver).Apply(
@@ -94,7 +94,7 @@ namespace CGame.InventoryEquipment.Tests
                     new object(),
                     new object(),
                     Vector3.zero,
-                    new GameplayAbilityTargetDataHandle(new[] { Hit(10UL, 0, targetCollider) }));
+                    new GameplayAbilityTargetDataHandle(10UL, new[] { Hit(0, targetCollider) }));
 
                 CollectionAssert.AreEqual(
                     new[]
@@ -130,10 +130,9 @@ namespace CGame.InventoryEquipment.Tests
             return definition;
         }
 
-        private static SingleTargetHitData Hit(ulong shotId, int traceIndex, Collider collider)
+        private static SingleTargetHitData Hit(int traceIndex, Collider collider)
         {
             return new SingleTargetHitData(
-                shotId,
                 traceIndex,
                 new GameplayHitResult(
                     collider.transform.position,

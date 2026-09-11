@@ -108,6 +108,7 @@ namespace CGame.InventoryEquipment.Tests
                     new EquipmentCreateContext(lease, abilitySystem));
                 GameObject presentation = new GameObject("WeaponPresentation");
                 Renderer renderer = presentation.AddComponent<MeshRenderer>();
+                new GameObject("MuzzlePoint").transform.SetParent(presentation.transform);
                 weapon.PreparePresentation(presentation);
 
                 weapon.Arm();

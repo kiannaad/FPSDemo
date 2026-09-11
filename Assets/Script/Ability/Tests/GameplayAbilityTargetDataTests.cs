@@ -29,15 +29,15 @@ namespace CGame.Ability.Tests
                 traceEnd: Vector3.right * 20f);
             var source = new List<SingleTargetHitData>
             {
-                new SingleTargetHitData(17UL, 0, firstHit),
-                new SingleTargetHitData(17UL, 1, secondHit)
+                new SingleTargetHitData(0, firstHit),
+                new SingleTargetHitData(1, secondHit)
             };
 
-            var handle = new GameplayAbilityTargetDataHandle(source);
+            var handle = new GameplayAbilityTargetDataHandle(17UL, source);
             source.Clear();
 
             Assert.That(handle.Count, Is.EqualTo(2));
-            Assert.That(handle[0].ShotId, Is.EqualTo(17UL));
+            Assert.That(handle.ShotId, Is.EqualTo(17UL));
             Assert.That(handle[0].TraceIndex, Is.Zero);
             Assert.That(handle[0].HitResult.Location, Is.EqualTo(firstHit.Location));
             Assert.That(handle[0].HitResult.TraceStart, Is.EqualTo(Vector3.zero));
