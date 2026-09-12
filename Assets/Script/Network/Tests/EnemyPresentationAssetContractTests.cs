@@ -8,6 +8,61 @@ namespace CGame.Network.Tests
 {
     public sealed class EnemyPresentationAssetContractTests
     {
+        [TestCase("Pistol")]
+        [TestCase("Rifle")]
+        [TestCase("Ak")]
+        public void WeaponPose_SeparatesTravelAimFireAndReturn(string variant)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                $"Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy{variant}.prefab");
+            var root = Object.Instantiate(prefab);
+            try
+            {
+                var presentation = root.GetComponent<EnemyPresentation>();
+                void Advance(float speed, EnemyBrainState state, int frames = 30)
+                {
+                    for (int frame = 0; frame < frames; frame++)
+                    {
+                        presentation.ApplyRemoteAnimationState(new RemoteEnemyAnimationState(
+                            speed, speed > .05f ? Vector2.up : Vector2.zero, true,
+                            Quaternion.identity, state), 1f / 60f);
+                        presentation.Animator.playableGraph.Evaluate(1f / 60f);
+                    }
+                }
+                Advance(2f, EnemyBrainState.Chase);
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                object playback = typeof(EnemyPresentation).GetField("playablesController", flags).GetValue(presentation);
+                var source = (UnityEngine.Animations.AnimatorControllerPlayable)playback.GetType()
+                    .GetField("animatorControllerSource", flags).GetValue(playback);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Guard"), Is.True,
+                    "Travel must use the original lowered guard pose, not an always-on aim overlay.");
+                Advance(0f, EnemyBrainState.Fire);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Aim"), Is.True);
+                presentation.PlayFire();
+                Advance(0f, EnemyBrainState.Fire, 6);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Fire"), Is.True);
+                Advance(2f, EnemyBrainState.ReturnToCover);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Guard"), Is.True,
+                    "Returning to cover must interrupt the firing pose.");
+                presentation.PlayFire();
+                Advance(2f, EnemyBrainState.PeekFire);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Guard"), Is.True,
+                    "A delayed shot event must not raise the gun while travelling to a peek point.");
+                Advance(0f, EnemyBrainState.PeekFire, 12);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Fire"), Is.False,
+                    "A shot suppressed during travel must not remain queued for the next stop.");
+                Advance(0f, EnemyBrainState.PeekFire);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Aim"), Is.True);
+                presentation.PlayHit();
+                Advance(2f, EnemyBrainState.ReturnToCover, 12);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Hit"), Is.True,
+                    "Separating aim from movement must preserve the hit reaction.");
+                Advance(2f, EnemyBrainState.ReturnToCover, 90);
+                Assert.That(source.GetCurrentAnimatorStateInfo(1).IsName("Weapon.Guard"), Is.True);
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
         [TestCase("Pistol", 0f, 60)]
         [TestCase("Rifle", 0f, 60)]
         [TestCase("Ak", 0f, 60)]
@@ -77,11 +132,14 @@ namespace CGame.Network.Tests
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
                 $"Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy{variant}.prefab");
-            var root = Object.Instantiate(prefab, Vector3.zero, Quaternion.identity);
+            // Keep this isolated collider contract outside the open scene's
+            // geometry (the arena stairs now occupy the world origin).
+            Vector3 origin = new Vector3(1000f, 0f, 1000f);
+            var root = Object.Instantiate(prefab, origin, Quaternion.identity);
             var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
             try
             {
-                wall.transform.position = new Vector3(1f, 1f, 0f);
+                wall.transform.position = origin + new Vector3(1f, 1f, 0f);
                 wall.transform.localScale = new Vector3(0.5f, 2f, 4f);
                 Physics.SyncTransforms();
                 var presentation = root.GetComponent<EnemyPresentation>();
@@ -90,10 +148,10 @@ namespace CGame.Network.Tests
                 Vector3 fallDirection = Vector3.ProjectOnPlane(presentation.VisualRoot.up, Vector3.up).normalized;
                 Assert.That(Vector3.Dot(fallDirection, Vector3.right), Is.LessThan(0.1f),
                     "The death silhouette must not topple into the adjacent cover.");
-                Assert.That(Physics.OverlapCapsule(Vector3.up * 0.4f,
-                    Vector3.up * 0.4f + fallDirection * 1.6f, 0.3f).Contains(wall.GetComponent<Collider>()), Is.False);
+                Assert.That(Physics.OverlapCapsule(origin + Vector3.up * 0.4f,
+                    origin + Vector3.up * 0.4f + fallDirection * 1.6f, 0.3f).Contains(wall.GetComponent<Collider>()), Is.False);
                 Assert.That(Quaternion.Angle(Quaternion.identity, presentation.VisualRoot.localRotation), Is.GreaterThan(60f));
-                Assert.That(root.transform.position, Is.EqualTo(Vector3.zero));
+                Assert.That(root.transform.position, Is.EqualTo(origin));
                 Assert.That(root.transform.rotation, Is.EqualTo(Quaternion.identity));
             }
             finally
@@ -116,9 +174,14 @@ namespace CGame.Network.Tests
                 var presentation = root.GetComponent<EnemyPresentation>();
                 presentation.Animator.Rebind();
                 presentation.Animator.Update(0f);
-                presentation.ApplyRemoteAnimationState(new RemoteEnemyAnimationState(
-                    0f, Vector2.zero, true, Quaternion.identity, EnemyBrainState.Fire), 0.1f);
-                presentation.Animator.playableGraph.Evaluate(0.5f);
+                // Advance actual frames through Guard -> Aim; one large first
+                // evaluation only starts an Animator transition.
+                for (int frame = 0; frame < 30; frame++)
+                {
+                    presentation.ApplyRemoteAnimationState(new RemoteEnemyAnimationState(
+                        0f, Vector2.zero, true, Quaternion.identity, EnemyBrainState.Fire), 1f / 60f);
+                    presentation.Animator.playableGraph.Evaluate(1f / 60f);
+                }
                 Transform muzzle = root.GetComponentsInChildren<Transform>(true).Single(value => value.name == "muzzle");
                 Vector3 handToMuzzle = muzzle.position - presentation.Animator.GetBoneTransform(HumanBodyBones.RightHand).position;
                 // TPS Bundle authored its barrel along the muzzle's negative X axis.

@@ -57,6 +57,7 @@ namespace CGame.Network
             ApplyMovement(state.Speed, state.MoveDirection);
             animator.SetBool(IsInCoverParameter, state.IsInCover);
             animator.SetBool(IsPeekingParameter, state.IsPeeking);
+            animator.SetBool("IsAiming", state.IsAiming);
             EnsurePlayableGraph();
             playablesController?.Update(deltaTime);
         }
@@ -66,6 +67,9 @@ namespace CGame.Network
             if (IsDead || hitRemainingSeconds > 0f) return;
             EnsureAnimator();
             LastConfirmedAction = EnemyActionKind.Fire;
+            // Action confirmation can arrive after the interpolated pose has
+            // already resumed travel. Do not queue that shot for the next stop.
+            if (!RemoteAnimationState.IsAiming) return;
             EnsurePlayableGraph();
             if (playablesController == null) animator.SetTrigger(FireParameter);
             else playablesController.TrySetTrigger("Fire");

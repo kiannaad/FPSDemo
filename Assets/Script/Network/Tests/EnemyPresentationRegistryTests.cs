@@ -48,6 +48,37 @@ namespace CGame.Network.Tests
             Assert.That(instance.RemoteAnimationState.IsMoving, Is.False);
         }
 
+        [TestCase("Pistol")]
+        [TestCase("Rifle")]
+        [TestCase("Ak")]
+        public void ProductionPrefab_HasHumanoidVisualAndLocomotionContract(string kind)
+        {
+            var asset = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy" + kind + ".prefab");
+            Assert.That(asset, Is.Not.Null);
+            var presentation = asset.GetComponentInChildren<EnemyPresentation>(true);
+            Assert.That(presentation, Is.Not.Null);
+            Assert.That(presentation.VisualRoot, Is.Not.Null);
+            Assert.That(presentation.VisualRoot, Is.Not.EqualTo(presentation.transform));
+            var animator = presentation.Animator;
+            Assert.That(animator, Is.Not.Null);
+            Assert.That(animator.applyRootMotion, Is.False);
+            Assert.That(animator.avatar != null && animator.avatar.isValid && animator.avatar.isHuman, Is.True);
+            var controller = animator.runtimeAnimatorController as UnityEditor.Animations.AnimatorController;
+            Assert.That(controller, Is.Not.Null);
+            foreach (string name in new[] { "Speed", "MoveX", "MoveY" })
+                Assert.That(controller.parameters.Any(p => p.name == name && p.type == AnimatorControllerParameterType.Float), Is.True, name);
+            foreach (string name in new[] { "IsInCover", "IsPeeking" })
+                Assert.That(controller.parameters.Any(p => p.name == name && p.type == AnimatorControllerParameterType.Bool), Is.True, name);
+            var locomotion = controller.layers[0].stateMachine.states.Single(s => s.state.name == "Locomotion").state;
+            var tree = locomotion.motion as UnityEditor.Animations.BlendTree;
+            Assert.That(tree, Is.Not.Null);
+            Assert.That(tree.blendParameter, Is.EqualTo("MoveX"));
+            Assert.That(tree.blendParameterY, Is.EqualTo("MoveY"));
+            Assert.That(tree.children.Any(c => c.position == Vector2.up && c.motion != null), Is.True);
+            Assert.That(tree.children.Any(c => c.position == Vector2.zero && c.motion != null), Is.True);
+        }
+
         [Test]
         public void RemoteEnemyAnimationState_MapsSnapshotVelocityFacingAndGrounding()
         {
@@ -99,11 +130,13 @@ namespace CGame.Network.Tests
             Assert.That(state.MoveDirection, Is.EqualTo(Vector2.zero));
         }
 
-        [Test]
-        public void RemotePresentation_MovementReachesTheRenderedControllerPlayable()
+        [TestCase("Pistol")]
+        [TestCase("Rifle")]
+        [TestCase("Ak")]
+        public void RemotePresentation_MovementReachesTheRenderedControllerPlayable(string kind)
         {
             GameObject asset = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
-                "Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemyRifle.prefab");
+                "Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy" + kind + ".prefab");
             GameObject root = Object.Instantiate(asset);
             try
             {
@@ -118,7 +151,14 @@ namespace CGame.Network.Tests
                     .GetField("animatorControllerSource", flags).GetValue(controller);
                 Assert.That(source.GetFloat("Speed"), Is.EqualTo(2f).Within(0.001f));
                 Assert.That(source.GetBool("IsInCover"), Is.True);
+                Assert.That(source.GetBool("IsPeeking"), Is.False,
+                    "Travel to a peek point must not select the stationary full-body peek pose.");
+                Assert.That(source.GetFloat("MoveY"), Is.EqualTo(1f).Within(0.001f));
+                presentation.ApplyRemoteAnimationState(
+                    new RemoteEnemyAnimationState(0f, Vector2.zero, true, Quaternion.identity,
+                        EnemyBrainState.PeekFire), 0.1f);
                 Assert.That(source.GetBool("IsPeeking"), Is.True);
+                Assert.That(source.GetFloat("MoveY"), Is.Zero);
             }
             finally
             {

@@ -29,7 +29,9 @@ namespace CGame.Network
         public bool IsMoving => Speed > MovingSpeedThreshold;
         public bool IsInCover => BrainState == EnemyBrainState.CoverHold ||
             BrainState == EnemyBrainState.PeekFire || BrainState == EnemyBrainState.ReturnToCover;
-        public bool IsPeeking => BrainState == EnemyBrainState.PeekFire;
+        public bool IsPeeking => BrainState == EnemyBrainState.PeekFire && !IsMoving;
+        public bool IsAiming => IsGrounded && !IsMoving &&
+            (BrainState == EnemyBrainState.Fire || BrainState == EnemyBrainState.PeekFire);
 
         public static RemoteEnemyAnimationState FromSnapshot(EnemySnapshotEvent snapshot)
         {

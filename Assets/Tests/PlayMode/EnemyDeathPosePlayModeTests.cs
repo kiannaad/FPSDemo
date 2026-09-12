@@ -55,6 +55,9 @@ namespace CGame.GameplayCue.PlayModeTests
                                 Debug.Log($"[DeathAuto] Lowest={lowest:F6} Root={root.transform.position} Visual={presentation.VisualRoot.localPosition} AnimatorLocal={presentation.Animator.transform.localPosition} Hips={hips.localPosition}");
                             Assert.That(lowest, Is.EqualTo(0f).Within(.03f),
                                 $"{variant} timing={timing} elapsed={elapsed:F3} must retain grounded frozen pose.");
+                            Vector3 torso = presentation.Animator.GetBoneTransform(HumanBodyBones.Head).position - hips.position;
+                            Assert.That(Mathf.Abs(Vector3.Dot(torso.normalized, Vector3.up)), Is.LessThan(.5f),
+                                $"{variant} timing={timing} must visibly lie down, not merely touch the ground with a foot.");
                         }
                     }
                     finally { Object.DestroyImmediate(root); }

@@ -40,7 +40,13 @@ namespace CGame.GameplayCue.PlayModeTests
                     Time.deltaTime);
                 Assert.That(presentation.HasPlayableGraph, Is.True);
                 Assert.That(presentation.Animator.GetBool("IsInCover"), Is.True);
+                Assert.That(presentation.Animator.GetBool("IsPeeking"), Is.False,
+                    "Travel toward a peek point must not use the stationary peek pose.");
+                presentation.ApplyRemoteAnimationState(
+                    new RemoteEnemyAnimationState(0f, Vector2.zero, true, Quaternion.identity, EnemyBrainState.PeekFire),
+                    Time.deltaTime);
                 Assert.That(presentation.Animator.GetBool("IsPeeking"), Is.True);
+                Assert.That(presentation.RemoteAnimationState.IsAiming, Is.True);
             }
 #else
             Assert.Ignore("This test resolves the catalog through the Editor AssetDatabase.");
@@ -56,6 +62,7 @@ namespace CGame.GameplayCue.PlayModeTests
                 "Assets/Settings/Gameplay/Enemy/EnemyPresentationCatalog.asset");
             Assert.That(catalog, Is.Not.Null);
 
+            var existingPresentations = Object.FindObjectsOfType<EnemyPresentation>().ToHashSet();
             using var registry = new EnemyPresentationRegistry(catalog);
             Assert.That(registry.Spawn(new EnemySpawnedEvent
             {
@@ -85,13 +92,30 @@ namespace CGame.GameplayCue.PlayModeTests
             yield return null;
 
             EnemyPresentation rifle = Object.FindObjectsOfType<EnemyPresentation>()
-                .Single(candidate => candidate.gameObject.name.StartsWith("NetworkEnemyRifle"));
+                .Single(candidate => !existingPresentations.Contains(candidate) &&
+                    candidate.gameObject.name.StartsWith("NetworkEnemyRifle"));
             Assert.That(rifle.RemoteAnimationState.IsMoving, Is.True);
             Assert.That(rifle.RemoteAnimationState.IsGrounded, Is.True);
             Assert.That(rifle.RemoteAnimationState.BrainState, Is.EqualTo(EnemyBrainState.PeekFire));
             Assert.That(rifle.RemoteAnimationState.IsInCover, Is.True);
-            Assert.That(rifle.RemoteAnimationState.IsPeeking, Is.True);
+            Assert.That(rifle.RemoteAnimationState.IsPeeking, Is.False);
             Assert.That(rifle.Animator.GetBool("IsInCover"), Is.True);
+            Assert.That(rifle.Animator.GetBool("IsPeeking"), Is.False);
+            Assert.That(registry.ApplySnapshot(new EnemySnapshotEvent
+            {
+                EnemyId = 55,
+                Position = QuantizedVector3WireMessage.FromValue(new QuantizedVector3(1000, 0, 0)),
+                Rotation = QuantizedQuaternionWireMessage.FromValue(
+                    QuantizedQuaternion.FromQuaternion(Quaternion.Euler(0f, 90f, 0f))),
+                PlanarVelocity = QuantizedVector3WireMessage.FromValue(QuantizedVector3.FromMeters(Vector3.zero)),
+                IsGrounded = true,
+                BrainState = EnemyBrainState.PeekFire,
+                CoverPointId = "Cover.B",
+                AuthorityServerTick = 3,
+                Health = 100
+            }), Is.True);
+            Assert.That(rifle.RemoteAnimationState.IsPeeking, Is.True);
+            Assert.That(rifle.RemoteAnimationState.IsAiming, Is.True);
             Assert.That(rifle.Animator.GetBool("IsPeeking"), Is.True);
             Assert.That(rifle.HasPlayableGraph, Is.True);
             Assert.That(rifle.Animator.applyRootMotion, Is.False);
