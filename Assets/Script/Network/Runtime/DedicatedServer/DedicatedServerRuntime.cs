@@ -130,7 +130,7 @@ namespace CGame.Network
             Debug.Log($"[DedicatedServer][047] WorldInitialized MatchId={launch.MatchId}");
             if (dedicatedBootstrap != null)
             {
-                BuildNavigation(levelScene);
+                BuildNavigation(levelScene, dedicatedBootstrap.LevelDefinition);
                 ValidateEnemyArchetypeCombatCatalog(dedicatedBootstrap.EnemyArchetypeCombatCatalog);
                 ValidateCoverPointCatalog(dedicatedBootstrap.CoverPointCatalog);
             }
@@ -615,8 +615,19 @@ namespace CGame.Network
             }
         }
 
-        private void BuildNavigation(Scene levelScene)
+        private void BuildNavigation(Scene levelScene, LevelDefinition definition)
         {
+            if (definition.SceneNavigationData != null)
+            {
+                if (!levelScene.isLoaded || levelScene.path != definition.ScenePath)
+                    throw new InvalidOperationException("Baked navigation requires its authored level scene.");
+                // Loading the scene already registers this data. Do not add a duplicate or
+                // rebuild imported collider meshes whose CPU data is stripped in players.
+                // Route and cover validation below still require usable navigation.
+                Debug.Log($"[DedicatedServer][051] NavigationReady MatchId={launch.MatchId} SceneData={definition.SceneNavigationData.name}");
+                return;
+            }
+
             var sources = new List<NavMeshBuildSource>();
             Bounds bounds = new Bounds(Vector3.zero, new Vector3(1000f, 1000f, 1000f));
             NavMeshBuilder.CollectSources(
