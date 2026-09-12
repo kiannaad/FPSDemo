@@ -266,13 +266,15 @@ namespace CGame.GameplayCue.PlayModeTests
                 Assert.That(snapshots[snapshots.Count - 1].AuthorityServerTick, Is.GreaterThan(snapshots[0].AuthorityServerTick));
             yield return CaptureFormalFrame("patrol.png");
 
-            // Enter the larger arena through real movement messages, not Transform/Motor writes.
+            // Reach the observation point before the initial perception grace ends.
+            // Walking can straddle that boundary depending on UDP/frame scheduling,
+            // legitimately selecting cover for an intermediate, moving target.
             long moveSequence = 0;
             float moveDeadline = Time.realtimeSinceStartup + 30f;
             while (Time.realtimeSinceStartup < moveDeadline && pawn.Transform.position.z < 6f)
             {
                 channel.Send(new PawnMove(18, 100, 1, ++moveSequence, runtime.FixedStepCount,
-                    new QuantizedInput(0, short.MaxValue), new QuantizedView(0, 0), PawnMoveFlags.None,
+                    new QuantizedInput(0, short.MaxValue), new QuantizedView(0, 0), PawnMoveFlags.Sprint,
                     QuantizedVector3.FromMeters(pawn.Transform.position)));
                 channel.PollEvents();
                 yield return new WaitForFixedUpdate();
@@ -301,7 +303,8 @@ namespace CGame.GameplayCue.PlayModeTests
             }
             yield return CaptureFormalFrame("chase.png");
 
-            for (int frame = 0; frame < 2400 && snapshotsByEnemyId.Values.Any(snapshots =>
+            long pistolId = spawnedEnemies.Single(enemy => enemy.ArchetypeId == "Enemy.Pistol").EnemyId;
+            for (int frame = 0; frame < 2400 && snapshotsByEnemyId.Where(pair => pair.Key != pistolId).Select(pair => pair.Value).Any(snapshots =>
                      !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.CoverHold) ||
                      !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire) ||
                      !snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.ReturnToCover)); frame++)
@@ -310,8 +313,26 @@ namespace CGame.GameplayCue.PlayModeTests
                 yield return new WaitForFixedUpdate();
             }
             Assert.That(snapshotsByEnemyId, Has.Count.EqualTo(3));
+            List<EnemySnapshotEvent> pistolSnapshots = snapshotsByEnemyId[pistolId];
+            EnemySnapshotEvent pistolFire = pistolSnapshots.First(snapshot => snapshot.BrainState == EnemyBrainState.Fire);
+            var sceneConfiguration = (IDedicatedServerBootstrapConfiguration)bootstrap.Configuration;
+            var navigation = new UnityEnemyNavPathQuery();
+            var coverSelector = new EnemyCoverSelector(sceneConfiguration.CoverPointCatalog.ValidateForLevel("SampleScene", navigation),
+                navigation, new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers), new CoverReservationRegistry(),
+                new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.45f));
+            float pistolRange = sceneConfiguration.EnemyArchetypeCombatCatalog.Definitions
+                .Single(definition => definition.ArchetypeId == "Enemy.Pistol").FireDefinition.EngagementRange;
+            EnemyCoverSelection pistolCover = coverSelector.SelectAndReserve(pistolId, pistolFire.Position.ToValue().ToMeters(),
+                new EnemyPerceptionCandidate(100, pawn.Transform.position, true, true, pawn.Transform), pistolRange);
+            Assert.That(pistolCover.IsValid, Is.False,
+                "This arena observation must exercise open fire because no reachable concealed firing point is in pistol range.");
+            Assert.That(pistolSnapshots.All(snapshot => string.IsNullOrEmpty(snapshot.CoverPointId)), Is.True,
+                "An enemy without suitable cover must not claim a cover reservation.");
+            Assert.That(pistolSnapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.Fire &&
+                snapshot.PlanarVelocity.ToValue().ToMeters().sqrMagnitude < 0.0001f), Is.True,
+                "Open-ground fire must settle to a stationary authoritative state.");
             var coverPointIds = new HashSet<string>();
-            foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Values)
+            foreach (List<EnemySnapshotEvent> snapshots in snapshotsByEnemyId.Where(pair => pair.Key != pistolId).Select(pair => pair.Value))
             {
                 Assert.That(snapshots.Any(snapshot => snapshot.BrainState == EnemyBrainState.CoverHold), Is.True,
                     "Each enemy must hold its selected cover point through the authoritative Snapshot stream. States=" +
@@ -324,11 +345,16 @@ namespace CGame.GameplayCue.PlayModeTests
                     "Each enemy must replicate ReturnToCover after its PeekFire request.");
                 Assert.That(returnSnapshot.CoverPointId, Is.Not.Empty,
                     "ReturnToCover must retain the enemy's reserved cover identity.");
-                Assert.That(returnSnapshot.PlanarVelocity.ToValue().ToMeters().sqrMagnitude, Is.GreaterThan(0.0001f),
-                    "ReturnToCover must carry a non-stationary authoritative Motor state.");
+                EnemySnapshotEvent peekSnapshot = snapshots.First(snapshot => snapshot.BrainState == EnemyBrainState.PeekFire);
+                Assert.That(returnSnapshot.CoverPointId, Is.EqualTo(peekSnapshot.CoverPointId),
+                    "Lowering the weapon must preserve the selected low-cover reservation.");
+                Assert.That(Vector3.Distance(returnSnapshot.Position.ToValue().ToMeters(), peekSnapshot.Position.ToValue().ToMeters()),
+                    Is.LessThan(0.1f), "Low-cover fire and return must not step out into the open.");
+                Assert.That(returnSnapshot.PlanarVelocity.ToValue().ToMeters().sqrMagnitude, Is.LessThan(0.0001f),
+                    "Returning behind low cover is a posture change at the same stationary Motor position.");
                 EnemySnapshotEvent coverSnapshot = snapshots.First(snapshot => !string.IsNullOrWhiteSpace(snapshot.CoverPointId));
                 Assert.That(coverPointIds.Add(coverSnapshot.CoverPointId), Is.True,
-                    "Three enemies must not share an authored CoverPointId.");
+                    "Covered enemies must not share an authored CoverPointId.");
             }
             yield return CaptureFormalFrame("cover-hold.png");
             yield return CaptureFormalFrame("peek-fire.png");

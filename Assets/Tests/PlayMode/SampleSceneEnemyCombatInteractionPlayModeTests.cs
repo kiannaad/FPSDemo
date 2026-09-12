@@ -20,6 +20,10 @@ namespace CGame.GameplayCue.PlayModeTests
         private OwnerGameplayStateEvent latestVitals;
         private PlayerController controller;
         private Pawn pawn;
+        private Coroutine cueObserver;
+        private EnemyPresentation[] enemies;
+        private float[] distances;
+        private System.Collections.Generic.HashSet<string> muzzleEffects;
 
         [UnitySetUp]
         public IEnumerator SetUp()
@@ -59,6 +63,11 @@ namespace CGame.GameplayCue.PlayModeTests
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             yield return WaitFor(() => instance.RuntimeWorld.IsGameplayReady, 40f, "R input starts Dedicated and reaches GameplayReady");
             yield return WaitFor(() => UnityEngine.Object.FindObjectsOfType<EnemyPresentation>().Length == 3, 10f, "Three authoritative enemies");
+            enemies = UnityEngine.Object.FindObjectsOfType<EnemyPresentation>();
+            var starts = enemies.Select(enemy => enemy.transform.position).ToArray();
+            distances = new float[enemies.Length];
+            muzzleEffects = new System.Collections.Generic.HashSet<string>();
+            cueObserver = instance.StartCoroutine(ObserveEnemyActivity(enemies, muzzleEffects, starts, distances));
             Assert.That(CGame.Ability.Cues.GameplayCueRouter.Current, Is.Not.Null, "The formal World must own its Cue router.");
             Assert.That(CGame.GameplayTags.GameplayTagManager.Instance.TryRequestTag("GameplayCue.Enemy.Fire", out _),
                 Is.True, "The formal Bootstrap must register the enemy Fire Cue tag, not silently skip real fire effects.");
@@ -76,27 +85,25 @@ namespace CGame.GameplayCue.PlayModeTests
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             yield return WaitFor(() => equipment.CurrentWeapon.ItemHandle == controller.QuickBar.Slots[1] &&
                 equipment.CurrentWeapon.IsArmed && !equipment.IsSwitchInProgress, 10f, "Formal rifle selection");
+        }
+
+        private IEnumerator ObserveCombat()
+        {
             InputSystem.QueueStateEvent(mouse, new MouseState().WithButton(MouseButton.Right));
             yield return WaitFor(() => pawn.IsAiming, 3f, "Complete mouse state activates formal right-button Aim");
             InputSystem.QueueStateEvent(mouse, new MouseState());
             yield return WaitFor(() => !pawn.IsAiming, 3f, "Releasing right-button Aim restores normal view");
-            var enemies = UnityEngine.Object.FindObjectsOfType<EnemyPresentation>();
-            var starts = enemies.Select(enemy => enemy.transform.position).ToArray();
-            var distances = new float[enemies.Length];
-            float patrolDeadline = Time.realtimeSinceStartup + 6f;
-            while (Time.realtimeSinceStartup < patrolDeadline)
-            {
-                for (int index = 0; index < enemies.Length; index++)
-                    distances[index] = Mathf.Max(distances[index], Vector3.Distance(starts[index], enemies[index].transform.position));
-                yield return null;
-            }
+            // Retain the observation interval before the right-side approach:
+            // its timing allows all three patrols to enter engagement range.
+            yield return new WaitForSeconds(6f);
             for (int index = 0; index < enemies.Length; index++)
                 Assert.That(distances[index], Is.GreaterThan(1f), enemies[index].name + " must traverse the mainline patrol area.");
-            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W));
+            // The replicated arena has a central plinth ahead. Use the open right
+            // approach so setup does not pin the owner in three crossfire lanes.
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.D));
             yield return new WaitForSeconds(2.5f);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             yield return new WaitForSeconds(.3f);
-            var muzzleEffects = new System.Collections.Generic.HashSet<string>();
             yield return WaitFor(() =>
             {
                 foreach (var enemy in enemies)
@@ -106,9 +113,29 @@ namespace CGame.GameplayCue.PlayModeTests
             }, 20f, "All three archetypes must fire through the real Cue route and spawn their muzzle effect");
         }
 
+        private static IEnumerator ObserveEnemyActivity(EnemyPresentation[] enemies,
+            System.Collections.Generic.HashSet<string> effects, Vector3[] starts, float[] distances)
+        {
+            // Start at spawn: by the time weapon/ADS setup finishes, an enemy
+            // can already have completed its approach and be correctly holding cover.
+            while (true)
+            {
+                for (int index = 0; index < enemies.Length; index++)
+                {
+                    var enemy = enemies[index];
+                    if (enemy == null) continue;
+                    distances[index] = Mathf.Max(distances[index], Vector3.Distance(starts[index], enemy.transform.position));
+                    if (enemy.GetComponentsInChildren<Transform>().Any(value => value.name == "flash(Clone)"))
+                        effects.Add(enemy.name);
+                }
+                yield return null;
+            }
+        }
+
         [UnityTest]
         public IEnumerator EnemyFire_ReachesOwnerDeathAndDisablesFormalGameplayInput()
         {
+            yield return ObserveCombat();
             yield return WaitFor(() => latestVitals != null && latestVitals.Health < latestVitals.MaxHealth, 30f, "Enemy damage to owner");
             Assert.That(pawn.Root.GetComponent<OwnerGameplayHud>().Text, Does.Contain("HP "));
             yield return WaitFor(() => latestVitals.IsDead && latestVitals.Health == 0, 50f, "Authority owner death");
@@ -150,6 +177,7 @@ namespace CGame.GameplayCue.PlayModeTests
         [UnityTest]
         public IEnumerator PlayerFire_ProducesAuthoritativeEnemyHitDeathAndRetirement()
         {
+            yield return ObserveCombat();
             var enemies = UnityEngine.Object.FindObjectsOfType<EnemyPresentation>();
             var camera = pawn.GetComponent<PawnCameraComponent>().Camera;
             EnemyPresentation target = null;
@@ -210,9 +238,22 @@ namespace CGame.GameplayCue.PlayModeTests
             Assert.That(lowest, Is.EqualTo(deathRoot.y).Within(.03f), "The real posed corpse must contact the ground without penetration.");
             Assert.That(Quaternion.Angle(Quaternion.identity, target.VisualRoot.localRotation), Is.GreaterThan(60f));
             yield return WaitFor(() => target == null, 4f, "Enemy death presentation retirement");
+        }
+
+        [UnityTest]
+        public IEnumerator ReloadInput_ReplenishesEquippedWeaponWithoutSendingLobbyReady()
+        {
+            // Validate reload while alive, independently of the lethal crossfire
+            // and corpse-observation scenario whose owner may legitimately die.
             var lobby = (INetworkLobby)instance.RuntimeWorld.GameMode;
             string lobbyStatus = lobby.NetworkStatus;
             var weapon = pawn.GetComponent<EquipmentManagerComponent>().CurrentWeapon;
+            int initialAmmo = weapon.Item.MagazineAmmo;
+            InputSystem.QueueDeltaStateEvent(mouse.leftButton, (byte)1);
+            yield return new WaitForSeconds(.15f);
+            InputSystem.QueueDeltaStateEvent(mouse.leftButton, (byte)0);
+            yield return WaitFor(() => weapon.Item.MagazineAmmo < initialAmmo, 5f,
+                "A real shot creates reloadable space in the magazine");
             int ammoBeforeReload = weapon.Item.MagazineAmmo;
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.R));
             yield return new WaitForSeconds(.15f);
@@ -234,6 +275,7 @@ namespace CGame.GameplayCue.PlayModeTests
         [UnityTearDown]
         public IEnumerator TearDown()
         {
+            if (cueObserver != null && instance != null) instance.StopCoroutine(cueObserver);
             if (keyboard?.added == true) InputSystem.RemoveDevice(keyboard);
             if (mouse?.added == true) InputSystem.RemoveDevice(mouse);
             if (instance != null) instance.ShutdownRuntimeWorld();

@@ -14,6 +14,8 @@ namespace CGame.Network
         private bool isSupport;
         private string capturePath;
         private EnemyPresentation target;
+        private EnemyPresentation observedDeathTarget;
+        private float observedDeathAt;
         private float nextShot;
         private float releaseShotAt;
         private int shots;
@@ -23,6 +25,19 @@ namespace CGame.Network
         private bool capturedFall;
         private bool reloadQueued;
         private float releaseReloadAt;
+        private bool openingComplete;
+        private int openingStage;
+        private float openingStageAt;
+        private int openingSubject = -1;
+        private float nextOpeningTrace;
+        private bool openingEquipQueued;
+        private float openingEquipAt;
+        private int observationPoint;
+        private readonly Vector3[] observationRoute =
+        {
+            new Vector3(8f, 0f, 4f), new Vector3(5f, 0f, 1f),
+            new Vector3(-5f, 0f, 1f), new Vector3(-8f, 0f, 6f)
+        };
 
         public static bool IsEnabledByCommandLine() =>
             Array.Exists(Environment.GetCommandLineArgs(), argument => argument == "-network-pve-input-route");
@@ -40,40 +55,18 @@ namespace CGame.Network
             if (!Application.isFocused || GetComponent<GameInstance>()?.RuntimeWorld?.IsGameplayReady != true ||
                 Keyboard.current == null) return;
             elapsed += Time.unscaledDeltaTime;
-            float advanceAt = isSupport ? 20f : 24f;
-            float advanceDuration = isSupport ? 4f : 2.5f;
-            int nextPhase = elapsed < 2f ? 0 : elapsed < 2.2f ? 1 :
-                !isSupport && elapsed >= 4f && elapsed < 5.2f ? 5 :
-                elapsed < advanceAt ? 2 : elapsed < advanceAt + advanceDuration ? 3 :
-                !isSupport && elapsed >= 30f && elapsed < 33.2f ? 6 : 4;
-            if (nextPhase != phase)
+            if (!openingComplete)
             {
-                phase = nextPhase;
-                Key[] keys = phase == 1 ? new[] { Key.Digit2 } : phase == 3 ? new[] { Key.W } :
-                    phase == 5 ? new[] { Key.A } : phase == 6 ? new[] { Key.D } : Array.Empty<Key>();
-                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(keys));
+                driveOpeningObservation();
+                return;
+            }
+            if (phase != 4)
+            {
+                phase = 4;
+                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
                 Debug.Log($"[Network][070] PveInput Role={(isSupport ? "Support" : "Lead")} Phase={phase} Focused={Application.isFocused}");
-                if (phase == 3 || phase == 4) capture("phase" + phase);
+                capture("phase" + phase);
             }
-            Camera camera = Camera.allCameras.OrderByDescending(candidate => candidate.depth).FirstOrDefault();
-            if (camera != null && Mouse.current != null && elapsed >= 6f && elapsed < (isSupport ? 36f : 40f))
-            {
-                Vector3 direction = Vector3.forward * 10f;
-                if (!isSupport && elapsed < 20f)
-                {
-                    EnemyPresentation[] patrols = FindObjectsOfType<EnemyPresentation>().OrderBy(enemy => enemy.name).ToArray();
-                    int index = Mathf.Min((int)((elapsed - 6f) / 4.5f), patrols.Length - 1);
-                    if (index >= 0) direction = patrols[index].transform.position + Vector3.up * 1.3f - camera.transform.position;
-                }
-                else if (!isSupport && elapsed >= 33.5f)
-                {
-                    EnemyPresentation ak = FindObjectsOfType<EnemyPresentation>()
-                        .FirstOrDefault(enemy => !enemy.IsDead && enemy.name.Contains("Ak"));
-                    if (ak != null) direction = ak.transform.position + Vector3.up * 1.3f - camera.transform.position;
-                }
-                aim(camera, direction, 1.5f);
-            }
-            if (phase != 4) return;
             driveCombat();
             if (elapsed < 64f) return;
             capture("complete");
@@ -94,18 +87,35 @@ namespace CGame.Network
                 InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
                 releaseReloadAt = 0f;
             }
-            if (elapsed < (isSupport ? 37f : 40f)) return;
+            if (elapsed < 3f) return;
             Camera camera = Camera.allCameras.OrderByDescending(candidate => candidate.depth).FirstOrDefault();
             if (camera == null) return;
-            if (sawDeath && elapsed >= deathSeenAt + 3f)
+            if (target != null && target.IsDead && observedDeathTarget != target)
             {
-                string observedVariant = elapsed < deathSeenAt + 8f ? "Rifle" : "Ak";
-                if (target == null || !target.name.Contains(observedVariant))
+                observedDeathTarget = target;
+                observedDeathAt = elapsed;
+                Debug.Log($"[Network][077] ObserveDeath Name={target.name} Elapsed={elapsed:F2}");
+            }
+            bool observingDeath = target != null && target.IsDead && elapsed < observedDeathAt + 1.5f;
+            if (!observingDeath && sawDeath && elapsed >= deathSeenAt + 8f)
+            {
+                // A protected observation subject must not monopolize self-defence
+                // while a closer, visible enemy continues firing at the owner.
+                EnemyPresentation threat = FindObjectsOfType<EnemyPresentation>()
+                    .Where(enemy => !enemy.IsDead && hasClearAim(camera, enemy))
+                    .OrderBy(enemy => Vector3.Distance(camera.transform.position, enemy.transform.position)).FirstOrDefault();
+                if (threat != null && target != threat)
                 {
-                    target = FindObjectsOfType<EnemyPresentation>()
-                        .FirstOrDefault(enemy => !enemy.IsDead && enemy.name.Contains(observedVariant));
-                    if (target != null) Debug.Log($"[Network][070] PveObserve Name={target.name} Elapsed={elapsed:F2}");
+                    target = threat;
+                    Debug.Log($"[Network][077] DefendTarget Name={target.name} Elapsed={elapsed:F2}");
                 }
+            }
+            if (!observingDeath && sawDeath && elapsed >= deathSeenAt + 3f && (target == null || target.IsDead))
+            {
+                target = FindObjectsOfType<EnemyPresentation>().Where(enemy => !enemy.IsDead)
+                    .OrderByDescending(enemy => enemy.name.Contains("Rifle"))
+                    .ThenBy(enemy => Vector3.Distance(camera.transform.position, enemy.transform.position)).FirstOrDefault();
+                if (target != null) Debug.Log($"[Network][070] PveObserve Name={target.name} Elapsed={elapsed:F2}");
             }
             if (target == null && (!sawDeath || elapsed >= deathSeenAt + 3f))
             {
@@ -124,7 +134,7 @@ namespace CGame.Network
                 }
                 Vector3 direction = target.transform.position + Vector3.up * (target.IsDead ? .25f : 1.3f) - camera.transform.position;
                 Vector2 aimError = aim(camera, direction, 1.5f);
-                bool advance = !isSupport && !sawDeath && !target.IsDead && direction.magnitude > 6f &&
+                bool advance = openingComplete && !isSupport && !sawDeath && !target.IsDead && direction.magnitude > 14f &&
                     elapsed < 50f && Mathf.Abs(aimError.x) < 8f && hasClearAim(camera, target);
                 if (advance != approaching)
                 {
@@ -137,7 +147,10 @@ namespace CGame.Network
                     capturedFall = true;
                     capture("fallen");
                 }
-                if (!advance && (isSupport || direction.magnitude <= 6.5f) && !sawDeath && !target.IsDead && (!isSupport || shots < 3) && elapsed >= nextShot &&
+                // Observe one complete cover burst before resuming normal self-defence.
+                // The recording driver must not stop fighting permanently after its first kill.
+                bool canDefend = !sawDeath || elapsed >= deathSeenAt + 8f;
+                if (!advance && (!openingComplete || isSupport || sawDeath || direction.magnitude <= 14.5f) && canDefend && !target.IsDead && (!isSupport || shots < 3) && elapsed >= nextShot &&
                     Mathf.Abs(aimError.x) < 1f && Mathf.Abs(aimError.y) < 1f && hasClearAim(camera, target))
                 {
                     InputSystem.QueueDeltaStateEvent(mouse.leftButton, (byte)1);
@@ -154,6 +167,121 @@ namespace CGame.Network
                 InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(Key.R));
                 Debug.Log("[Network][070] PveReloadInput");
             }
+            if (openingComplete && !isSupport && sawDeath && elapsed >= deathSeenAt + 3f && releaseReloadAt <= 0f)
+                moveToObservationPoint(camera);
+        }
+
+        private void driveOpeningObservation()
+        {
+            Camera camera = Camera.allCameras.OrderByDescending(candidate => candidate.depth).FirstOrDefault();
+            if (camera == null || Mouse.current == null) return;
+            if (openingStage == 0)
+            {
+                EnemyPresentation patrolSubject = FindObjectsOfType<EnemyPresentation>()
+                    .FirstOrDefault(enemy => enemy.name.Contains(isSupport ? "Ak" : "Rifle"));
+                if (patrolSubject != null)
+                {
+                    aim(camera, patrolSubject.transform.position + Vector3.up - camera.transform.position, 3f);
+                    traceOpeningSubject(camera, patrolSubject);
+                }
+                if (!moveToPoint(camera, new Vector3(isSupport ? 2f : -2f, 0f, -8f), true)) return;
+                openingStage = 1;
+                openingStageAt = elapsed;
+                Debug.Log($"[Network][077] OpeningVantage Role={(isSupport ? "Support" : "Lead")} Position={camera.transform.position:F3} Elapsed={elapsed:F2}");
+                return;
+            }
+            if (openingStage == 1)
+            {
+                // Direct slot selection rejects running intent or residual speed.
+                // Release movement, let the motor brake, then select and arm normally.
+                float resting = elapsed - openingStageAt;
+                if (resting < .5f)
+                {
+                    InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+                    return;
+                }
+                if (!openingEquipQueued)
+                {
+                    openingEquipQueued = true;
+                    openingEquipAt = elapsed;
+                    InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(Key.Digit2));
+                    Debug.Log($"[Network][077] OpeningEquipInput Elapsed={elapsed:F2}");
+                    return;
+                }
+                if (elapsed - openingEquipAt < 1.5f)
+                {
+                    if (elapsed - openingEquipAt >= .2f)
+                        InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+                    return;
+                }
+                if (isSupport)
+                {
+                    openingComplete = true;
+                    return;
+                }
+                driveCombat();
+                if (!sawDeath || elapsed < deathSeenAt + 3f) return;
+                openingStage = 2;
+                openingStageAt = elapsed;
+                InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+            }
+            if (openingStage == 2)
+            {
+                float observing = elapsed - openingStageAt;
+                int subject = observing < 6f ? 0 : 1;
+                EnemyPresentation enemy = FindObjectsOfType<EnemyPresentation>()
+                    .FirstOrDefault(candidate => !candidate.IsDead && candidate.name.Contains(subject == 0 ? "Rifle" : "Ak"));
+                if (enemy != null)
+                {
+                    aim(camera, enemy.transform.position + Vector3.up - camera.transform.position, 3f);
+                    traceOpeningSubject(camera, enemy);
+                    if (openingSubject != subject)
+                    {
+                        openingSubject = subject;
+                        Debug.Log($"[Network][077] OpeningObserve Name={enemy.name} State={enemy.RemoteAnimationState.BrainState} Elapsed={elapsed:F2}");
+                    }
+                }
+                if (observing < 12f) return;
+                openingStage = 3;
+            }
+            if (!moveToPoint(camera, new Vector3(0f, 0f, 3f), true)) return;
+            openingComplete = true;
+            Debug.Log($"[Network][077] OpeningComplete Position={camera.transform.position:F3} Elapsed={elapsed:F2}");
+        }
+
+        private void moveToObservationPoint(Camera camera)
+        {
+            var controller = GetComponent<GameInstance>()?.RuntimeWorld?.GameMode?.PlayerController;
+            if (controller?.PossessedActor == null) return;
+            // The owner camera provides the planar observation origin without
+            // coupling this input adapter to the concrete character assembly.
+            Vector3 position = camera.transform.position;
+            while (observationPoint < observationRoute.Length &&
+                Vector3.ProjectOnPlane(observationRoute[observationPoint] - position, Vector3.up).magnitude < .7f)
+            {
+                Debug.Log($"[Network][077] ObservationPoint Reached={observationPoint} Position={position:F3} Elapsed={elapsed:F2}");
+                observationPoint++;
+            }
+            if (observationPoint < observationRoute.Length) moveToPoint(camera, observationRoute[observationPoint], false);
+            else InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState());
+        }
+
+        private bool moveToPoint(Camera camera, Vector3 destination, bool sprint)
+        {
+            var controller = GetComponent<GameInstance>()?.RuntimeWorld?.GameMode?.PlayerController;
+            if (controller?.PossessedActor == null) return false;
+            Vector3 delta = Vector3.ProjectOnPlane(destination - camera.transform.position, Vector3.up);
+            bool arrived = delta.magnitude < .7f;
+            var keys = new System.Collections.Generic.List<Key>();
+            if (!arrived)
+            {
+                Vector3 local = Quaternion.Inverse(Quaternion.Euler(0f, controller.ControlYaw, 0f)) * delta;
+                if (Mathf.Abs(local.x) > .4f) keys.Add(local.x > 0f ? Key.D : Key.A);
+                if (Mathf.Abs(local.z) > .4f) keys.Add(local.z > 0f ? Key.W : Key.S);
+                if (sprint) keys.Add(Key.LeftShift);
+            }
+            InputSystem.QueueStateEvent(Keyboard.current, new KeyboardState(keys.ToArray()));
+            return arrived;
         }
 
         private static Vector2 aim(Camera camera, Vector3 direction, float maximumDelta)
@@ -167,9 +295,17 @@ namespace CGame.Network
             return error;
         }
 
-        private static bool hasClearAim(Camera camera, EnemyPresentation enemy)
+        private void traceOpeningSubject(Camera camera, EnemyPresentation enemy)
         {
-            Vector3 direction = enemy.transform.position + Vector3.up * 1.3f - camera.transform.position;
+            if (elapsed < nextOpeningTrace) return;
+            nextOpeningTrace = elapsed + .5f;
+            Vector3 viewport = camera.WorldToViewportPoint(enemy.transform.position + Vector3.up);
+            Debug.Log($"[Network][077] OpeningSubject Name={enemy.name} Elapsed={elapsed:F2} State={enemy.RemoteAnimationState.BrainState} Speed={enemy.RemoteAnimationState.Speed:F2} Position={enemy.transform.position:F2} Viewport={viewport:F2} FeetClear={hasClearAim(camera, enemy, .2f)}");
+        }
+
+        private static bool hasClearAim(Camera camera, EnemyPresentation enemy, float height = 1.3f)
+        {
+            Vector3 direction = enemy.transform.position + Vector3.up * height - camera.transform.position;
             return !Physics.RaycastAll(camera.transform.position, direction.normalized, direction.magnitude - .2f,
                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore).Any(hit =>
                 !hit.transform.IsChildOf(camera.transform.root) && !hit.transform.IsChildOf(enemy.transform));
