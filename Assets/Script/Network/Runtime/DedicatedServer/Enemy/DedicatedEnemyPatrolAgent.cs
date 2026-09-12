@@ -13,6 +13,7 @@ namespace CGame.Network
         private readonly EnemyBrain brain;
         private readonly DedicatedEnemyMotorSimulation motor;
         private readonly DedicatedEnemyFireResolver fireResolver;
+        private readonly UnityEnemyPerceptionQuery firingPerception;
         private EnemyBrainOutput pendingOutput;
         private int stationaryTicks;
         private bool isNoAmmo;
@@ -26,11 +27,14 @@ namespace CGame.Network
             this.entity = entity ?? throw new ArgumentNullException(nameof(entity));
             if (entity.MotorPawn == null) throw new InvalidOperationException("Dedicated patrol requires a motor Pawn.");
             var navigation = new UnityEnemyNavPathQuery();
-            var perception = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers);
+            var perception = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.6f, includeUpperTarget: true);
+            firingPerception = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, muzzleHeight,
+                includeUpperTarget: true);
             EnemyCoverSelector selector = coverPoints == null || coverReservations == null
                 ? null
-                : new EnemyCoverSelector(coverPoints, navigation, perception, coverReservations,
-                    new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, muzzleHeight));
+                : new EnemyCoverSelector(coverPoints, navigation,
+                    new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1f, includeUpperTarget: true), coverReservations,
+                    firingPerception);
             brain = new EnemyBrain(definition, navigation, perception, selector, entity.EnemyId);
             motor = new DedicatedEnemyMotorSimulation(entity.MotorPawn);
             fireResolver = new DedicatedEnemyFireResolver(definition.FireDefinition);
@@ -96,7 +100,7 @@ namespace CGame.Network
             if (!WantsToFire || target.PawnId != TargetPawnId) return default;
             DedicatedEnemyMotorState state = motor.Capture();
             Vector3 muzzleOrigin = state.Position + Vector3.up * muzzleHeight;
-            Vector3 aimPoint = target.Position + Vector3.up;
+            if (!firingPerception.TryGetVisibleTargetPoint(state.Position, target, out Vector3 aimPoint)) return default;
             EnemyFireResolution result = fireResolver.TryResolve(
                 serverTick,
                 muzzleOrigin,

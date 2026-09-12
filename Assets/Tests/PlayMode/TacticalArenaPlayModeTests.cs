@@ -45,9 +45,111 @@ namespace CGame.GameplayCue.PlayModeTests
         [UnityTest]
         public IEnumerator PlayerCombat_ApproachesFromSouth() => ObserveCombat(true, 2);
 
-        private IEnumerator ObserveCombat(bool finalAcceptance, int approach = 0)
+        [UnityTest]
+        public IEnumerator CoverSide_PeeksAndReturnsWithoutLeavingProtectedCorner() => ObserveCombat(true, 3);
+
+        [UnityTest]
+        public IEnumerator CoverFlank_ObservesRifleAtCloseRangeThroughFormalMovement() => ObserveCloseRange("Rifle",
+            new[] { new Vector3(-8, 0, 8), new Vector3(-14, 0, 9), new Vector3(-16, 0, 14) });
+
+        [UnityTest]
+        public IEnumerator Combat_ObservesPistolAtCloseRangeThroughFormalMovement() => ObserveCloseRange("Pistol",
+            new[] { new Vector3(-8, 0, 2), new Vector3(-12, 0, 3) });
+
+        [UnityTest]
+        public IEnumerator Combat_ObservesAkAtCloseRangeThroughFormalMovement() => ObserveCloseRange("Ak",
+            new[] { new Vector3(8, 0, 8), new Vector3(14, 0, 9), new Vector3(16, 0, 14) });
+
+        private IEnumerator ObserveCloseRange(string variant, Vector3[] route)
         {
             yield return StartArena();
+            mouse = InputSystem.AddDevice<Mouse>();
+            var controller = (PlayerController)instance.RuntimeWorld.GameMode.PlayerController;
+            var pawn = controller.PossessedPawn;
+            var camera = pawn.GetComponent<PawnCameraComponent>().Camera;
+            EnemyPresentation subject = null;
+            foreach (var enemy in UnityEngine.Object.FindObjectsOfType<EnemyPresentation>())
+                if (enemy.name.Contains(variant)) subject = enemy;
+            Assert.That(subject, Is.Not.Null);
+            string directory = Path.GetFullPath(Path.Combine(Application.dataPath,
+                "../../.harness/runs/EnemyCombatBugfix-078-20260912/close-" + variant + "-" + DateTime.Now.ToString("HHmmss")));
+            Directory.CreateDirectory(directory);
+            capture = instance.StartCoroutine(CaptureFrames(directory, 25f));
+            var trace = new System.Text.StringBuilder();
+            float started = Time.realtimeSinceStartup;
+            float nextSample = 0f;
+            bool reachedNear = false;
+            bool sawFire = false;
+            int waypoint = 0;
+            while (Time.realtimeSinceStartup - started < 25f)
+            {
+                if (!Application.isFocused) { window.Focus(); yield return null; continue; }
+                float elapsed = Time.realtimeSinceStartup - started;
+                Vector3 direction = subject.transform.position + Vector3.up * 1.4f - camera.transform.position;
+                float yaw = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
+                float pitch = -Mathf.Atan2(direction.y, new Vector2(direction.x, direction.z).magnitude) * Mathf.Rad2Deg;
+                InputSystem.QueueDeltaStateEvent(mouse.delta, new Vector2(
+                    Mathf.Clamp(Mathf.DeltaAngle(controller.ControlYaw, yaw), -3, 3),
+                    Mathf.Clamp(controller.ControlPitch - pitch, -3, 3)));
+                Vector3 delta = Vector3.ProjectOnPlane(route[waypoint] - pawn.Transform.position, Vector3.up);
+                if (delta.magnitude < .7f && waypoint < route.Length - 1) waypoint++;
+                Vector3 local = Quaternion.Inverse(Quaternion.Euler(0, controller.ControlYaw, 0)) * delta;
+                var keys = new System.Collections.Generic.List<Key>();
+                if (delta.magnitude >= .7f)
+                {
+                    if (Mathf.Abs(local.x) > .4f) keys.Add(local.x > 0 ? Key.D : Key.A);
+                    if (Mathf.Abs(local.z) > .4f) keys.Add(local.z > 0 ? Key.W : Key.S);
+                    keys.Add(Key.LeftShift);
+                }
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys.ToArray()));
+                reachedNear |= direction.magnitude < 5f;
+                sawFire |= subject.LastConfirmedAction == EnemyActionKind.Fire;
+                if (elapsed >= nextSample)
+                {
+                    var state = subject.RemoteAnimationState;
+                    trace.AppendLine($"{elapsed:F3} owner={pawn.Transform.position:F3} enemy={subject.transform.position:F3} state={state.BrainState} speed={state.Speed:F3} action={subject.LastConfirmedAction} waypoint={waypoint} distance={direction.magnitude:F3}");
+                    nextSample = elapsed + .2f;
+                }
+                yield return null;
+            }
+            File.WriteAllText(Path.Combine(directory, "flank-trace.txt"), trace.ToString());
+            Debug.Log($"[Enemy078Flank] near={reachedNear} fire={sawFire} waypoint={waypoint} evidence={directory}");
+            Assert.That(reachedNear, Is.True, "Formal input must reach a close observation distance.");
+            Assert.That(sawFire, Is.True, "Observe a server-confirmed enemy shot, not only an aim state.");
+        }
+
+        [UnityTest]
+        public IEnumerator EnemyFactory_InitialMotorPoseMatchesReservedSpawnBeforeFirstTick()
+        {
+            yield return StartArena();
+            var bootstrap = (GameBootstrap)instance.Configuration;
+            var level = new LevelRuntime(bootstrap.LevelDefinition, SceneManager.GetActiveScene());
+            var parent = new GameObject("EnemySpawnPoseVerification");
+            try
+            {
+                var factory = new DedicatedEnemyRosterFactory(level, parent.transform, bootstrap.PlayerPawnDefinition);
+                var entry = bootstrap.EnemyRosterDefinition.Entries[1];
+                using (var reservation = factory.Reserve(entry))
+                using (var created = factory.Create(entry, reservation))
+                {
+                    var entity = parent.GetComponentInChildren<DedicatedEnemyEntity>(true);
+                    var motorState = new DedicatedEnemyMotorSimulation(entity.MotorPawn).Capture();
+                    Assert.That(entity.transform.position.magnitude, Is.GreaterThan(1f));
+                    Assert.That(Vector3.Distance(motorState.Position, entity.transform.position), Is.LessThan(.001f),
+                        "AI must perceive from its reserved spawn, not the prefab's old origin, before the first physics tick.");
+                    Assert.That(Quaternion.Angle(motorState.Rotation, entity.transform.rotation), Is.LessThan(.1f));
+                }
+            }
+            finally
+            {
+                level.Shutdown();
+                UnityEngine.Object.DestroyImmediate(parent);
+            }
+        }
+
+        private IEnumerator ObserveCombat(bool finalAcceptance, int approach = 0)
+        {
+            yield return StartArena(approach == 3);
             mouse = InputSystem.AddDevice<Mouse>();
             var controller = (PlayerController)instance.RuntimeWorld.GameMode.PlayerController;
             var pawn = controller.PossessedPawn;
@@ -71,6 +173,9 @@ namespace CGame.GameplayCue.PlayModeTests
             var observedPeek = new System.Collections.Generic.HashSet<EnemyPresentation>();
             bool sawStationaryFire = false;
             bool sawReturn = false;
+            bool sawSidePeek = false;
+            bool sawSideReturn = false;
+            var sidePeekingEnemies = new System.Collections.Generic.HashSet<EnemyPresentation>();
             float start = Time.realtimeSinceStartup;
             float nextSample = 0f;
             bool sawPlayerHit = false;
@@ -92,7 +197,7 @@ namespace CGame.GameplayCue.PlayModeTests
                 trace.AppendLine($"  ownerFireConfirmed pawn={shot.PawnId} sequence={shot.ShotSequence} tick={shot.ServerTick} hitEnemy={shot.HitEnemyId} ammo={shot.AuthoritativeMagazineAmmo}");
             };
             observedNetwork.FireCommittedReceived += fireObserver;
-            Vector3 approachPoint = approach == 0 ? new Vector3(8, 0, 6) :
+            Vector3 approachPoint = approach == 3 ? new Vector3(7.5f, 0, 5.4f) : approach == 0 ? new Vector3(8, 0, 6) :
                 approach == 1 ? new Vector3(-8, 0, 6) : new Vector3(0, 0, -5);
             bool reachedApproach = false;
             float movementStartedAt = -1f;
@@ -119,10 +224,25 @@ namespace CGame.GameplayCue.PlayModeTests
                         // and can fall between snapshots. Verify its resulting
                         // concealed position and rest, not just that transient enum.
                         if (observedPeek.Contains(enemy) && concealment.TryGetValue(enemy, out var hidden))
+                        {
                             sawReturn |= Vector3.Distance(hidden, enemy.transform.position) < .2f && state.Speed <= .05f;
+                            sawSideReturn |= sidePeekingEnemies.Contains(enemy) && Vector3.Distance(hidden, enemy.transform.position) < .2f && state.Speed <= .05f;
+                        }
                         concealment[enemy] = enemy.transform.position;
                     }
-                    if (state.IsPeeking) observedPeek.Add(enemy);
+                    if (state.IsPeeking)
+                    {
+                        observedPeek.Add(enemy);
+                        if (concealment.TryGetValue(enemy, out var hidden))
+                        {
+                            float peekDistance = Vector3.Distance(hidden, enemy.transform.position);
+                            if (peekDistance > .25f && peekDistance <= 1.1f && state.Speed <= .05f)
+                            {
+                                sawSidePeek = true;
+                                sidePeekingEnemies.Add(enemy);
+                            }
+                        }
+                    }
                     if (state.BrainState == EnemyBrainState.ReturnToCover) sawReturn = true;
                     if (enemy.LastConfirmedAction == EnemyActionKind.Fire) fired.Add(enemy);
                     sawPlayerHit |= enemy.LastConfirmedAction == EnemyActionKind.Hit || enemy.IsDead;
@@ -140,6 +260,13 @@ namespace CGame.GameplayCue.PlayModeTests
                         Vector3 rightFoot = enemy.Animator.GetBoneTransform(HumanBodyBones.RightFoot).position;
                         trace.AppendLine($"  grounded={state.IsGrounded} leftFoot={leftFoot:F3} rightFoot={rightFoot:F3} moveX={enemy.Animator.GetFloat("MoveX"):F3} moveY={enemy.Animator.GetFloat("MoveY"):F3} peeking={state.IsPeeking} aiming={state.IsAiming}");
                         trace.AppendLine($"  focused={Application.isFocused} keyboard={keyboard.deviceId}/{Keyboard.current?.deviceId} enabled={keyboard.enabled} mouse={mouse.deviceId}/{Mouse.current?.deviceId}");
+                        if (approach == 3 && enemy.name.Contains("Rifle"))
+                        {
+                            var candidate = new EnemyPerceptionCandidate(ownerPawnId, pawn.Transform.position, true, true, pawn.Transform);
+                            bool visible = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.6f, includeUpperTarget: true)
+                                .TryGetVisibleTargetPoint(enemy.transform.position, candidate, out Vector3 visiblePoint);
+                            trace.AppendLine($"  sight078={visible} point={visiblePoint:F3}");
+                        }
                         previous[enemy] = state.BrainState;
                     }
                 }
@@ -148,7 +275,7 @@ namespace CGame.GameplayCue.PlayModeTests
                     ScreenCapture.CaptureScreenshot(Path.Combine(directory, $"combat-{Mathf.FloorToInt(elapsed):D2}.png"));
                     nextSample = elapsed + 2f;
                 }
-                if (finalAcceptance && sawReturn)
+                if (finalAcceptance && (sawReturn || approach == 3))
                 {
                     // Observe a complete stable-target cover cycle before changing
                     // its sight lines/range with the approach route under test.
@@ -159,13 +286,16 @@ namespace CGame.GameplayCue.PlayModeTests
                     if (approach == 1) waypoint.x = -waypoint.x;
                     if (approach == 2)
                         waypoint = movementElapsed < 4 ? new Vector3(0, 0, -1) : movementElapsed < 22 ? approachPoint : new Vector3(2, 0, 1);
+                    if (approach == 3) waypoint = approachPoint;
                     Vector3 local = Quaternion.Inverse(Quaternion.Euler(0, controller.ControlYaw, 0)) *
                         Vector3.ProjectOnPlane(waypoint - pawn.Transform.position, Vector3.up);
                     var keys = new System.Collections.Generic.List<Key>();
-                    if (local.magnitude > .5f)
+                    float arrivalDistance = approach == 3 ? .1f : .5f;
+                    float axisTolerance = approach == 3 ? .04f : .4f;
+                    if (local.magnitude > arrivalDistance)
                     {
-                        if (Mathf.Abs(local.x) > .4f) keys.Add(local.x > 0 ? Key.D : Key.A);
-                        if (Mathf.Abs(local.z) > .4f) keys.Add(local.z > 0 ? Key.W : Key.S);
+                        if (Mathf.Abs(local.x) > axisTolerance) keys.Add(local.x > 0 ? Key.D : Key.A);
+                        if (Mathf.Abs(local.z) > axisTolerance) keys.Add(local.z > 0 ? Key.W : Key.S);
                     }
                     InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys.ToArray()));
                 }
@@ -196,6 +326,7 @@ namespace CGame.GameplayCue.PlayModeTests
                     // participant. Other exposed threats can still be engaged.
                     if (finalAcceptance && (sawReturn || (!focus.RemoteAnimationState.IsInCover &&
                         focus.RemoteAnimationState.BrainState != EnemyBrainState.TakeCover)) && elapsed >= nextShot &&
+                        (approach != 3 || !focus.name.Contains("Rifle") || sawSideReturn) &&
                         Mathf.Abs(Mathf.DeltaAngle(controller.ControlYaw, yaw)) < 2f && Mathf.Abs(controller.ControlPitch - pitch) < 2f)
                     {
                         InputSystem.QueueDeltaStateEvent(mouse.leftButton, (byte)1);
@@ -218,6 +349,11 @@ namespace CGame.GameplayCue.PlayModeTests
             Assert.That(covered.Count, Is.GreaterThanOrEqualTo(1), "An enemy actually reaches concealment.");
             Assert.That(sawReturn, Is.True, "A peek is followed by physical return.");
             Assert.That(sawStationaryFire, Is.True, "A firing enemy settles into stationary aim.");
+            if (approach == 3)
+            {
+                Assert.That(sawSidePeek, Is.True, "Observe a physical side peek of .25 to 1.1 metres, not a same-position low-cover pose.");
+                Assert.That(sawSideReturn, Is.True, "The side peek must return to its observed protected corner.");
+            }
             if (finalAcceptance)
             {
                 Assert.That(sawPlayerHit && confirmedOwnerHit, Is.True,
@@ -249,7 +385,7 @@ namespace CGame.GameplayCue.PlayModeTests
             }
         }
 
-        private IEnumerator StartArena()
+        private IEnumerator StartArena(bool sideApproach = false)
         {
             movingEnemies.Clear();
             if (World.Current != null)
@@ -288,8 +424,35 @@ namespace CGame.GameplayCue.PlayModeTests
             var pawn = ((PlayerController)instance.RuntimeWorld.GameMode.PlayerController).PossessedPawn;
             Vector3 before = pawn.Transform.position;
             Debug.Log($"[Arena076Input] Before move focused={Application.isFocused} keyboard={keyboard.deviceId}/{Keyboard.current?.deviceId} enabled={keyboard.enabled} pos={before:F3}");
-            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W));
-            yield return new WaitForSeconds(.5f);
+            if (sideApproach)
+            {
+                // The first visible, in-range patrol position must have usable
+                // side cover. This stationary lane meets that complete contract;
+                // moving across (6, 6) depended on equip and patrol timing.
+                foreach (Vector3 waypoint in new[] { new Vector3(7.5f, 0, before.z), new Vector3(7.5f, 0, 5.4f) })
+                {
+                    float deadline = Time.realtimeSinceStartup + 8f;
+                    while (Vector3.ProjectOnPlane(waypoint - pawn.Transform.position, Vector3.up).magnitude > .05f &&
+                        Time.realtimeSinceStartup < deadline)
+                    {
+                        Vector3 delta = waypoint - pawn.Transform.position;
+                        var keys = new System.Collections.Generic.List<Key>();
+                        if (Mathf.Abs(delta.x) > Mathf.Abs(delta.z)) keys.Add(delta.x > 0 ? Key.D : Key.A);
+                        else keys.Add(delta.z > 0 ? Key.W : Key.S);
+                        if (new Vector2(delta.x, delta.z).magnitude > 2f) keys.Add(Key.LeftShift);
+                        InputSystem.QueueStateEvent(keyboard, new KeyboardState(keys.ToArray()));
+                        yield return null;
+                    }
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                    Assert.That(Vector3.ProjectOnPlane(waypoint - pawn.Transform.position, Vector3.up).magnitude,
+                        Is.LessThan(.1f), "Formal input reaches the side observation waypoint.");
+                }
+            }
+            else
+            {
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W));
+                yield return new WaitForSeconds(.5f);
+            }
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             yield return new WaitForSeconds(.25f);
             Debug.Log($"[Arena076Input] After move focused={Application.isFocused} keyboard={keyboard.deviceId}/{Keyboard.current?.deviceId} enabled={keyboard.enabled} pos={pawn.Transform.position:F3}");

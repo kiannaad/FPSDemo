@@ -100,10 +100,6 @@ namespace CGame.Network
         // Keep perception wide enough to reacquire the possessed pawn after the
         // initial patrol window; firing remains constrained by engagementRange.
         private const float PerceptionRange = 12f;
-        // The three enemies spawn close to the possessed player in SampleScene.
-        // Give their replicated presentations time to spawn and visibly traverse
-        // their authored routes before perception may transition into combat.
-        private const long InitialPatrolTicks = 180;
         private const long LostSightGraceTicks = 120;
         private const long CoverEngagementGraceTicks = 600;
         private const long CoverReselectionCooldownTicks = 30;
@@ -142,7 +138,8 @@ namespace CGame.Network
             definition.Validate();
             patrol = new EnemyPatrolController(definition.PatrolRoute);
             navigation = new EnemyNavPathComponent(navigationQuery, retryIntervalTicks: 30);
-            perception = perceptionQuery ?? new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers);
+            perception = perceptionQuery ?? new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.6f,
+                includeUpperTarget: true);
             combatMovement = new EnemyCombatMovement(navigationQuery, definition.FireDefinition.EngagementRange, enemyId, perception);
             engagementRange = definition.FireDefinition.EngagementRange;
             this.coverSelector = coverSelector;
@@ -200,13 +197,6 @@ namespace CGame.Network
             if (serverTick < 0) throw new ArgumentOutOfRangeException(nameof(serverTick));
             lastTick = serverTick;
             lastCoverValidationFailure = EnemyCoverValidationFailure.None;
-            if (serverTick <= InitialPatrolTicks)
-            {
-                state = EnemyBrainState.Patrol;
-                targetPawnId = 0;
-                patrol.AdvanceIfArrived(motorState.Position);
-                return BuildMovement(serverTick, motorState.Position, patrol.CurrentTarget, EnemyMoveTargetKind.PatrolRoutePoint);
-            }
             if (coverSelection.IsValid && !coverSelector.HasReservation(enemyId, coverSelection))
                 return FallBackFromInvalidCover(serverTick, motorState.Position, lastKnownTargetPosition,
                     EnemyCoverValidationFailure.ReservationLost);
@@ -219,7 +209,7 @@ namespace CGame.Network
                 bool seesFromFiringPose = state == EnemyBrainState.PeekFire && IsStopped(motorState) &&
                     IsAt(motorState.Position, coverSelection.PeekPosition, coverSelection.ReservationRadius) &&
                     coverSelector.HasFiringLineOfSight(motorState.Position, retainedTarget);
-                if (seesFromFiringPose || perception.HasLineOfSight(motorState.Position, retainedTarget))
+                if (seesFromFiringPose || coverSelector.HasConcealedLineOfSight(motorState.Position, retainedTarget))
                 {
                     lastKnownTargetPosition = retainedTarget.Position;
                     lastSeenTargetTick = serverTick;
@@ -602,8 +592,10 @@ namespace CGame.Network
         private readonly LayerMask obstacleMask;
         private readonly float originHeight;
         private readonly float targetHeight;
+        private readonly bool includeUpperTarget;
 
-        public UnityEnemyPerceptionQuery(LayerMask obstacleMask, float originHeight = 1f, float targetHeight = 1f)
+        public UnityEnemyPerceptionQuery(LayerMask obstacleMask, float originHeight = 1f, float targetHeight = 1f,
+            bool includeUpperTarget = false)
         {
             this.obstacleMask = obstacleMask;
             if (float.IsNaN(originHeight) || float.IsInfinity(originHeight) || originHeight < 0f)
@@ -612,12 +604,32 @@ namespace CGame.Network
                 throw new ArgumentOutOfRangeException(nameof(targetHeight));
             this.originHeight = originHeight;
             this.targetHeight = targetHeight;
+            this.includeUpperTarget = includeUpperTarget;
         }
 
-        public bool HasLineOfSight(Vector3 origin, EnemyPerceptionCandidate candidate)
+        public bool HasLineOfSight(Vector3 origin, EnemyPerceptionCandidate candidate) =>
+            TryGetVisibleTargetPoint(origin, candidate, out _);
+
+        public bool TryGetVisibleTargetPoint(Vector3 origin, EnemyPerceptionCandidate candidate, out Vector3 point)
+        {
+            float upperHeight = Mathf.Max(targetHeight, 1.6f);
+            CapsuleCollider capsule = candidate.Root?.GetComponentInChildren<CharacterPhysicsMotor>()?.Capsule;
+            if (capsule != null && capsule.enabled)
+                upperHeight = Mathf.Min(upperHeight, Mathf.Max(.1f, capsule.bounds.max.y - candidate.Position.y - .1f));
+            point = candidate.Position + Vector3.up * Mathf.Min(targetHeight, upperHeight);
+            if (HasClearRay(origin, candidate, point)) return true;
+            if (!includeUpperTarget || upperHeight <= targetHeight) return false;
+            // A waist-height ray alone loses a standing player behind a low wall.
+            // Use the same visible point for authoritative fire, never aim above
+            // the target's actual crouched capsule.
+            point = candidate.Position + Vector3.up * upperHeight;
+            return HasClearRay(origin, candidate, point);
+        }
+
+        private bool HasClearRay(Vector3 origin, EnemyPerceptionCandidate candidate, Vector3 point)
         {
             Vector3 rayOrigin = origin + Vector3.up * originHeight;
-            Vector3 direction = candidate.Position + Vector3.up * targetHeight - rayOrigin;
+            Vector3 direction = point - rayOrigin;
             float distance = direction.magnitude;
             if (distance <= 0.001f) return true;
             RaycastHit[] hits = Physics.RaycastAll(

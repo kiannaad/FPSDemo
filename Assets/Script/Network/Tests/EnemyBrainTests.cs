@@ -6,6 +6,106 @@ namespace CGame.Network.Tests
 {
     public sealed class EnemyBrainTests
     {
+        [Test]
+        public void Perception_VisibleTargetInterruptsInitialPatrol()
+        {
+            var definition = CreateDefinition("Enemy.Cover", 0);
+            try
+            {
+                var brain = new EnemyBrain(definition, new CompletePathQuery(), new VisibleOnlyPerceptionQuery(100));
+                var candidates = new[] { new EnemyPerceptionCandidate(100, Vector3.forward * 10f, true, true) };
+                var motor = new DedicatedEnemyMotorState(Vector3.zero, Quaternion.identity, Vector3.zero, true);
+                EnemyBrainOutput acquired = brain.Tick(1, motor, candidates);
+                Assert.That(acquired.TargetPawnId, Is.EqualTo(100),
+                    "Presentation startup must not force an enemy to ignore a visible player.");
+                Assert.That(acquired.State, Is.EqualTo(EnemyBrainState.Fire));
+                Assert.That(acquired.HasFireRequest, Is.False, "Keep the aiming preparation interval.");
+                Assert.That(brain.Tick(13, motor, candidates).HasFireRequest, Is.True);
+            }
+            finally
+            {
+                Object.DestroyImmediate(definition.PatrolRoute);
+                Object.DestroyImmediate(definition);
+            }
+        }
+
+        [TestCase(1f)]
+        [TestCase(9f)]
+        public void Perception_LowObstacleDoesNotLoseVisibleStandingTarget(float obstacleZ)
+        {
+            var definition = CreateDefinition("Enemy.Cover", 0);
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Vector3 origin = new Vector3(1000f, 0f, 1000f);
+            try
+            {
+                wall.transform.position = origin + new Vector3(0f, 0.6f, obstacleZ);
+                wall.transform.localScale = new Vector3(4f, 1.2f, 0.3f);
+                wall.SetActive(false);
+                Physics.SyncTransforms();
+                var target = new EnemyPerceptionCandidate(100, origin + Vector3.forward * 10f, true, true);
+                var candidates = new[] { target };
+                var brain = new EnemyBrain(definition, new CompletePathQuery());
+                var motor = new DedicatedEnemyMotorState(origin, Quaternion.identity, Vector3.zero, true);
+                brain.Tick(181, motor, candidates);
+                Assert.That(brain.TargetPawnId, Is.EqualTo(target.PawnId));
+
+                wall.SetActive(true);
+                Physics.SyncTransforms();
+                Assert.That(new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.6f, 1.6f)
+                    .HasLineOfSight(origin, target), Is.True, "The standing enemy can see above this obstacle.");
+                int shots = 0;
+                for (long tick = 182; tick <= 400; tick++)
+                {
+                    EnemyBrainOutput output = brain.Tick(tick, motor, candidates);
+                    Assert.That(output.TargetPawnId, Is.EqualTo(target.PawnId),
+                        $"A visible standing target must not expire from memory at tick {tick}.");
+                    Assert.That(output.State, Is.EqualTo(EnemyBrainState.Fire),
+                        "A low obstacle with a clear standing muzzle does not require chasing or returning to patrol.");
+                    if (output.HasFireRequest) shots++;
+                }
+                Assert.That(shots, Is.GreaterThan(0));
+            }
+            finally
+            {
+                Object.DestroyImmediate(wall);
+                Object.DestroyImmediate(definition.PatrolRoute);
+                Object.DestroyImmediate(definition);
+            }
+        }
+
+        [TestCase(2f, true)]
+        [TestCase(.9f, false)]
+        public void Perception_UpperTargetSamplingRespectsActualCapsule(float height, bool expectedVisible)
+        {
+            Vector3 origin = new Vector3(1100, 0, 1100);
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var root = new GameObject("PerceptionTarget");
+            try
+            {
+                wall.transform.position = origin + new Vector3(0, .6f, 9);
+                wall.transform.localScale = new Vector3(4, 1.2f, .3f);
+                root.transform.position = origin + Vector3.forward * 10;
+                var motor = root.AddComponent<CharacterPhysicsMotor>();
+                motor.ValidateData();
+                motor.SetCapsuleDimensions(.3f, height, height * .5f);
+                Physics.SyncTransforms();
+                var target = new EnemyPerceptionCandidate(100, root.transform.position, true, true, root.transform);
+                var query = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.45f,
+                    includeUpperTarget: true);
+                bool visible = query.TryGetVisibleTargetPoint(origin, target, out Vector3 point);
+                Assert.That(visible, Is.EqualTo(expectedVisible));
+                Assert.That(point.y, Is.LessThan(motor.Capsule.bounds.max.y),
+                    "Do not detect or shoot a fictitious standing head above a crouched player.");
+                if (visible) Assert.That(point.y, Is.GreaterThan(wall.GetComponent<Collider>().bounds.max.y),
+                    "Fire must use the exposed upper target point, not the obstructed waist.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(wall);
+            }
+        }
+
         [TestCase(false)]
         [TestCase(true)]
         public void LowCover_TracksChangedTargetOnlyFromStoppedFiringPose(bool standing)
@@ -637,7 +737,8 @@ namespace CGame.Network.Tests
 
         private sealed class CoverPerceptionQuery : IEnemyPerceptionQuery
         {
-            public bool HasLineOfSight(Vector3 origin, EnemyPerceptionCandidate candidate) => origin.x != 4f;
+            public bool HasLineOfSight(Vector3 origin, EnemyPerceptionCandidate candidate) =>
+                origin.x < 4f || origin.x >= 5f;
         }
         [Test]
         public void CombatCatalog_RequiresThreeUniqueArchetypeDefinitions()
@@ -804,6 +905,7 @@ namespace CGame.Network.Tests
             {
                 if (Mathf.Approximately(origin.x, 4f)) return !failAtPeek && IsInvalid;
                 if (Mathf.Approximately(origin.x, 5f)) return !failAtPeek || !IsInvalid;
+                if (origin.x > 4f && origin.x < 5f) return false;
                 return true;
             }
         }

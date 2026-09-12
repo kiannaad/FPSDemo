@@ -11,6 +11,59 @@ namespace CGame.Network.Tests
         [TestCase("Pistol")]
         [TestCase("Rifle")]
         [TestCase("Ak")]
+        public void Fire_KeepsAimedTorsoStableWhileHandsAndWeaponRecoilTogether(string variant)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                $"Assets/Art/Characters/Enemies/TPSBundle/Prefabs/NetworkEnemy{variant}.prefab");
+            var root = Object.Instantiate(prefab);
+            var controlRoot = Object.Instantiate(prefab);
+            try
+            {
+                var presentation = root.GetComponent<EnemyPresentation>();
+                var control = controlRoot.GetComponent<EnemyPresentation>();
+                presentation.Animator.Rebind();
+                control.Animator.Rebind();
+                void Advance()
+                {
+                    presentation.ApplyRemoteAnimationState(new RemoteEnemyAnimationState(
+                        0f, Vector2.zero, true, Quaternion.identity, EnemyBrainState.Fire), 1f / 60f);
+                    presentation.Animator.playableGraph.Evaluate(1f / 60f);
+                    control.ApplyRemoteAnimationState(new RemoteEnemyAnimationState(
+                        0f, Vector2.zero, true, Quaternion.identity, EnemyBrainState.Fire), 1f / 60f);
+                    control.Animator.playableGraph.Evaluate(1f / 60f);
+                }
+                for (int frame = 0; frame < 60; frame++) Advance();
+                Transform spine = presentation.Animator.GetBoneTransform(HumanBodyBones.Spine);
+                Transform hand = presentation.Animator.GetBoneTransform(HumanBodyBones.LeftHand);
+                Transform muzzle = root.GetComponentsInChildren<Transform>().First(value => value.name == "muzzle");
+                Transform controlSpine = control.Animator.GetBoneTransform(HumanBodyBones.Spine);
+                Quaternion weaponPose = muzzle.rotation;
+                Vector3 grip = muzzle.InverseTransformPoint(hand.position);
+                float torsoExcursion = 0f;
+                float weaponExcursion = 0f;
+                float gripDrift = 0f;
+                presentation.PlayFire();
+                for (int frame = 0; frame < 90; frame++)
+                {
+                    Advance();
+                    torsoExcursion = Mathf.Max(torsoExcursion, Quaternion.Angle(controlSpine.rotation, spine.rotation));
+                    weaponExcursion = Mathf.Max(weaponExcursion, Quaternion.Angle(weaponPose, muzzle.rotation));
+                    gripDrift = Mathf.Max(gripDrift, Vector3.Distance(grip, muzzle.InverseTransformPoint(hand.position)));
+                }
+                Assert.That(torsoExcursion, Is.LessThan(3f), "Shooting must not swing the aimed torso independently of the gun.");
+                Assert.That(weaponExcursion, Is.GreaterThan(.5f), "Do not fix recoil by freezing the firing pose.");
+                Assert.That(gripDrift, Is.LessThan(.03f), "The supporting hand must remain attached during recoil.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(controlRoot);
+            }
+        }
+
+        [TestCase("Pistol")]
+        [TestCase("Rifle")]
+        [TestCase("Ak")]
         public void WeaponPose_SeparatesTravelAimFireAndReturn(string variant)
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(

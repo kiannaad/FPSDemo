@@ -8,6 +8,66 @@ namespace CGame.Network.Tests
     public sealed class EnemyCoverSelectorTests
     {
         [Test]
+        public void SelectAndReserve_WideCoverUsesProtectedCornerInsteadOfLongOutAndBackTrip()
+        {
+            Vector3 origin = new Vector3(1000f, 0f, 1000f);
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var cover = ScriptableObject.CreateInstance<CoverPointDefinition>();
+            try
+            {
+                wall.transform.position = origin + new Vector3(0f, 1f, 1f);
+                wall.transform.localScale = new Vector3(2.4f, 2f, .3f);
+                Physics.SyncTransforms();
+                cover.Configure("Cover.Wide", "SampleScene", origin, origin + Vector3.right * 2.15f, .3f);
+                var body = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers);
+                var muzzle = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.45f);
+                var selector = new EnemyCoverSelector(new[] { cover }, new CompletePathQuery(), body,
+                    new CoverReservationRegistry(), muzzle);
+                var target = new EnemyPerceptionCandidate(100, origin + Vector3.forward * 10f, true, true);
+                var selection = selector.SelectAndReserve(101, origin, target, 18f);
+                Assert.That(selection.IsValid, Is.True);
+                Assert.That(body.HasLineOfSight(selection.CoverPosition, target), Is.False);
+                Assert.That(muzzle.HasLineOfSight(selection.PeekPosition, target), Is.True);
+                Assert.That(Vector3.Distance(selection.CoverPosition, selection.PeekPosition), Is.LessThanOrEqualTo(1f),
+                    "Establish a protected position at the usable corner before peeking, not a long shuttle from the wall centre.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(wall);
+                UnityEngine.Object.DestroyImmediate(cover);
+            }
+        }
+
+        [Test]
+        public void SelectAndReserve_StopsAtFirstClearFiringPositionInsteadOfFarAuthoredPeek()
+        {
+            Vector3 origin = new Vector3(1000f, 0f, 1000f);
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            var cover = ScriptableObject.CreateInstance<CoverPointDefinition>();
+            try
+            {
+                wall.transform.position = origin + new Vector3(0f, 1f, 1f);
+                wall.transform.localScale = new Vector3(0.8f, 2f, 0.3f);
+                Physics.SyncTransforms();
+                cover.Configure("Cover.Edge", "SampleScene", origin, origin + Vector3.right * 2.15f, .1f);
+                var sight = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.45f);
+                var selector = new EnemyCoverSelector(new[] { cover }, new CompletePathQuery(),
+                    new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers), new CoverReservationRegistry(), sight);
+                var target = new EnemyPerceptionCandidate(100, origin + Vector3.forward * 10f, true, true);
+                EnemyCoverSelection selection = selector.SelectAndReserve(101, origin, target, 18f);
+                Assert.That(selection.IsValid, Is.True);
+                Assert.That(sight.HasLineOfSight(selection.PeekPosition, target), Is.True);
+                Assert.That(Vector3.Distance(selection.CoverPosition, selection.PeekPosition), Is.LessThan(.8f),
+                    "The near edge already provides a shot; do not run two metres out into the open.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(wall);
+                UnityEngine.Object.DestroyImmediate(cover);
+            }
+        }
+
+        [Test]
         public void SelectAndReserve_RejectsNearbyCoverWithLongDetour()
         {
             var cover = CreatePoint("Cover.Detour", 2f, 3f);

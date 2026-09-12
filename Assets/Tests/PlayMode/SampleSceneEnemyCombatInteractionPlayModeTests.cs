@@ -177,7 +177,9 @@ namespace CGame.GameplayCue.PlayModeTests
         [UnityTest]
         public IEnumerator PlayerFire_ProducesAuthoritativeEnemyHitDeathAndRetirement()
         {
-            yield return ObserveCombat();
+            // This scenario verifies retaliation while alive. Waiting for all
+            // three enemies to fire first can leave the owner with one hit of
+            // health; their fire/Cue/death contract has its own test above.
             var enemies = UnityEngine.Object.FindObjectsOfType<EnemyPresentation>();
             var camera = pawn.GetComponent<PawnCameraComponent>().Camera;
             EnemyPresentation target = null;

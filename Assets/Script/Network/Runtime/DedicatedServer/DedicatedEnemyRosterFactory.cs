@@ -29,7 +29,9 @@ namespace CGame.Network
 
             Transform point = pointReservation.Point;
             GameObject root = motorPawnDefinition?.PawnPrefab != null
-                ? UnityEngine.Object.Instantiate(motorPawnDefinition.PawnPrefab)
+                // Motor.Awake captures its initial physical pose during Instantiate.
+                // Supply the reserved pose before Awake, not only to Transform later.
+                ? UnityEngine.Object.Instantiate(motorPawnDefinition.PawnPrefab, point.position, point.rotation, parent)
                 : GameObject.CreatePrimitive(PrimitiveType.Capsule);
             try
             {
