@@ -11,7 +11,8 @@ namespace CGame.Network
         ReservationLost,
         CoverVisible,
         PeekOccluded,
-        DestinationPathMissing
+        DestinationPathMissing,
+        TravelTimeout
     }
 
     public readonly struct EnemyCoverValidationResult
@@ -44,24 +45,29 @@ namespace CGame.Network
 
     public sealed class EnemyCoverSelector
     {
+        private const float maximumApproachDistance = 8f;
         private readonly IReadOnlyList<CoverPointDefinition> definitions;
         private readonly IEnemyNavPathQuery navigation;
         private readonly IEnemyPerceptionQuery perception;
+        private readonly IEnemyPerceptionQuery firingPerception;
         private readonly ICoverReservationRegistry reservations;
 
         public EnemyCoverSelector(
             IReadOnlyList<CoverPointDefinition> definitions,
             IEnemyNavPathQuery navigation,
             IEnemyPerceptionQuery perception,
-            ICoverReservationRegistry reservations)
+            ICoverReservationRegistry reservations,
+            IEnemyPerceptionQuery firingPerception = null)
         {
             this.definitions = definitions ?? throw new ArgumentNullException(nameof(definitions));
             this.navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
             this.perception = perception ?? throw new ArgumentNullException(nameof(perception));
+            this.firingPerception = firingPerception ?? perception;
             this.reservations = reservations ?? throw new ArgumentNullException(nameof(reservations));
         }
 
-        public EnemyCoverSelection SelectAndReserve(long enemyId, Vector3 enemyPosition, EnemyPerceptionCandidate target)
+        public EnemyCoverSelection SelectAndReserve(long enemyId, Vector3 enemyPosition, EnemyPerceptionCandidate target,
+            float engagementRange = float.PositiveInfinity)
         {
             if (enemyId <= 0) throw new ArgumentOutOfRangeException(nameof(enemyId));
             if (target.PawnId <= 0 || !target.IsAlive || !target.IsPossessed) return default;
@@ -71,23 +77,34 @@ namespace CGame.Network
             {
                 if (definition == null || reservations.IsReservedBy(definition.CoverPointId, enemyId)) continue;
                 bool hasPath = navigation.TryCalculateCompletePath(enemyPosition, definition.CoverPosition, out IReadOnlyList<Vector3> corners);
+                float pathLength = hasPath ? CalculateLength(enemyPosition, corners) : float.PositiveInfinity;
+                if (pathLength > maximumApproachDistance) continue;
                 bool coverVisible = hasPath && perception.HasLineOfSight(definition.CoverPosition, target);
-                bool peekVisible = hasPath && perception.HasLineOfSight(definition.PeekPosition, target);
+                Vector3 firingPosition = firingPerception.HasLineOfSight(definition.CoverPosition, target)
+                    ? definition.CoverPosition : definition.PeekPosition;
+                if (Vector3.Distance(firingPosition, target.Position) > engagementRange) continue;
+                bool peekVisible = hasPath && firingPerception.HasLineOfSight(firingPosition, target);
                 if (!hasPath || coverVisible || !peekVisible) continue;
-                candidates.Add(new Candidate(definition, CalculateLength(enemyPosition, corners)));
+                candidates.Add(new Candidate(definition, pathLength, firingPosition));
             }
 
             foreach (Candidate candidate in candidates.OrderBy(value => value.PathLength).ThenBy(value => value.Definition.CoverPointId, StringComparer.Ordinal))
             {
                 if (!reservations.TryReserve(candidate.Definition.CoverPointId, enemyId)) continue;
                 CoverPointDefinition definition = candidate.Definition;
-                return new EnemyCoverSelection(definition.CoverPointId, definition.CoverPosition, definition.PeekPosition, definition.ReservationRadius);
+                return new EnemyCoverSelection(definition.CoverPointId, definition.CoverPosition, candidate.FiringPosition, definition.ReservationRadius);
             }
 
             return default;
         }
 
         public void ReleaseByEnemy(long enemyId) => reservations.ReleaseByEnemy(enemyId);
+
+        public bool HasFiringLineOfSight(Vector3 origin, EnemyPerceptionCandidate target) =>
+            firingPerception.HasLineOfSight(origin, target);
+
+        public bool HasReservation(long enemyId, EnemyCoverSelection selection) =>
+            selection.IsValid && reservations.IsReservedBy(selection.CoverPointId, enemyId);
 
         public EnemyCoverValidationResult ValidateSelection(
             long enemyId,
@@ -96,11 +113,11 @@ namespace CGame.Network
             EnemyPerceptionCandidate target,
             Vector3 destination)
         {
-            if (!selection.IsValid || !reservations.IsReservedBy(selection.CoverPointId, enemyId))
+            if (!HasReservation(enemyId, selection))
                 return new EnemyCoverValidationResult(EnemyCoverValidationFailure.ReservationLost);
             if (perception.HasLineOfSight(selection.CoverPosition, target))
                 return new EnemyCoverValidationResult(EnemyCoverValidationFailure.CoverVisible);
-            if (!perception.HasLineOfSight(selection.PeekPosition, target))
+            if (!firingPerception.HasLineOfSight(selection.PeekPosition, target))
                 return new EnemyCoverValidationResult(EnemyCoverValidationFailure.PeekOccluded);
             if (!navigation.TryCalculateCompletePath(enemyPosition, destination, out _))
                 return new EnemyCoverValidationResult(EnemyCoverValidationFailure.DestinationPathMissing);
@@ -121,14 +138,16 @@ namespace CGame.Network
 
         private readonly struct Candidate
         {
-            public Candidate(CoverPointDefinition definition, float pathLength)
+            public Candidate(CoverPointDefinition definition, float pathLength, Vector3 firingPosition)
             {
                 Definition = definition;
                 PathLength = pathLength;
+                FiringPosition = firingPosition;
             }
 
             public CoverPointDefinition Definition { get; }
             public float PathLength { get; }
+            public Vector3 FiringPosition { get; }
         }
     }
 }

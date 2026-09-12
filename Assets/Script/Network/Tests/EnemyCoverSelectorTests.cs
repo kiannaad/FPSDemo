@@ -8,6 +8,119 @@ namespace CGame.Network.Tests
     public sealed class EnemyCoverSelectorTests
     {
         [Test]
+        public void SelectAndReserve_RejectsNearbyCoverWithLongDetour()
+        {
+            var cover = CreatePoint("Cover.Detour", 2f, 3f);
+            try
+            {
+                var registry = new CoverReservationRegistry();
+                var selector = new EnemyCoverSelector(new[] { cover }, new DetourPathQuery(),
+                    new CoverVisibilityQuery(), registry);
+                Assert.That(selector.SelectAndReserve(101, Vector3.zero,
+                    new EnemyPerceptionCandidate(100, Vector3.zero, true, true)).IsValid, Is.False);
+                Assert.That(registry.IsReservedBy(cover.CoverPointId, 101), Is.False);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(cover); }
+        }
+
+        private sealed class DetourPathQuery : IEnemyNavPathQuery
+        {
+            public bool TrySample(Vector3 point, out Vector3 sampledPoint)
+            {
+                sampledPoint = point;
+                return true;
+            }
+
+            public bool TryCalculateCompletePath(Vector3 origin, Vector3 destination, out IReadOnlyList<Vector3> corners)
+            {
+                corners = new[] { origin, origin + Vector3.forward * 5f, destination + Vector3.forward * 5f, destination };
+                return true;
+            }
+        }
+
+        [TestCase(1.2f, true)]
+        [TestCase(2f, false)]
+        public void RealCoverGeometry_HidesBodyButOnlyLowCoverAllowsMuzzleSight(float height, bool muzzleVisible)
+        {
+            Vector3 origin = new Vector3(1000f, 0f, 1000f);
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                wall.transform.position = origin + new Vector3(0f, height * .5f, 1f);
+                wall.transform.localScale = new Vector3(4f, height, .3f);
+                Physics.SyncTransforms();
+                var target = new EnemyPerceptionCandidate(100, origin + Vector3.forward * 10f, true, true);
+                var hiddenSight = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers);
+                var muzzleSight = new UnityEnemyPerceptionQuery(Physics.DefaultRaycastLayers, 1.45f);
+                Assert.That(hiddenSight.HasLineOfSight(origin, target), Is.False);
+                Assert.That(muzzleSight.HasLineOfSight(origin, target), Is.EqualTo(muzzleVisible),
+                    "A clear muzzle ray must pass over low cover and still be blocked by a high wall.");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(wall); }
+        }
+
+        [TestCase(true, 2f)]
+        [TestCase(false, 3f)]
+        public void SelectAndReserve_PrefersProtectedSamePositionWhenMuzzleCanFire(bool muzzleClearsCover, float expectedPeekX)
+        {
+            CoverPointDefinition cover = CreatePoint("Cover.A", 2f, 3f);
+            try
+            {
+                var firing = new MutableCoverVisibilityQuery { IsCoverVisible = muzzleClearsCover };
+                var selector = new EnemyCoverSelector(new[] { cover }, new CompletePathQuery(),
+                    new CoverVisibilityQuery(), new CoverReservationRegistry(), firing);
+                var target = new EnemyPerceptionCandidate(100, Vector3.zero, true, true);
+                var selection = selector.SelectAndReserve(101, Vector3.zero, target);
+                Assert.That(selection.IsValid, Is.True);
+                Assert.That(selection.PeekPosition.x, Is.EqualTo(expectedPeekX),
+                    "A protected low-cover position with a clear muzzle needs no trip to the outside peek point.");
+                Assert.That(selector.ValidateSelection(101, selection, selection.CoverPosition,
+                    target, selection.PeekPosition).IsValid, Is.True);
+                if (muzzleClearsCover)
+                {
+                    firing.IsCoverVisible = false;
+                    Assert.That(selector.ValidateSelection(101, selection, selection.CoverPosition,
+                        target, selection.PeekPosition).Failure, Is.EqualTo(EnemyCoverValidationFailure.PeekOccluded));
+                }
+            }
+            finally { UnityEngine.Object.DestroyImmediate(cover); }
+        }
+
+        [TestCase(-6f, true)]
+        [TestCase(-6.1f, false)]
+        public void SelectAndReserve_OnlyApproachesNearbyCover(float originX, bool expected)
+        {
+            CoverPointDefinition cover = CreatePoint("Cover.A", 2f, 3f);
+            try
+            {
+                var registry = new CoverReservationRegistry();
+                var selector = new EnemyCoverSelector(new[] { cover }, new CompletePathQuery(),
+                    new CoverVisibilityQuery(), registry);
+                Assert.That(selector.SelectAndReserve(101, Vector3.right * originX,
+                    new EnemyPerceptionCandidate(100, Vector3.zero, true, true), 18f).IsValid, Is.EqualTo(expected),
+                    "Do not cross the arena just because a distant cover point is technically reachable.");
+                Assert.That(registry.IsReservedBy("Cover.A", 101), Is.EqualTo(expected));
+            }
+            finally { UnityEngine.Object.DestroyImmediate(cover); }
+        }
+
+        [Test]
+        public void SelectAndReserve_RejectsVisiblePeekOutsideWeaponRange()
+        {
+            CoverPointDefinition cover = CreatePoint("Cover.A", 2f, 3f);
+            try
+            {
+                var registry = new CoverReservationRegistry();
+                var selector = new EnemyCoverSelector(new[] { cover }, new CompletePathQuery(),
+                    new CoverVisibilityQuery(), registry);
+                Assert.That(selector.SelectAndReserve(101, Vector3.zero,
+                    new EnemyPerceptionCandidate(100, Vector3.zero, true, true), 2f).IsValid, Is.False);
+                Assert.That(registry.IsReservedBy("Cover.A", 101), Is.False);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(cover); }
+        }
+
+        [Test]
         public void SelectAndReserve_UsesShortestThenLexicographicVisiblePeekCandidate()
         {
             CoverPointDefinition coverA = CreatePoint("Cover.A", 2f, 3f);

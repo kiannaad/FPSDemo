@@ -42,7 +42,10 @@ namespace CGame.Network
                 return;
             }
 
-            pawn.SubmitControlIntent(new CharacterControlIntent(Vector3.forward, jumpRequested: false, sprintRequested: false));
+            Vector3 localMovement = Quaternion.Inverse(pawn.ControlRotation) * intent.DesiredWorldDirection;
+            localMovement.y = 0f;
+            pawn.SubmitControlIntent(new CharacterControlIntent(Vector3.ClampMagnitude(localMovement, 1f),
+                jumpRequested: false, sprintRequested: false));
         }
 
         public void ClearIntent() => pawn.ClearingControlIntent();

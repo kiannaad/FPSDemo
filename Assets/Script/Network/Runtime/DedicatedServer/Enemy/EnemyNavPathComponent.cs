@@ -133,7 +133,7 @@ namespace CGame.Network
             if (!NavMesh.CalculatePath(origin, destination, NavMesh.AllAreas, path) ||
                 path.status != NavMeshPathStatus.PathComplete ||
                 path.corners == null ||
-                path.corners.Length < 2)
+                path.corners.Length == 0)
             {
                 corners = Array.Empty<Vector3>();
                 return false;

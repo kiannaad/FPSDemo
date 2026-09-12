@@ -48,9 +48,13 @@ namespace CGame.Network.Tests
                     hasPath: true,
                     isRetryThrottled: false));
 
-                Assert.That(pawn.PeekingMovementInput(), Is.EqualTo(Vector3.forward));
+                Assert.That(Vector3.Distance(pawn.PeekingMovementInput(), Vector3.forward), Is.LessThan(0.001f));
                 Assert.That(Vector3.Angle(pawn.ControlRotation * Vector3.forward, Vector3.right), Is.LessThan(0.1f));
                 Assert.That(simulation.Capture().PlanarVelocity, Is.EqualTo(Vector3.zero));
+                simulation.ApplyIntent(new EnemyNavigationIntent(Vector3.left,
+                    Quaternion.identity, true, false));
+                Assert.That(Vector3.Distance(pawn.PeekingMovementInput(), Vector3.left), Is.LessThan(0.001f),
+                    "Strafing must preserve world movement independently of aim.");
                 simulation.ApplyIntent(EnemyNavigationIntent.FaceTarget(Quaternion.LookRotation(Vector3.left)));
                 Assert.That(pawn.PeekingMovementInput(), Is.EqualTo(Vector3.zero));
                 Assert.That(Vector3.Angle(pawn.ControlRotation * Vector3.forward, Vector3.left), Is.LessThan(0.1f));
